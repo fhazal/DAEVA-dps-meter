@@ -49,6 +49,40 @@ impl Default for Share {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+pub struct Alerts {
+    /// Show in-game event alerts from the Daeva schedule feed.
+    pub enabled: bool,
+    /// Daeva web `/api/overview` URL (same data as the Discord bot).
+    pub feed_url: String,
+    /// Minutes before an event to warn (0 = only when it starts).
+    pub lead_minutes: f64,
+    pub at_start: bool,
+    pub sound: bool,
+    /// Show the next event under the meter.
+    pub show_next: bool,
+    /// Event ids that never raise an alert.
+    pub muted: Vec<String>,
+    /// How long a banner stays up, seconds.
+    pub banner_secs: f64,
+}
+
+impl Default for Alerts {
+    fn default() -> Self {
+        Alerts {
+            enabled: true,
+            feed_url: "https://aion2.bajubesi.org/api/overview?region=asia".into(),
+            lead_minutes: 5.0,
+            at_start: true,
+            sound: true,
+            show_next: true,
+            muted: vec!["shugo_festival".into(), "dimensional_invasion".into()],
+            banner_secs: 12.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Settings {
     pub opacity: f64,
     pub scale: f64,
@@ -75,6 +109,7 @@ pub struct Settings {
     pub device_filter: String,
     pub hotkeys: Hotkeys,
     pub share: Share,
+    pub alerts: Alerts,
     pub demo: bool,
     pub window: Option<(i32, i32, u32, u32)>,
     pub history_keep_days: u32,
@@ -106,6 +141,7 @@ impl Default for Settings {
             device_filter: String::new(),
             hotkeys: Hotkeys::default(),
             share: Share::default(),
+            alerts: Alerts::default(),
             demo: false,
             window: None,
             history_keep_days: 30,

@@ -95,6 +95,16 @@ fn clear_session(st: St<'_>) {
 }
 
 #[tauri::command]
+fn get_events(st: St<'_>) -> String {
+    st.lock().events_view().to_string()
+}
+
+#[tauri::command]
+fn test_alert(st: St<'_>) {
+    st.lock().test_alert();
+}
+
+#[tauri::command]
 fn get_settings(st: St<'_>) -> Settings {
     st.lock().settings.clone()
 }
@@ -426,6 +436,8 @@ fn main() {
             window_params,
             win_action,
             open_window,
+            get_events,
+            test_alert,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Daeva Meter");

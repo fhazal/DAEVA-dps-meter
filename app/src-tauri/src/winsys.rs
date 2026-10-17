@@ -255,3 +255,16 @@ pub fn cursor_pos() -> Option<(i32, i32)> {
 pub fn cursor_pos() -> Option<(i32, i32)> {
     None
 }
+
+/// Plays the Windows notification sound without blocking.
+#[cfg(windows)]
+pub fn chime() {
+    use windows_sys::Win32::Media::Audio::{PlaySoundW, SND_ALIAS, SND_ASYNC, SND_NODEFAULT};
+    let alias: Vec<u16> = "SystemNotification\0".encode_utf16().collect();
+    unsafe {
+        PlaySoundW(alias.as_ptr(), std::ptr::null_mut(), SND_ALIAS | SND_ASYNC | SND_NODEFAULT);
+    }
+}
+
+#[cfg(not(windows))]
+pub fn chime() {}

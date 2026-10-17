@@ -10,6 +10,7 @@ pub mod lz4;
 pub mod net;
 pub mod pcapfile;
 pub mod protocol;
+pub mod schedule;
 pub mod sim;
 pub mod tcp;
 pub mod wire;

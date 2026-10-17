@@ -54,6 +54,17 @@
       ${F("Privacy", chk("anonymize_others", "Hide other players' names"), "For screenshots and streams. Your own name stays visible.")}
       ${F("Window", `<div class="row-btns">${chk("always_on_top", "Always on top")}${chk("click_through", "Click-through")}</div>`)}
     </div>
+    <h2>Event alerts</h2>
+    <div class="warnbox">Banners on the overlay before AION 2 events start, using the same schedule as the Daeva Discord bot (aion2.bajubesi.org). Gartua times are estimates, as on Discord.</div>
+    <div class="f">
+      ${F("", chk("alerts.enabled", "Show event alerts"))}
+      ${F("Warn before start (min)", num("alerts.lead_minutes", 0, 120), "0 = only when the event starts.")}
+      ${F("", `<div class="row-btns">${chk("alerts.at_start", "Also when it starts")}${chk("alerts.sound", "Play a sound")}${chk("alerts.show_next", "Show next events under the meter")}</div>`)}
+      ${F("Banner stays (s)", num("alerts.banner_secs", 3, 120))}
+      ${F("Alert me for", `<div class="row-btns" id="evList"><span class="muted">Loading events…</span></div>`, "Hourly events (Shugo Festival, Dimensional Invasion) are off by default.")}
+      ${F("Schedule feed", txt("alerts.feed_url"), `<span id="evStatus"></span>`)}
+      ${F("", `<button class="btn" id="bTestAlert">Show a test alert</button>`)}
+    </div>
     <h2>Fights</h2><div class="f">
       ${F("End fight after idle (s)", num("idle_timeout", 2, 120, 1))}
       ${F("", chk("end_on_target_death", "End fight when the main target dies"))}
@@ -131,7 +142,27 @@
       }
       set(out, k, v);
     });
+    if (catalog.length) {
+      const known = new Set(catalog.map((e) => e.id));
+      const keep = ((s.alerts && s.alerts.muted) || []).filter((id) => !known.has(id));
+      out.alerts.muted = keep.concat([...document.querySelectorAll("[data-ev]")].filter((c) => !c.checked).map((c) => c.dataset.ev));
+    }
     return out;
+  }
+
+  let catalog = [];
+  async function loadEvents() {
+    try {
+      const v = JSON.parse(await D.call("get_events"));
+      catalog = v.catalog || [];
+      const muted = new Set((s.alerts && s.alerts.muted) || []);
+      document.getElementById("evList").innerHTML = catalog.length
+        ? catalog.map((e) => `<span class="inline"><input type="checkbox" data-ev="${D.esc(e.id)}" ${muted.has(e.id) ? "" : "checked"}> ${D.esc(e.emoji)} ${D.esc(e.name)}</span>`).join("")
+        : '<span class="muted">No schedule yet — check the feed address below.</span>';
+      document.getElementById("evStatus").textContent = v.error
+        ? v.error
+        : v.fetched_at ? "Updated " + D.when(v.fetched_at) + " · next: " + (v.upcoming || []).slice(0, 3).map((o) => o.short + " " + new Date(o.starts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })).join(", ") : "Fetching…";
+    } catch (e) { document.getElementById("evList").textContent = String(e); }
   }
 
   async function init() {
@@ -140,6 +171,8 @@
     build();
     fill();
     document.querySelectorAll("input[type=range]").forEach((r) => (r.oninput = updateRanges));
+    loadEvents();
+    document.getElementById("bTestAlert").onclick = async () => { await D.call("test_alert"); D.toast("Test alert sent to the overlay"); };
     document.getElementById("bRestart").onclick = async () => { await D.call("restart_capture"); D.toast("Capture restarted"); };
     document.getElementById("bReport").onclick = async () => {
       try { const p = await D.call("report_problem", { note: "settings" }); D.toast("Saved " + p.split(/[\\/]/).pop()); } catch (e) { D.toast(String(e)); }
@@ -153,6 +186,7 @@
 
   document.getElementById("bSave").onclick = async () => {
     const next = collect();
+    if (next.alerts.enabled && !/^https?:\/\//.test(next.alerts.feed_url)) { D.toast("Schedule feed must start with https://"); return; }
     if (next.share.enabled && next.share.endpoint && !/^https?:\/\//.test(next.share.endpoint)) { D.toast("Endpoint must start with https://"); return; }
     try {
       const errs = await D.call("save_settings", { settings: next });

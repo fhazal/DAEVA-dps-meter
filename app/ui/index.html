@@ -54,6 +54,22 @@
   .sig { display: inline-flex; align-items: flex-end; gap: 1px; margin-right: 4px; height: 9px; }
   .sig i { width: 2px; background: currentColor; opacity: 0.25; border-radius: 1px; }
   .sig i.on { opacity: 1; }
+
+  .shell { position: relative; }
+  .alerts { position: absolute; left: 6px; right: 6px; top: 34px; z-index: 20; display: flex; flex-direction: column; gap: 4px; pointer-events: none; }
+  .alert { pointer-events: auto; display: grid; grid-template-columns: 26px 1fr; align-items: center; gap: 2px 8px; padding: 7px 10px 7px 8px;
+    background: rgba(24,22,19,0.96); border: 1px solid var(--accent); border-left: 4px solid var(--accent); border-radius: 8px;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.45); cursor: pointer; animation: slidein .25s ease-out; transition: opacity .4s, transform .4s; }
+  .alert.start { border-color: var(--good); }
+  .alert.out { opacity: 0; transform: translateY(-6px); }
+  .alert .em { grid-row: span 2; font-size: 20px; line-height: 1; text-align: center; }
+  .alert .t { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .alert .b { color: var(--muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  @keyframes slidein { from { opacity: 0; transform: translateY(-8px); } }
+  .nextev { flex: none; display: flex; gap: 12px; padding: 3px 10px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; font-variant-numeric: tabular-nums; }
+  .nextev b { color: var(--text); font-weight: 600; }
+  .nextev .live b { color: var(--good); }
+  .nextev .soon b { color: var(--warn); }
 </style>
 </head>
 <body>
@@ -75,7 +91,9 @@
   </div>
   <div class="target" id="target" hidden></div>
   <div class="scroll"><div class="rows" id="rows"></div></div>
+  <div class="nextev" id="nextev" hidden></div>
   <div class="foot" id="foot"></div>
+  <div class="alerts" id="alerts"></div>
 </div>
 <script src="common.js"></script>
 <script>
@@ -161,6 +179,7 @@
     const ping = `<b class="ping ${pc}" title="Latency to the game server (measured passively)"><span class="sig">${sig}</span>${s.ping_ms == null ? "-- ms" : Math.round(s.ping_ms) + " ms"}</b>`;
     $("foot").innerHTML = `<span>${D.esc(footL)}</span><span>${self}${s.uploads_pending ? " · ↑" + s.uploads_pending : ""} · ${ping}</span>`;
     $("foot").title = "Daeva Meter " + (s.version || "");
+    renderAlerts(snap.alerts);
     if (s.warning) {
       const w = document.createElement("span");
       w.className = "warnline";
@@ -168,6 +187,45 @@
       w.title = "Click to save a problem report to your Desktop";
       w.onclick = sendReport;
       $("foot").firstElementChild.replaceWith(w);
+    }
+  }
+
+  // ---- in-game event alerts (Daeva schedule feed) ----
+  const shown = new Set();
+  function countdown(sec) {
+    sec = Math.max(0, Math.round(sec));
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    return h ? `${h}h ${String(m).padStart(2, "0")}m` : m >= 10 ? `${m}m` : `${m}:${String(s).padStart(2, "0")}`;
+  }
+  function renderAlerts(a) {
+    const box = $("alerts");
+    const next = $("nextev");
+    if (!a || !a.enabled) { next.hidden = true; return; }
+    const now = Date.now() / 1000;
+    if (a.show_next && a.next && a.next.length) {
+      next.hidden = false;
+      next.innerHTML = a.next.map((o) => {
+        const live = o.active;
+        const t = live ? `live · ${countdown(o.ends - now)} left` : countdown(o.starts - now);
+        const cls = live ? "live" : o.starts - now < 600 ? "soon" : "";
+        const at = new Date(o.starts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        return `<span class="${cls}" title="${D.esc(o.name)} · ${at}${o.note ? " · " + D.esc(o.note) : ""}">${D.esc(o.emoji)} ${D.esc(o.short)} <b>${t}</b></span>`;
+      }).join("");
+      next.title = a.error ? "Event feed: " + a.error + " (showing last known times)" : "";
+    } else {
+      next.hidden = true;
+    }
+    for (const al of a.recent || []) {
+      if (shown.has(al.key)) continue;
+      shown.add(al.key);
+      const el = document.createElement("div");
+      el.className = "alert " + al.kind;
+      el.innerHTML = `<span class="em">${D.esc(al.emoji || "🔔")}</span><span class="t">${D.esc(al.title)}</span><span class="b">${D.esc(al.body)}</span>`;
+      const close = () => { el.classList.add("out"); setTimeout(() => el.remove(), 400); };
+      el.onclick = close;
+      box.appendChild(el);
+      while (box.children.length > 3) box.firstElementChild.remove();
+      setTimeout(close, Math.max(3, a.banner_secs || 12) * 1000);
     }
   }
 

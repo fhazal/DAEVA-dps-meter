@@ -8,6 +8,7 @@ use meter_core::json::{self, Obj, Value};
 use meter_core::net::{self, Endpoint};
 use meter_core::pcapfile::PcapWriter;
 use meter_core::protocol::{Decoder, Decompressor, Definitions};
+use meter_core::schedule::{self, Alert, Notifier, Occurrence};
 use meter_core::sim::{Simulator, DEMO_NAMES};
 use meter_core::Pipeline;
 use std::collections::{HashMap, HashSet};
@@ -96,6 +97,43 @@ pub struct Core {
     health_frames: u64,
     health_resyncs: u64,
     pub warning: Option<String>,
+    pub events: EventFeed,
+}
+
+/// In-game event alerts, fed by the Daeva schedule feed.
+pub struct EventFeed {
+    pub occurrences: Vec<Occurrence>,
+    pub notifier: Notifier,
+    /// Alerts raised recently, newest last; the overlay shows unseen ones.
+    pub recent: std::collections::VecDeque<Alert>,
+    pub fetched_at: f64,
+    pub error: Option<String>,
+    /// Bumped to make the fetch thread reload now (settings changed).
+    pub wake: u64,
+}
+
+impl EventFeed {
+    fn new(a: &crate::settings::Alerts) -> EventFeed {
+        EventFeed {
+            occurrences: Vec::new(),
+            notifier: Notifier::new(a.lead_minutes.max(0.0) * 60.0, a.at_start, a.muted.iter().cloned()),
+            recent: Default::default(),
+            fetched_at: 0.0,
+            error: None,
+            wake: 0,
+        }
+    }
+    fn configure(&mut self, a: &crate::settings::Alerts) {
+        self.notifier.lead_secs = a.lead_minutes.clamp(0.0, 120.0) * 60.0;
+        self.notifier.at_start = a.at_start;
+        self.notifier.muted = a.muted.iter().cloned().collect();
+    }
+    pub fn push(&mut self, a: Alert) {
+        self.recent.push_back(a);
+        while self.recent.len() > 20 {
+            self.recent.pop_front();
+        }
+    }
 }
 
 const ROLLING_SECS: f64 = 180.0;
@@ -172,7 +210,9 @@ impl Core {
             health_frames: 0,
             health_resyncs: 0,
             warning: None,
+            events: EventFeed::new(&Default::default()),
         };
+        c.events = EventFeed::new(&c.settings.alerts);
         c.pipeline.decoder.keep_recent = 200;
         c.prune_history();
         c
@@ -191,6 +231,10 @@ impl Core {
     pub fn apply_settings(&mut self, s: Settings) {
         let demo_changed = s.demo != self.settings.demo;
         self.pipeline.engine.cfg = engine_cfg(&s);
+        if s.alerts.feed_url != self.settings.alerts.feed_url || s.alerts.enabled != self.settings.alerts.enabled {
+            self.events.wake += 1;
+        }
+        self.events.configure(&s.alerts);
         self.settings = s;
         self.pipeline.server_ports = self.pipeline.decoder.defs.ports.iter().copied().chain(self.settings.manual_ports.iter().copied()).collect();
         if demo_changed {
@@ -262,6 +306,15 @@ impl Core {
         }
         self.queue_loot();
         self.check_health(now);
+        if self.settings.alerts.enabled && !self.events.occurrences.is_empty() {
+            let fresh = self.events.notifier.poll(now, &self.events.occurrences);
+            if !fresh.is_empty() && self.settings.alerts.sound {
+                winsys::chime();
+            }
+            for a in fresh {
+                self.events.push(a);
+            }
+        }
         if self.sim.is_none() {
             let e = &self.pipeline.engine;
             if let Some(id) = e.self_id {
@@ -515,7 +568,61 @@ impl Core {
             .set("anonymize_others", s.anonymize_others)
             .set("click_through", s.click_through)
             .build();
-        Obj::new().set("status", status).set("ui", ui).set("fight", fight).set("research", rec).build()
+        let a = &self.settings.alerts;
+        let alerts = Obj::new()
+            .set("enabled", a.enabled)
+            .set("sound", a.sound)
+            .set("show_next", a.show_next)
+            .set("banner_secs", a.banner_secs)
+            .set("error", self.events.error.clone())
+            .set(
+                "next",
+                Value::Arr(if a.enabled {
+                    schedule::upcoming(&self.events.occurrences, now, &self.events.notifier.muted, 2).into_iter().map(|o| schedule::occurrence_json(o, now)).collect()
+                } else {
+                    vec![]
+                }),
+            )
+            .set("recent", Value::Arr(self.events.recent.iter().filter(|x| now - x.raised < a.banner_secs.max(3.0) + 5.0).map(|x| x.to_json()).collect()))
+            .build();
+        Obj::new().set("status", status).set("ui", ui).set("fight", fight).set("research", rec).set("alerts", alerts).build()
+    }
+
+    /// Everything the settings page needs about events.
+    pub fn events_view(&self) -> Value {
+        let now = now_unix();
+        let mut seen = HashSet::new();
+        let catalog: Vec<Value> = self
+            .events
+            .occurrences
+            .iter()
+            .filter(|o| seen.insert(o.id.clone()))
+            .map(|o| Obj::new().set("id", o.id.as_str()).set("name", o.name.as_str()).set("emoji", o.emoji.as_str()).build())
+            .collect();
+        let none = HashSet::new();
+        Obj::new()
+            .set("catalog", Value::Arr(catalog))
+            .set("upcoming", Value::Arr(schedule::upcoming(&self.events.occurrences, now, &none, 12).into_iter().map(|o| schedule::occurrence_json(o, now)).collect()))
+            .set("fetched_at", if self.events.fetched_at > 0.0 { Some(self.events.fetched_at) } else { None })
+            .set("error", self.events.error.clone())
+            .build()
+    }
+
+    pub fn test_alert(&mut self) {
+        let now = now_unix();
+        self.events.push(Alert {
+            key: format!("test|{now}"),
+            id: "test".into(),
+            title: "Spacetime Rift in 5 min".into(),
+            body: "Test alert · this is how events will look".into(),
+            emoji: "🌀".into(),
+            kind: "soon",
+            starts: now + 300.0,
+            raised: now,
+        });
+        if self.settings.alerts.sound {
+            winsys::chime();
+        }
     }
 
     pub fn research_view(&self) -> Value {
@@ -676,6 +783,10 @@ pub fn start_threads(shared: Arc<Shared>) {
     }
     {
         let s = shared.clone();
+        std::thread::Builder::new().name("event-feed".into()).spawn(move || event_feed(s)).ok();
+    }
+    {
+        let s = shared.clone();
         std::thread::Builder::new().name("capture-supervisor".into()).spawn(move || supervisor(s, tx)).ok();
     }
 }
@@ -705,6 +816,52 @@ fn processor(shared: Arc<Shared>, rx: Receiver<Pkt>) {
             last_tick = Instant::now();
             core.periodic(now_unix());
         }
+    }
+}
+
+/// Polls the Daeva schedule feed once a minute (sooner after a settings change).
+fn event_feed(shared: Arc<Shared>) {
+    let agent = ureq::AgentBuilder::new()
+        .timeout(Duration::from_secs(15))
+        .user_agent(concat!("DaevaMeter/", env!("CARGO_PKG_VERSION")))
+        .build();
+    let mut last_wake = u64::MAX;
+    let mut next = Instant::now();
+    let mut failures = 0u32;
+    loop {
+        let (enabled, url, wake) = {
+            let c = shared.lock();
+            (c.settings.alerts.enabled, c.settings.alerts.feed_url.trim().to_string(), c.events.wake)
+        };
+        if wake != last_wake {
+            last_wake = wake;
+            next = Instant::now();
+        }
+        if enabled && !url.is_empty() && Instant::now() >= next {
+            let result = agent
+                .get(&url)
+                .call()
+                .map_err(|e| format!("Event feed unreachable: {e}"))
+                .and_then(|r| r.into_string().map_err(|e| format!("Event feed read failed: {e}")))
+                .and_then(|body| schedule::parse_overview(&body));
+            let mut c = shared.lock();
+            match result {
+                Ok(occs) => {
+                    failures = 0;
+                    c.events.occurrences = occs;
+                    c.events.fetched_at = now_unix();
+                    c.events.error = None;
+                    next = Instant::now() + Duration::from_secs(60);
+                }
+                Err(e) => {
+                    failures += 1;
+                    // Keep the last good schedule; it stays valid for hours.
+                    c.events.error = Some(e);
+                    next = Instant::now() + Duration::from_secs((30 * failures as u64).min(300));
+                }
+            }
+        }
+        std::thread::sleep(Duration::from_millis(500));
     }
 }
 
