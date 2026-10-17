@@ -49,7 +49,9 @@ jobs:
           $ico = [System.Drawing.Icon]::ExtractAssociatedIcon($exe.FullName)
           $bmp = $ico.ToBitmap(); $ms = New-Object IO.MemoryStream
           $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
-          Write-Output "EMBEDDED_ICON_PNG_B64=$([Convert]::ToBase64String($ms.ToArray()))"
+          $b64 = [Convert]::ToBase64String($ms.ToArray())
+          Write-Output "EMBEDDED_ICON_PNG_B64=$b64"
+          Write-Output "::notice title=Embedded icon::$b64"
       - name: Build research toolkit
         run: cargo build --release -p research
       - name: Collect artifacts
