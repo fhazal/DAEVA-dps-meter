@@ -235,3 +235,23 @@ pub fn set_clipboard(text: &str) -> Result<(), String> {
 pub fn set_clipboard(_text: &str) -> Result<(), String> {
     Err("clipboard only supported on Windows".into())
 }
+
+/// Screen position of the mouse cursor (physical pixels).
+#[cfg(windows)]
+pub fn cursor_pos() -> Option<(i32, i32)> {
+    use windows_sys::Win32::Foundation::POINT;
+    use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
+    let mut p = POINT { x: 0, y: 0 };
+    unsafe {
+        if GetCursorPos(&mut p) != 0 {
+            Some((p.x, p.y))
+        } else {
+            None
+        }
+    }
+}
+
+#[cfg(not(windows))]
+pub fn cursor_pos() -> Option<(i32, i32)> {
+    None
+}

@@ -332,6 +332,36 @@ fn main() {
             app.manage(shared.clone());
             state::start_threads(shared.clone());
             start_hotkeys(app.handle(), &shared);
+            // While click-through is on, keep the title bar clickable when the
+            // mouse is over it, so the lock can always be clicked off again.
+            {
+                let handle = app.handle().clone();
+                let sh = shared.clone();
+                std::thread::spawn(move || {
+                    let mut applied: Option<bool> = None;
+                    loop {
+                        std::thread::sleep(std::time::Duration::from_millis(80));
+                        let Some(w) = handle.get_webview_window("main") else { continue };
+                        let ct = sh.lock().settings.click_through;
+                        let mut ignore = ct;
+                        if ct {
+                            if let (Some((cx, cy)), Ok(pos), Ok(size), Ok(scale)) = (winsys::cursor_pos(), w.outer_position(), w.outer_size(), w.scale_factor()) {
+                                let bar = (34.0 * scale) as i32;
+                                let inside_x = cx >= pos.x && cx < pos.x + size.width as i32;
+                                let inside_bar = cy >= pos.y && cy < pos.y + bar;
+                                if inside_x && inside_bar {
+                                    ignore = false;
+                                }
+                            }
+                        }
+                        if applied != Some(ignore) {
+                            if w.set_ignore_cursor_events(ignore).is_ok() {
+                                applied = Some(ignore);
+                            }
+                        }
+                    }
+                });
+            }
             if let Some(w) = app.get_webview_window("main") {
                 let s = shared.lock().settings.clone();
                 if let Some((x, y, width, height)) = s.window {
