@@ -38,7 +38,61 @@ pub struct Pipeline {
     pub game_bytes: u64,
     pub last_ts: f64,
     pub last_game_ts: f64,
+    pub ping: Ping,
     events: Vec<GameEvent>,
+}
+
+/// Passive latency from TCP: time between a client segment leaving and the
+/// server acknowledging it. Delayed/piggy-backed ACKs only ever add time,
+/// so the minimum over a short window is the best estimate of network RTT.
+#[derive(Default)]
+pub struct Ping {
+    outstanding: std::collections::HashMap<FlowKey, std::collections::VecDeque<(u32, f64)>>,
+    samples: std::collections::VecDeque<(f64, f64)>,
+    pub last_sample_ts: f64,
+}
+
+impl Ping {
+    pub const WINDOW: f64 = 5.0;
+
+    fn client_sent(&mut self, flow: FlowKey, end_seq: u32, ts: f64) {
+        let q = self.outstanding.entry(flow).or_default();
+        // keep the first transmission time for a given end sequence
+        if q.back().map_or(true, |(s, _)| (end_seq.wrapping_sub(*s) as i32) > 0) {
+            q.push_back((end_seq, ts));
+        }
+        while q.len() > 256 {
+            q.pop_front();
+        }
+    }
+
+    fn server_acked(&mut self, client_flow: FlowKey, ack: u32, ts: f64) {
+        let Some(q) = self.outstanding.get_mut(&client_flow) else { return };
+        let mut newest: Option<f64> = None;
+        while let Some((end, sent)) = q.front().copied() {
+            if (ack.wrapping_sub(end) as i32) >= 0 {
+                newest = Some(sent);
+                q.pop_front();
+            } else {
+                break;
+            }
+        }
+        if let Some(sent) = newest {
+            let rtt = ts - sent;
+            if (0.0..5.0).contains(&rtt) {
+                self.samples.push_back((ts, rtt));
+                self.last_sample_ts = ts;
+            }
+        }
+        while self.samples.front().map_or(false, |(t, _)| ts - t > Self::WINDOW) {
+            self.samples.pop_front();
+        }
+    }
+
+    /// Best current estimate in milliseconds, if there are fresh samples.
+    pub fn ms(&self) -> Option<f64> {
+        self.samples.iter().map(|(_, r)| *r).fold(None, |m: Option<f64>, r| Some(m.map_or(r, |m| m.min(r)))).map(|r| r * 1000.0)
+    }
 }
 
 impl Pipeline {
@@ -56,6 +110,7 @@ impl Pipeline {
             game_bytes: 0,
             last_ts: 0.0,
             last_game_ts: 0.0,
+            ping: Ping::default(),
             events: Vec::new(),
         }
     }
@@ -88,6 +143,13 @@ impl Pipeline {
         self.game_packets += 1;
         self.game_bytes += seg.payload.len() as u64;
         self.last_game_ts = ts;
+        if from_server {
+            if seg.flags & net::TCP_ACK != 0 {
+                self.ping.server_acked(seg.flow.reversed(), seg.ack, ts);
+            }
+        } else if !seg.payload.is_empty() {
+            self.ping.client_sent(seg.flow, seg.seq.wrapping_add(seg.payload.len() as u32), ts);
+        }
         let mut sev = Vec::new();
         self.reasm.push(&seg, ts, &mut sev);
         let mut evs = std::mem::take(&mut self.events);
@@ -166,6 +228,20 @@ mod tests {
         let f = p.engine.current.as_ref().unwrap();
         assert_eq!(f.stats[&5].dmg, (100..110).sum::<u64>());
         assert_eq!(f.stats[&5].crits, 5);
+    }
+
+    #[test]
+    fn ping_from_acks() {
+        let mut p = Ping::default();
+        let c = FlowKey {
+            src: Endpoint { ip: Ipv4Addr::new(192, 168, 0, 2), port: 50000 },
+            dst: Endpoint { ip: Ipv4Addr::new(48, 1, 1, 1), port: 13328 },
+        };
+        p.client_sent(c, 1100, 10.000);
+        p.server_acked(c, 1100, 10.045); // 45 ms
+        p.client_sent(c, 1200, 10.200);
+        p.server_acked(c, 1200, 10.330); // delayed ack, 130 ms
+        assert!((p.ms().unwrap() - 45.0).abs() < 0.5);
     }
 
     #[test]

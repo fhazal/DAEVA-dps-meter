@@ -201,7 +201,7 @@ impl Core {
                 if self.pipeline.classify(&seg.flow).is_some() {
                     // Re-encode as a clean Ethernet frame: consistent link type
                     // and no MAC addresses in shared captures.
-                    let frame = net::build_frame(&seg.flow, seg.seq, seg.flags, seg.payload);
+                    let frame = net::build_frame_ack(&seg.flow, seg.seq, seg.ack, seg.flags, seg.payload);
                     if rec.writer.write(ts, &frame).is_ok() {
                         rec.packets += 1;
                         rec.bytes += seg.payload.len() as u64;
@@ -371,6 +371,7 @@ impl Core {
             .set("packets", p.packets)
             .set("game_packets", p.game_packets)
             .set("game_bytes", p.game_bytes)
+            .set("ping_ms", if now - p.ping.last_sample_ts < 10.0 { p.ping.ms() } else { None })
             .set("game_idle", if p.last_game_ts > 0.0 { Some(now - p.last_game_ts) } else { None })
             .set("frames", p.decoder.frames_total)
             .set("resyncs", p.decoder.resyncs())

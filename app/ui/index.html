@@ -46,6 +46,8 @@
   .empty a { color: var(--accent); cursor: pointer; text-decoration: underline; }
   .foot { flex: none; display: flex; align-items: center; gap: 8px; padding: 3px 10px; font-size: 10.5px; color: var(--dim); border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; }
   .foot span:last-child { margin-left: auto; }
+  .ping { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .ping.good { color: var(--good); } .ping.warn { color: var(--warn); } .ping.bad { color: var(--bad); }
 </style>
 </head>
 <body>
@@ -147,7 +149,8 @@
     }
     const footL = snap.research ? `● REC ${D.dur(snap.research.elapsed)}` : text;
     const self = s.self ? `${D.esc(s.self)}` : "";
-    $("foot").innerHTML = `<span>${D.esc(footL)}</span><span>${self}${s.uploads_pending ? " · ↑" + s.uploads_pending : ""}</span>`;
+    const ping = s.ping_ms != null ? `<b class="ping ${s.ping_ms < 80 ? "good" : s.ping_ms < 150 ? "warn" : "bad"}" title="Latency to the game server">${Math.round(s.ping_ms)} ms</b>` : "";
+    $("foot").innerHTML = `<span>${D.esc(footL)}${ping ? " · " + ping : ""}</span><span>${self}${s.uploads_pending ? " · ↑" + s.uploads_pending : ""}</span>`;
   }
 
   function renderTarget(f) {

@@ -163,7 +163,7 @@ mod tests {
         }
     }
     fn seg(seq: u32, flags: u8, p: &[u8]) -> TcpSegment<'_> {
-        TcpSegment { flow: flow(), seq, flags, payload: p }
+        TcpSegment { flow: flow(), seq, ack: 0, flags, payload: p }
     }
     fn collect(ev: &[StreamEvent]) -> (Vec<u8>, usize) {
         let mut b = Vec::new();

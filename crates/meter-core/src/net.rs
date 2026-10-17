@@ -47,6 +47,7 @@ pub const TCP_ACK: u8 = 0x10;
 pub struct TcpSegment<'a> {
     pub flow: FlowKey,
     pub seq: u32,
+    pub ack: u32,
     pub flags: u8,
     pub payload: &'a [u8],
 }
@@ -112,6 +113,7 @@ pub fn parse_ipv4(ip: &[u8]) -> Option<TcpSegment<'_>> {
     let sport = u16::from_be_bytes([tcp[0], tcp[1]]);
     let dport = u16::from_be_bytes([tcp[2], tcp[3]]);
     let seq = u32::from_be_bytes([tcp[4], tcp[5], tcp[6], tcp[7]]);
+    let ack = u32::from_be_bytes([tcp[8], tcp[9], tcp[10], tcp[11]]);
     let doff = ((tcp[12] >> 4) as usize) * 4;
     let flags = tcp[13];
     if doff < 20 || tcp.len() < doff {
@@ -120,6 +122,7 @@ pub fn parse_ipv4(ip: &[u8]) -> Option<TcpSegment<'_>> {
     Some(TcpSegment {
         flow: FlowKey { src: Endpoint { ip: src, port: sport }, dst: Endpoint { ip: dst, port: dport } },
         seq,
+        ack,
         flags,
         payload: &tcp[doff..],
     })
@@ -128,6 +131,12 @@ pub fn parse_ipv4(ip: &[u8]) -> Option<TcpSegment<'_>> {
 /// Builds a synthetic Ethernet/IPv4/TCP frame. Used by tests, the simulator
 /// and the recorder when it needs to write a marker-free reconstruction.
 pub fn build_frame(flow: &FlowKey, seq: u32, flags: u8, payload: &[u8]) -> Vec<u8> {
+    build_frame_ack(flow, seq, 0, flags, payload)
+}
+
+/// Like [`build_frame`] but keeps the acknowledgement number (needed to
+/// measure latency from recordings).
+pub fn build_frame_ack(flow: &FlowKey, seq: u32, ack: u32, flags: u8, payload: &[u8]) -> Vec<u8> {
     let mut f = Vec::with_capacity(54 + payload.len());
     f.extend_from_slice(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0x08, 0x00]);
     let total = (40 + payload.len()) as u16;
@@ -137,7 +146,8 @@ pub fn build_frame(flow: &FlowKey, seq: u32, flags: u8, payload: &[u8]) -> Vec<u
     f.extend_from_slice(&flow.src.port.to_be_bytes());
     f.extend_from_slice(&flow.dst.port.to_be_bytes());
     f.extend_from_slice(&seq.to_be_bytes());
-    f.extend_from_slice(&[0, 0, 0, 0, 0x50, flags, 0xff, 0xff, 0, 0, 0, 0]);
+    f.extend_from_slice(&ack.to_be_bytes());
+    f.extend_from_slice(&[0x50, flags, 0xff, 0xff, 0, 0, 0, 0]);
     f.extend_from_slice(payload);
     f
 }
