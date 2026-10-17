@@ -31,10 +31,11 @@ html, body {
 }
 
 .shell {
-  /* Pinned to the window itself, so the frame can never be wider than the
-     window and lose its right edge at fractional display scaling. */
+  /* Pinned to the window, 1px in from the right and bottom: at 125-150%
+     Windows scaling the window's last pixel column/row is only partly
+     visible, which used to eat the right-hand border. */
   position: fixed;
-  inset: 0;
+  inset: 0 1px 1px 0;
   display: flex;
   flex-direction: column;
   background: rgba(var(--bg), var(--bg-alpha));

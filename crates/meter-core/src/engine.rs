@@ -25,6 +25,8 @@ pub struct Names {
     pub servers: HashMap<u32, String>,
     /// NPC template ids that are bosses (fights against them survive pauses).
     pub bosses: std::collections::HashSet<u32>,
+    /// Boss enrage ("berserk") time in seconds from the first hit, by template.
+    pub berserk: HashMap<u32, u32>,
 }
 
 impl Names {
@@ -72,6 +74,11 @@ impl Names {
                     n.items.insert(id, (x.str_or("name", "?").to_string(), x.get("grade").and_then(|g| g.as_u64()).map(|g| g as u32)));
                 }
                 _ => {}
+            }
+        }
+        for (id, x) in ids("berserk") {
+            if let Some(secs) = x.as_u64().filter(|s| *s > 0 && *s < 24 * 3600) {
+                n.berserk.insert(id, secs as u32);
             }
         }
         if let Some(a) = v.get("bosses").and_then(|a| a.as_arr()) {
@@ -132,6 +139,7 @@ impl Names {
         self.servers.extend(other.servers);
         self.items.extend(other.items);
         self.bosses.extend(other.bosses);
+        self.berserk.extend(other.berserk);
         for (k, v) in other.classes {
             self.classes.entry(k).or_insert(v);
         }
@@ -966,6 +974,7 @@ impl Engine {
                 .set("hp_pct", hp_pct)
                 .set("max_hp", a.and_then(|a| a.max_hp))
                 .set("hp", a.and_then(|a| a.hp))
+                .set("berserk", npc_id.and_then(|n| self.names.berserk.get(&n).copied()))
                 .build()
         });
         Obj::new()
@@ -1311,5 +1320,7 @@ mod naming_tests {
         e.history.push_back(f);
         e.rename_npc(2400002, "Black Claw Manduri Fighter");
         assert_eq!(e.history[0].names[&9].0, "Black Claw Manduri Fighter");
+        let b = Names::from_json(r#"{"berserk": {"2400050": 480}}"#).unwrap();
+        assert_eq!(b.berserk.get(&2400050), Some(&480));
     }
 }
