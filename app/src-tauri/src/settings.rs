@@ -126,6 +126,8 @@ pub struct Settings {
     pub lookup_names: bool,
     /// Server name shown on the meter; empty = detect from the game.
     pub server_name: String,
+    /// Quai Membership raises the passive Odyle cap from 560 to 840.
+    pub quai_member: bool,
     /// Daeva server mirror of the gaming.tools name files (tried first).
     pub names_mirror: String,
     /// Show class emblems, skill icons and monster portraits from
@@ -167,6 +169,7 @@ impl Default for Settings {
             alerts: Alerts::default(),
             lookup_names: true,
             server_name: String::new(),
+            quai_member: true,
             names_mirror: "https://aion2.bajubesi.org/api/gt".into(),
             game_art: true,
             demo: false,

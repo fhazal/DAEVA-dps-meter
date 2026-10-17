@@ -961,7 +961,7 @@ impl Core {
             .set("self_cp", e.self_cp)
             .set("odyle", e.self_odyle.map(|o| o.0))
             .set("odyle_bonus", e.self_odyle.map(|o| o.1))
-            .set("odyle_max", 840u64)
+            .set("odyle_max", if self.settings.quai_member { 840u64 } else { 560 })
             .set("server", {
                 let manual = self.settings.server_name.trim();
                 if !manual.is_empty() {
