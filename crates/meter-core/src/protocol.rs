@@ -137,6 +137,10 @@ enum Op {
     Shl,
     Eq,
     Ne,
+    Ge,
+    Le,
+    Gt,
+    Lt,
     Add,
     Sub,
     Mul,
@@ -153,7 +157,7 @@ impl Expr {
             return Ok(Expr { base: ExprBase::Str(s[1..s.len() - 1].to_string()), ops: vec![], all: vec![] });
         }
         let ops_at = |t: &str| -> Option<usize> {
-            ["&", ">>", "<<", "==", "!=", "+", "-", "*"].iter().filter_map(|o| t.find(o)).min()
+            ["&", ">>", "<<", "==", "!=", ">=", "<=", ">", "<", "+", "-", "*"].iter().filter_map(|o| t.find(o)).min()
         };
         let (head, mut rest) = match ops_at(s) {
             Some(i) => (&s[..i], &s[i..]),
@@ -177,6 +181,14 @@ impl Expr {
                 (Op::Eq, 2)
             } else if rest.starts_with("!=") {
                 (Op::Ne, 2)
+            } else if rest.starts_with(">=") {
+                (Op::Ge, 2)
+            } else if rest.starts_with("<=") {
+                (Op::Le, 2)
+            } else if rest.starts_with('>') {
+                (Op::Gt, 1)
+            } else if rest.starts_with('<') {
+                (Op::Lt, 1)
             } else if rest.starts_with('&') {
                 (Op::And, 1)
             } else if rest.starts_with('+') {
@@ -215,6 +227,10 @@ impl Expr {
                 Op::Shl => x.checked_shl(n as u32).unwrap_or(0),
                 Op::Eq => (x == n) as u64,
                 Op::Ne => (x != n) as u64,
+                Op::Ge => (x >= n) as u64,
+                Op::Le => (x <= n) as u64,
+                Op::Gt => (x > n) as u64,
+                Op::Lt => (x < n) as u64,
                 Op::Add => x.wrapping_add(n),
                 Op::Sub => x.wrapping_sub(n),
                 Op::Mul => x.wrapping_mul(n),
@@ -1029,5 +1045,21 @@ mod tests {
         assert!(matches!(Expr::parse("'npc'").unwrap().eval(&[&s]), Some(FVal::S(_))));
         assert_eq!(Expr::parse("a&0x4&&a==4660").unwrap().eval_u64(&[&s]), Some(1));
         assert_eq!(Expr::parse("a&0x4 && a==1").unwrap().eval_u64(&[&s]), Some(0));
+        assert_eq!(Expr::parse("a>=4660").unwrap().eval_u64(&[&s]), Some(1));
+        assert_eq!(Expr::parse("a<100").unwrap().eval_u64(&[&s]), Some(0));
+        assert_eq!(Expr::parse("a>>4>0x100").unwrap().eval_u64(&[&s]), Some(1));
+    }
+}
+
+#[cfg(test)]
+mod skill_split {
+    use super::*;
+    #[test]
+    fn player_vs_npc_skill_expression() {
+        let e = Expr::parse("skill+6777216>>24").unwrap();
+        for (skill, player) in [(18010340u64, true), (10000000, true), (9999999, false), (1231880, false), (0, false)] {
+            let s: Scope = vec![("skill".into(), FVal::U(skill))];
+            assert_eq!(e.truthy(&[&s]), player, "{skill}");
+        }
     }
 }

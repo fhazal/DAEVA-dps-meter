@@ -6,7 +6,7 @@
 // updates after a game patch never need a new build.
 {
   "name": "AION 2 (global)",
-  "version": "0.2.1-alpha",
+  "version": "0.3.0-alpha",
   "process_names": ["aion2"],
   // Server ports, if they turn out to be fixed. Auto-detection by process
   // already finds the server, so this can stay empty.
@@ -41,9 +41,17 @@
        "hit_id:u32le", "hit_idx:u32le", "unk:u16le",
        {"name": "dmg", "type": "varint", "if": "flags&0x4"}
      ],
-     "emit": {"event": "damage", "when": "flags&0x4", "src": "src", "tgt": "tgt",
-              "skill": "skill", "amount": "dmg",
-              "crit": "kind==3", "perfect": "x0&0x8", "back": "x0&0x4"}},
+     "emit": [
+       {"event": "damage", "when": "flags&0x4", "src": "src", "tgt": "tgt",
+        "skill": "skill", "amount": "dmg",
+        "crit": "kind==3", "perfect": "x0&0x8", "back": "x0&0x4"},
+       // Player class skills have 8-digit ids (18xxxxxx); monster skills are
+       // 7-digit. This tells players and mobs apart when neither has been
+       // seen spawning. "skill+6777216>>24" is non-zero exactly when
+       // skill >= 10,000,000 (written this way so older meter builds parse it).
+       {"event": "actor", "when": "skill+6777216>>24", "id": "src", "kind": "'player'"},
+       {"event": "actor", "when": "skill+6777216>>24==0", "id": "src", "kind": "'npc'"}
+     ]},
     // Effect/debuff applied: carries the caster's name and legion.
     {"opcode": "0x8d04", "name": "S_EFFECT_CASTER_INFO", "dir": "server",
      "fields": ["tgt:varint", "skill:u32le", "src:varint", "server:u16le", "name:str", "legion:str"],

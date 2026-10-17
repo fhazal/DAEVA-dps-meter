@@ -277,6 +277,20 @@ impl Engine {
             GameEvent::Damage { ts, src, tgt, skill, amount, flags: fl } => {
                 finished = self.tick(*ts);
                 self.last_ts = self.last_ts.max(*ts);
+                if src == tgt {
+                    return finished;
+                }
+                // Learn sides from the local player: whatever we hit, or
+                // whatever hits us, is an enemy.
+                if let Some(me) = self.self_id {
+                    let other = if *src == me { Some(*tgt) } else if *tgt == me { Some(*src) } else { None };
+                    if let Some(o) = other {
+                        let a = self.actor(o);
+                        if a.kind == ActorKind::Unknown {
+                            a.kind = ActorKind::Npc;
+                        }
+                    }
+                }
                 let attacker = self.resolve_owner(*src);
                 // Damage dealt *by* NPCs only counts as damage taken.
                 let attacker_is_npc = self.is_npc(attacker);
@@ -377,7 +391,9 @@ impl Engine {
                 if class.is_some() {
                     a.class = class.clone();
                 }
-                if *kind != ActorKind::Unknown {
+                // A spawn (npc_id) is authoritative; otherwise only fill in an
+                // unknown kind, so guesses never flip a known player/NPC.
+                if *kind != ActorKind::Unknown && (a.kind == ActorKind::Unknown || npc_id.is_some()) {
                     a.kind = *kind;
                 }
                 if npc_id.is_some() {
@@ -394,10 +410,11 @@ impl Engine {
                 }
             }
             GameEvent::SelfId { id, name } => {
-                // The first id seen wins; party members' updates must not
-                // steal "self". A name-bearing event may still fill the name.
-                if self.self_id.is_some() && self.self_id != Some(*id) {
-                    return finished;
+                // Entity ids change on every zone change / relog, so the
+                // latest self message always wins (definitions must only map
+                // this event from messages that are about the local player).
+                if self.self_id != Some(*id) {
+                    self.self_name = None;
                 }
                 self.self_id = Some(*id);
                 if name.is_some() {
@@ -528,7 +545,12 @@ impl Engine {
                 if Some(id) == self.self_id {
                     return "You".into();
                 }
-                format!("#{id}")
+                match a.kind {
+                    ActorKind::Player => format!("Player #{id}"),
+                    ActorKind::Npc => format!("Mob #{id}"),
+                    ActorKind::Summon => format!("Summon #{id}"),
+                    ActorKind::Unknown => format!("#{id}"),
+                }
             }
             None if Some(id) == self.self_id => "You".into(),
             None => format!("#{id}"),
@@ -784,6 +806,24 @@ mod tests {
 
     fn dmg(ts: f64, src: u64, tgt: u64, skill: u32, amount: u64, fl: u32) -> GameEvent {
         GameEvent::Damage { ts, src, tgt, skill, amount, flags: fl }
+    }
+
+    #[test]
+    fn sides_are_inferred() {
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.handle(&GameEvent::SelfId { id: 15203, name: None });
+        e.handle(&dmg(1.0, 15203, 6618, 18010340, 1000, 0)); // we hit the mob
+        e.handle(&dmg(1.5, 6618, 15203, 1231880, 600, 0)); // mob hits us
+        e.handle(&dmg(2.0, 6618, 6618, 1910250, 5, 0)); // self-effect noise
+        let f = e.current.as_ref().unwrap();
+        let t = e.fight_table(f, None);
+        let rows = t.get("players").unwrap().as_arr().unwrap();
+        assert_eq!(rows.len(), 1, "{}", t.to_string());
+        assert_eq!(rows[0].str_or("name", ""), "You");
+        assert_eq!(t.get("target").unwrap().str_or("name", ""), "Mob #6618");
+        // relog / zone change: new self id replaces the old one
+        e.handle(&GameEvent::SelfId { id: 777, name: None });
+        assert_eq!(e.self_id, Some(777));
     }
 
     #[test]
