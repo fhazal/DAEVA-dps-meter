@@ -68,9 +68,8 @@
       ${F("Schedule feed", txt("alerts.feed_url"), `<span id="evStatus"></span>`)}
       ${F("", `<button class="btn" id="bTestAlert">Show a test alert</button>`)}
     </div>
-    <h2>Character</h2><div class="f">
+    <h2>Server</h2><div class="f">
       ${F("Server name", txt("server_name", "detected automatically"), "Shown at the bottom of the meter. Leave empty: the meter reads your server from the game (Beritra is built in).")}
-      ${F("", chk("quai_member", "Quai Membership (Odyle cap 840)"), "Untick for free-to-play: the cap is 560. The meter turns your Odyle amber when it's full, because Odyle earned at the cap is lost.")}
     </div>
     <h2>Fights</h2><div class="f">
       ${F("End fight after idle (s)", num("idle_timeout", 2, 120, 1))}

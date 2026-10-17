@@ -26,6 +26,8 @@ pub enum FType {
     Varint,
     Svarint,
     Skip(usize),
+    /// Jump to the next occurrence of a byte pattern (minus `back` bytes).
+    Seek { pattern: Vec<u8>, back: usize },
     Bytes(LenSpec),
     StrVarint,
     StrU16Utf16,
@@ -336,6 +338,17 @@ fn parse_ftype(v: &Value, ctx: &str) -> Result<FType, String> {
         "varint" => FType::Varint,
         "svarint" | "zigzag" => FType::Svarint,
         "skip" => FType::Skip(v.u64_or("len", 0) as usize),
+        "seek" => {
+            let pattern: Vec<u8> = v
+                .str_or("pattern", "")
+                .split_whitespace()
+                .map(|h| u8::from_str_radix(h, 16).map_err(|_| format!("{ctx}: bad seek pattern")))
+                .collect::<Result<_, _>>()?;
+            if pattern.is_empty() {
+                return Err(format!("{ctx}: seek needs a 'pattern'"));
+            }
+            FType::Seek { pattern, back: v.u64_or("back", 0) as usize }
+        }
         "bytes" => FType::Bytes(len_spec("len")?),
         "str" | "str_varint" => FType::StrVarint,
         "str_u16_utf16" | "wstr" => FType::StrU16Utf16,
@@ -500,6 +513,15 @@ fn read_fields(r: &mut Reader<'_>, defs: &[FieldDef], parents: &[&Scope], out: &
             FType::Svarint => FVal::I(r.svarint()?),
             FType::Skip(n) => {
                 r.skip(*n)?;
+                continue;
+            }
+            FType::Seek { pattern, back } => {
+                let rest = r.rest();
+                let i = rest.windows(pattern.len()).position(|w| w == pattern.as_slice()).ok_or(WireErr::Eof)?;
+                if i < *back {
+                    return Err(WireErr::Eof);
+                }
+                r.pos += i - back;
                 continue;
             }
             FType::Bytes(l) => {
@@ -1104,5 +1126,20 @@ mod odyle_tests {
         d.push(flow, true, &bytes, false, 1.0, &mut out);
         let ody: Vec<_> = out.iter().filter_map(|e| match e { GameEvent::Odyle { cur, bonus } => Some((*cur, *bonus)), _ => None }).collect();
         assert_eq!(ody, vec![(Some(160), Some(40)), (Some(160), None)]);
+    }
+
+    #[test]
+    fn odyle_from_login_list() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
+        let mut d = Decoder::new(Arc::new(Definitions::from_json(&src).unwrap()), None);
+        let flow = FlowKey { src: Endpoint { ip: Ipv4Addr::new(9, 9, 9, 9), port: 13328 }, dst: Endpoint { ip: Ipv4Addr::new(10, 0, 0, 2), port: 5000 } };
+        // Excerpt of a real 0x610b: other counters, then Odyle 175 (+40).
+        let body = "0b 61 49 04 01 00 00 00 15 01 03 00 00 00 8a 96 98 00 00 8b 96 98 00 00 8c 96 98 00 0c 01 87 93 03 af 01 28 04 02 87 93 03 05 04 03 87 93 03 08";
+        let mut bytes: Vec<u8> = body.split_whitespace().map(|h| u8::from_str_radix(h, 16).unwrap()).collect();
+        bytes.insert(0, (bytes.len() + 1 + 3) as u8);
+        let mut out = Vec::new();
+        d.push(flow, true, &bytes, false, 1.0, &mut out);
+        let ody: Vec<_> = out.iter().filter_map(|e| match e { GameEvent::Odyle { cur, bonus } => Some((*cur, *bonus)), _ => None }).collect();
+        assert_eq!(ody, vec![(Some(175), Some(40))], "{out:?}");
     }
 }

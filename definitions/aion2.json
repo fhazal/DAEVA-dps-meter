@@ -6,7 +6,7 @@
 // updates after a game patch never need a new build.
 {
   "name": "AION 2 (global)",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "process_names": ["aion2"],
   // Server ports, if they turn out to be fixed. Auto-detection by process
   // already finds the server, so this can stay empty.
@@ -126,6 +126,14 @@
     // base amount, flag 8 the bonus shown as "(+N)". The 840 cap is fixed.
     {"opcode": "0x610c", "name": "S_COUNTER_UPDATE", "dir": "server",
      "fields": ["x:u8", "flags:u8", "kind:u8", "tag:varint",
+                {"name": "cur", "type": "varint", "if": "flags&4"},
+                {"name": "bonus", "type": "varint", "if": "flags&8"}],
+     "emit": {"event": "odyle", "when": "kind==1&&tag==51591", "cur": "cur", "bonus": "bonus"}},
+    // Full counter list sent at login: entries are flags, kind, tag, values.
+    // Jump straight to the Odyle entry (kind 1, tag 51591).
+    {"opcode": "0x610b", "name": "S_COUNTER_LIST", "dir": "server",
+     "fields": [{"name": "at", "type": "seek", "pattern": "01 87 93 03", "back": 1},
+                "flags:u8", "kind:u8", "tag:varint",
                 {"name": "cur", "type": "varint", "if": "flags&4"},
                 {"name": "bonus", "type": "varint", "if": "flags&8"}],
      "emit": {"event": "odyle", "when": "kind==1&&tag==51591", "cur": "cur", "bonus": "bonus"}},
