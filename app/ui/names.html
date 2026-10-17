@@ -70,7 +70,7 @@
   }
 
   const ago = (t) => (t ? D.when(t) : "");
-  const ST = { pending: "Looking up…", missing: "Not on gaming.tools", failed: "Lookup failed, retrying later", off: "" };
+  const ST = { pending: "Waiting for name data", missing: "Not on gaming.tools", failed: "Lookup failed, retrying later", off: "" };
   const st = (x) => `<span class="st ${x.lookup || ""}">${ST[x.lookup] || ""}</span>`;
   const lk = (kind, id) => `<span class="lk" data-lk="${kind}" data-lid="${id}" title="Open this ${kind === "npc" ? "monster" : "skill"} on aion2.gaming.tools">🔎</span>`;
   const input = (kind, id, value, ph) => `<input type="text" maxlength="60" data-kind="${kind}" data-id="${id}" value="${D.esc(value || "")}" placeholder="${D.esc(ph || "Type the name, press Enter")}">`;

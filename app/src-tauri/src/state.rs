@@ -649,7 +649,7 @@ impl Core {
     fn lookup_state(&self, key: &str) -> &'static str {
         if !self.settings.lookup_names {
             "off"
-        } else if self.lookup_missing.contains(key) {
+        } else if self.lookup_missing.contains(key) || self.site_bulk.is_some() {
             "missing"
         } else if self.lookup_retry.get(key).map_or(false, |t| *t > now_unix()) {
             "failed"
@@ -1205,10 +1205,9 @@ pub fn start_threads(shared: Arc<Shared>) {
         let s = shared.clone();
         std::thread::Builder::new().name("event-feed".into()).spawn(move || event_feed(s)).ok();
     }
-    {
-        let s = shared.clone();
-        std::thread::Builder::new().name("name-lookup".into()).spawn(move || name_lookup(s)).ok();
-    }
+    // Page-by-page look-ups on gaming.tools are retired: names come only
+    // from the Daeva server's mirror. (name_lookup kept for reference.)
+    let _ = name_lookup;
     {
         let s = shared.clone();
         std::thread::Builder::new().name("site-sync".into()).spawn(move || site_sync(s)).ok();
@@ -1336,12 +1335,13 @@ fn site_sync(shared: Arc<Shared>) {
             let mirror = shared.lock().settings.names_mirror.trim().trim_end_matches('/').to_string();
             let mut problems: Vec<String> = Vec::new();
             for (cdn, file) in [(NPCS_DATA, "npcs.d.json"), (SKILLS_DATA, "skills.d.json")] {
-                // Your Daeva server's daily mirror first, gaming.tools itself second.
+                // Only the Daeva server's mirror: the meter never contacts
+                // gaming.tools itself (the server fetches once a day for everyone).
+                let _ = cdn;
                 let mut sources = Vec::new();
                 if mirror.starts_with("https://") {
                     sources.push(format!("{mirror}/{file}"));
                 }
-                sources.push(cdn.to_string());
                 let mut got = false;
                 for url in sources {
                     let host = url.split('/').nth(2).unwrap_or("?").to_string();
