@@ -6,6 +6,7 @@
 pub mod engine;
 pub mod events;
 pub mod json;
+pub mod lz4;
 pub mod net;
 pub mod pcapfile;
 pub mod protocol;

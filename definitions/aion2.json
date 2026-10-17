@@ -6,22 +6,48 @@
 // updates after a game patch never need a new build.
 {
   "name": "AION 2 (global)",
-  "version": "0.0.1-framing",
+  "version": "0.1.0-alpha",
   "process_names": ["aion2"],
   // Server ports, if they turn out to be fixed. Auto-detection by process
   // already finds the server, so this can stay empty.
   "ports": [],
   "framing": {
-    // Observed 2026-10-17 (Shulak cave capture): each server message is
-    // <varint length><u16le opcode><body>, where the frame is (length - 3)
-    // bytes long. e.g. "0e 00 36 aa 21 fd 47 a1 01 00 00" = 0x0e-3 = 11 bytes.
+    // Observed 2026-10-17 (Shulak cave capture): each message is
+    // <varint length><u16le opcode><body>, and body = length - 6 bytes
+    // (whatever the varint's own size). e.g. "0e 00 36 aa 21 fd 47 a1 01 00 00".
     "header": ["length:varint", "opcode:u16le"],
-    "length_counts": "frame",
-    "length_adjust": -3,
+    "length_counts": "payload",
+    "length_adjust": -6,
     "min_frame": 3,
-    "max_frame": 1048576
+    "max_frame": 1048576,
+    "compression": "lz4"
   },
   "messages": [
+    // Bundle of LZ4-compressed frames: u32le decompressed size + LZ4 block.
+    {"opcode": "0xffff", "name": "S_BUNDLE_LZ4", "dir": "any", "container": true, "decompress": true},
+    // Skill/attack result. One frame per hit. Layout worked out from the
+    // 2026-10-17 Shulak capture (no markers yet, so flag meanings are
+    // provisional): flags&0x4 = carries damage, flags&0x2 = 3-byte block,
+    // flags&0x20 = extra list of varints (procs/split hits?).
+    {"opcode": "0x3804", "name": "S_SKILL_RESULT", "dir": "server",
+     "fields": [
+       "tgt:varint", "flags:u16le", "src:varint", "skill:u32le", "seq:u8", "kind:u8",
+       {"name": "x0", "type": "u8", "if": "flags&0x2"},
+       {"name": "x1", "type": "u8", "if": "flags&0x2"},
+       {"name": "x2", "type": "u8", "if": "flags&0x2"},
+       "hit_id:u32le", "hit_idx:u32le", "unk:u16le",
+       {"name": "dmg", "type": "varint", "if": "flags&0x4"}
+     ],
+     "emit": {"event": "damage", "when": "flags&0x4", "src": "src", "tgt": "tgt",
+              "skill": "skill", "amount": "dmg"}},
+    // Effect/debuff applied: carries the caster's name and legion.
+    {"opcode": "0x8d04", "name": "S_EFFECT_CASTER_INFO", "dir": "server",
+     "fields": ["tgt:varint", "skill:u32le", "src:varint", "server:u16le", "name:str", "legion:str"],
+     "emit": {"event": "actor", "id": "src", "name": "name", "kind": "'player'"}},
+    // Frequent self status update (HP/MP?) - used to identify the local player.
+    {"opcode": "0x8d00", "name": "S_SELF_STATUS", "dir": "server",
+     "fields": ["id:varint"],
+     "emit": {"event": "self", "id": "id"}},
     // Example of the shape a decoded damage packet will take:
     // {
     //   "opcode": "0x0000", "name": "S_ATTACK_RESULT", "dir": "server",

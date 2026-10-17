@@ -379,8 +379,15 @@ fn nearest_marker(m: &[(f64, String)], t: f64) -> Option<(f64, &str)> {
     m.iter().filter(|(mt, _)| t >= *mt && t - mt < 10.0).max_by(|a, b| a.0.partial_cmp(&b.0).unwrap()).map(|(mt, l)| (t - mt, l.as_str()))
 }
 
+fn decompressor() -> meter_core::protocol::Decompressor {
+    Arc::new(|method: &str, data: &[u8]| match method {
+        "lz4" => meter_core::lz4::decompress_size_prepended(data),
+        _ => None,
+    })
+}
+
 fn decode_stream(defs: &Arc<Definitions>, s: &Stream, from_server: bool) -> Decoder {
-    let mut d = Decoder::new(defs.clone(), None);
+    let mut d = Decoder::new(defs.clone(), Some(decompressor()));
     d.keep_recent = 2_000_000;
     let mut evs = Vec::new();
     for (i, c) in s.chunks.iter().enumerate() {
@@ -471,7 +478,7 @@ fn cmd_decode(pkts: &[Packet], a: &Args) -> Result<(), String> {
         Some(p) => Names::from_json(&std::fs::read_to_string(p).map_err(|e| e.to_string())?)?,
         None => Names::default(),
     };
-    let mut p = Pipeline::new(Decoder::new(defs, None), Engine::new(EngineConfig::default(), names));
+    let mut p = Pipeline::new(Decoder::new(defs, Some(decompressor())), Engine::new(EngineConfig::default(), names));
     p.strict = !p.server_ports.is_empty();
     let mut fights = Vec::new();
     for pk in pkts {

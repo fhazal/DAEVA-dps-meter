@@ -383,6 +383,11 @@ impl Engine {
                 }
             }
             GameEvent::SelfId { id, name } => {
+                // The first id seen wins; party members' updates must not
+                // steal "self". A name-bearing event may still fill the name.
+                if self.self_id.is_some() && self.self_id != Some(*id) {
+                    return finished;
+                }
                 self.self_id = Some(*id);
                 if name.is_some() {
                     self.self_name = name.clone();
