@@ -39,6 +39,10 @@ pub mod flags {
     pub const DOT: u32 = 1 << 6;
     pub const RESIST: u32 = 1 << 7;
     pub const DOUBLE: u32 = 1 << 8;
+    pub const FRONT: u32 = 1 << 9;
+    /// Bits 10..15: number of sub-hits this result stands for (0 = 1).
+    pub const MULTI_SHIFT: u32 = 10;
+    pub const MULTI_MASK: u32 = 0x3f;
     /// Bits 16..31 carry the cast id (+1, 0 = unknown) so hits can be
     /// grouped into casts without widening the event.
     pub const CAST_SHIFT: u32 = 16;

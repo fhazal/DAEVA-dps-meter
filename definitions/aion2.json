@@ -6,7 +6,7 @@
 // updates after a game patch never need a new build.
 {
   "name": "AION 2 (global)",
-  "version": "0.4.0-alpha",
+  "version": "0.5.0-alpha",
   "process_names": ["aion2"],
   // Server ports, if they turn out to be fixed. Auto-detection by process
   // already finds the server, so this can stay empty.
@@ -28,10 +28,12 @@
     // Skill/attack result, one frame per hit (decoded 2026-10-17 from
     // Shulak / Cave Drana captures).
     //   flags&0x4  = carries damage      flags&0x2 = 3-byte x0/x1/x2 block
-    //   flags&0x20 = trailing varint list (not counted)
-    //   kind==3    = critical hit (~1.75x)
-    //   x0&0x8     = ~2x hit ("double"), x0&0x4 = small bonus (provisionally
-    //                "back attack"); seq = cast id (several hits share it).
+    //   flags&0x20 = multi-hit: u8 count of sub-hits (+ their split values);
+    //                verified vs Abyss: Onslaught 2 results x 3 = 6 hits
+    //   kind==3    = critical hit (verified)
+    //   x0&0x8     = ~2x hit ("double"), x0&0x4 = small bonus ("perfect"?)
+    //   x2         = direction: 2 = front (verified 1 sample), 1 = back (guess)
+    //   seq        = cast id (several results share it)
     {"opcode": "0x3804", "name": "S_SKILL_RESULT", "dir": "server",
      "fields": [
        "tgt:varint", "flags:u16le", "src:varint", "skill:u32le", "seq:u8", "kind:u8",
@@ -39,12 +41,14 @@
        {"name": "x1", "type": "u8", "if": "flags&0x2"},
        {"name": "x2", "type": "u8", "if": "flags&0x2"},
        "hit_id:u32le", "hit_idx:u32le", "unk:u16le",
-       {"name": "dmg", "type": "varint", "if": "flags&0x4"}
+       {"name": "dmg", "type": "varint", "if": "flags&0x4"},
+       {"name": "multi", "type": "u8", "if": "flags&0x20"}
      ],
      "emit": [
        {"event": "damage", "when": "flags&0x4", "src": "src", "tgt": "tgt",
         "skill": "skill", "amount": "dmg",
-        "crit": "kind==3", "double": "x0&0x8", "back": "x0&0x4", "cast": "seq"},
+        "crit": "kind==3", "double": "x0&0x8", "perfect": "x0&0x4",
+        "front": "x2==2", "back": "x2==1", "multi": "multi", "cast": "seq"},
        // Player class skills have 8-digit ids (18xxxxxx); monster skills are
        // 7-digit. This tells players and mobs apart when neither has been
        // seen spawning. "skill+6777216>>24" is non-zero exactly when

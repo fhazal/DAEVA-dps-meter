@@ -885,10 +885,14 @@ fn emit(e: &Emit, header: &Scope, scope: &Scope, ts: f64, out: &mut Vec<GameEven
             ("dot", flags::DOT),
             ("resist", flags::RESIST),
             ("double", flags::DOUBLE),
+            ("front", flags::FRONT),
         ] {
             if num(k).unwrap_or(0) != 0 {
                 fl |= bit;
             }
+        }
+        if let Some(m) = num("multi") {
+            fl |= (m as u32).min(flags::MULTI_MASK) << flags::MULTI_SHIFT;
         }
         if let Some(c) = num("cast") {
             fl |= ((c as u32 & 0xffff) + 1) << flags::CAST_SHIFT;

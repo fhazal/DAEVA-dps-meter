@@ -95,40 +95,44 @@ impl Names {
 #[derive(Debug, Clone, Default)]
 pub struct SkillStat {
     pub dmg: u64,
+    /// Damage results (one per swing); rates use this as the denominator.
+    pub swings: u64,
+    /// Individual hits, counting multi-hit splits.
     pub hits: u64,
     pub crits: u64,
     pub back: u64,
+    pub front: u64,
     pub perfect: u64,
     pub double: u64,
     pub max: u64,
     pub min: u64,
     pub dot: u64,
-    /// Number of casts (hits grouped by cast id).
+    /// Number of casts (results grouped by cast id).
     pub casts: u64,
     /// Casts that landed more than one hit.
     pub multi: u64,
     last_cast: u32,
     cast_hits: u32,
+    cast_multi: bool,
 }
 
 impl SkillStat {
     fn add(&mut self, amount: u64, fl: u32) {
+        let n = ((fl >> flags::MULTI_SHIFT) & flags::MULTI_MASK).max(1) as u64;
         self.dmg += amount;
-        self.hits += 1;
-        if fl & flags::CRIT != 0 {
-            self.crits += 1;
-        }
-        if fl & flags::BACK != 0 {
-            self.back += 1;
-        }
-        if fl & flags::PERFECT != 0 {
-            self.perfect += 1;
-        }
-        if fl & flags::DOUBLE != 0 {
-            self.double += 1;
-        }
-        if fl & flags::DOT != 0 {
-            self.dot += 1;
+        self.swings += 1;
+        self.hits += n;
+        for (bit, c) in [
+            (flags::CRIT, &mut self.crits),
+            (flags::BACK, &mut self.back),
+            (flags::FRONT, &mut self.front),
+            (flags::PERFECT, &mut self.perfect),
+            (flags::DOUBLE, &mut self.double),
+            (flags::DOT, &mut self.dot),
+        ] {
+            if fl & bit != 0 {
+                *c += 1;
+            }
         }
         self.max = self.max.max(amount);
         self.min = if self.min == 0 { amount } else { self.min.min(amount) };
@@ -136,12 +140,13 @@ impl SkillStat {
         if cast == 0 || cast != self.last_cast {
             self.casts += 1;
             self.last_cast = cast;
-            self.cast_hits = 1;
-        } else {
-            self.cast_hits += 1;
-            if self.cast_hits == 2 {
-                self.multi += 1;
-            }
+            self.cast_hits = 0;
+            self.cast_multi = false;
+        }
+        self.cast_hits += n as u32;
+        if self.cast_hits >= 2 && !self.cast_multi {
+            self.cast_multi = true;
+            self.multi += 1;
         }
     }
 }
@@ -715,13 +720,15 @@ impl Engine {
                     .set("dps", k.dmg as f64 / dur)
                     .set("share", rate(k.dmg, total))
                     .set("hits", k.hits)
+                    .set("swings", k.swings)
                     .set("casts", k.casts)
                     .set("multi_rate", rate(k.multi, k.casts))
-                    .set("crit_rate", rate(k.crits, k.hits))
-                    .set("back_rate", rate(k.back, k.hits))
-                    .set("perfect_rate", rate(k.perfect, k.hits))
-                    .set("double_rate", rate(k.double, k.hits))
-                    .set("avg", if k.hits > 0 { k.dmg as f64 / k.hits as f64 } else { 0.0 })
+                    .set("crit_rate", rate(k.crits, k.swings))
+                    .set("back_rate", rate(k.back, k.swings))
+                    .set("perfect_rate", rate(k.perfect, k.swings))
+                    .set("double_rate", rate(k.double, k.swings))
+                    .set("front_rate", rate(k.front, k.swings))
+                    .set("avg", if k.swings > 0 { k.dmg as f64 / k.swings as f64 } else { 0.0 })
                     .set("max", k.max)
                     .set("min", k.min)
                     .set("dot_hits", k.dot)
@@ -730,6 +737,7 @@ impl Engine {
             .collect();
         let sum = |g: fn(&SkillStat) -> u64| -> u64 { table.values().map(g).sum() };
         let hits = sum(|k| k.hits);
+        let swings = sum(|k| k.swings);
         let mut targets: Vec<(&u64, &u64)> = s.by_target.iter().collect();
         targets.sort_by(|a, b| b.1.cmp(a.1));
         let tg: Vec<Value> = targets.iter().take(30).map(|(t, d)| Obj::new().set("id", **t).set("name", self.actor_name(**t)).set("dmg", **d).build()).collect();
@@ -752,10 +760,11 @@ impl Engine {
                 .set("active_share", ((s.last - s.first).max(1.0) / dur).min(1.0))
                 .set("hits", hits)
                 .set("casts", sum(|k| k.casts))
-                .set("crit_rate", rate(sum(|k| k.crits), hits))
-                .set("back_rate", rate(sum(|k| k.back), hits))
-                .set("perfect_rate", rate(sum(|k| k.perfect), hits))
-                .set("double_rate", rate(sum(|k| k.double), hits))
+                .set("crit_rate", rate(sum(|k| k.crits), swings))
+                .set("back_rate", rate(sum(|k| k.back), swings))
+                .set("perfect_rate", rate(sum(|k| k.perfect), swings))
+                .set("double_rate", rate(sum(|k| k.double), swings))
+                .set("front_rate", rate(sum(|k| k.front), swings))
                 .set("multi_rate", rate(sum(|k| k.multi), sum(|k| k.casts)))
                 .set("max_hit", table.values().map(|k| k.max).max().unwrap_or(0))
                 .set("heal", s.heal)
