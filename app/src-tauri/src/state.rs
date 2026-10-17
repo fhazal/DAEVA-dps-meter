@@ -100,6 +100,11 @@ pub struct Core {
     pub events: EventFeed,
     /// Monsters and skills seen without a name, waiting for you to name them.
     pub wanted: Wanted,
+    /// gaming.tools lookups: key ("n123"/"s456") -> unix time it may be tried again.
+    pub lookup_retry: HashMap<String, f64>,
+    /// Keys gaming.tools has no page for.
+    pub lookup_missing: HashSet<String>,
+    pub lookup_status: Option<String>,
 }
 
 #[derive(Default)]
@@ -224,8 +229,12 @@ impl Core {
             warning: None,
             events: EventFeed::new(&Default::default()),
             wanted: Wanted::default(),
+            lookup_retry: HashMap::new(),
+            lookup_missing: HashSet::new(),
+            lookup_status: None,
         };
         c.load_wanted();
+        c.load_site_missing();
         c.events = EventFeed::new(&c.settings.alerts);
         c.pipeline.decoder.keep_recent = 200;
         c.prune_history();
@@ -356,8 +365,110 @@ impl Core {
     fn my_names_path(&self) -> PathBuf {
         self.paths.data.join("my-names.json")
     }
+    pub fn site_names_path(&self) -> PathBuf {
+        self.paths.data.join("gaming-tools-names.json")
+    }
     fn wanted_path(&self) -> PathBuf {
         self.paths.data.join("unnamed.json")
+    }
+
+    fn load_site_missing(&mut self) {
+        let Some(doc) = std::fs::read_to_string(self.site_names_path()).ok().and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok()) else { return };
+        let now = now_unix();
+        if let Some(o) = doc["missing"].as_object() {
+            for (k, at) in o {
+                // Not on the site: ask again after a week (new pages appear).
+                let again = at.as_f64().unwrap_or(0.0) + 7.0 * 86400.0;
+                if again > now {
+                    self.lookup_retry.insert(k.clone(), again);
+                    self.lookup_missing.insert(k.clone());
+                }
+            }
+        }
+    }
+
+    /// Next unnamed monster/skill to look up on gaming.tools, if any.
+    pub fn next_lookup(&self) -> Option<(String, String, &'static str)> {
+        if !self.settings.lookup_names || self.sim.is_some() {
+            return None;
+        }
+        let now = now_unix();
+        let ready = |k: &String| self.lookup_retry.get(k).map_or(true, |t| *t <= now);
+        let mut npcs: Vec<_> = self.wanted.npcs.iter().collect();
+        npcs.sort_by(|a, b| b.1 .3.total_cmp(&a.1 .3));
+        for (id, _) in npcs {
+            let k = format!("n{id}");
+            if ready(&k) {
+                return Some((k, meter_core::gamingtools::npc_url(*id), "NPCs"));
+            }
+        }
+        for id in self.wanted.skills.keys() {
+            let k = format!("s{id}");
+            if ready(&k) {
+                return Some((k, meter_core::gamingtools::skill_url(*id), "Skills"));
+            }
+        }
+        None
+    }
+
+    /// Records a lookup result: a name, "not on the site", or a failure.
+    pub fn lookup_result(&mut self, key: &str, result: Result<Option<String>, String>) {
+        let now = now_unix();
+        let Ok(id) = key[1..].parse::<u32>() else { return };
+        let is_npc = key.starts_with('n');
+        match result {
+            Ok(Some(name)) => {
+                self.lookup_retry.remove(key);
+                self.lookup_missing.remove(key);
+                self.lookup_status = Some(format!("Found {name}"));
+                self.update_site_file(|doc| {
+                    let sec = if is_npc { "npcs" } else { "skills" };
+                    doc[sec][id.to_string()] = serde_json::json!(name);
+                    if let Some(m) = doc["missing"].as_object_mut() {
+                        m.remove(key);
+                    }
+                });
+                let e = &mut self.pipeline.engine;
+                if is_npc {
+                    if !e.names.npcs.contains_key(&id) {
+                        e.rename_npc(id, &name);
+                    }
+                    self.wanted.npcs.remove(&id);
+                } else {
+                    e.names.skills.entry(id).or_insert(name);
+                    self.wanted.skills.remove(&id);
+                }
+                self.save_wanted();
+            }
+            Ok(None) => {
+                self.lookup_retry.insert(key.to_string(), now + 7.0 * 86400.0);
+                self.lookup_missing.insert(key.to_string());
+                self.update_site_file(|doc| doc["missing"][key] = serde_json::json!(now));
+            }
+            Err(e) => {
+                self.lookup_retry.insert(key.to_string(), now + 600.0);
+                self.lookup_status = Some(e);
+            }
+        }
+    }
+
+    fn update_site_file(&self, f: impl FnOnce(&mut serde_json::Value)) {
+        let path = self.site_names_path();
+        let mut doc: serde_json::Value = std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_else(|| serde_json::json!({}));
+        if !doc.is_object() {
+            doc = serde_json::json!({});
+        }
+        doc["about"] = serde_json::json!("Names from the AION 2 Global Database, https://aion2.gaming.tools, used with the site admin's permission. Fetched by Daeva Meter.");
+        for sec in ["npcs", "skills", "missing"] {
+            if !doc[sec].is_object() {
+                doc[sec] = serde_json::json!({});
+            }
+        }
+        f(&mut doc);
+        let tmp = path.with_extension("json.tmp");
+        if std::fs::write(&tmp, serde_json::to_string_pretty(&doc).unwrap_or_default()).is_ok() {
+            let _ = std::fs::rename(&tmp, &path);
+        }
     }
 
     fn load_wanted(&mut self) {
@@ -483,6 +594,18 @@ impl Core {
         Ok(name)
     }
 
+    fn lookup_state(&self, key: &str) -> &'static str {
+        if !self.settings.lookup_names {
+            "off"
+        } else if self.lookup_missing.contains(key) {
+            "missing"
+        } else if self.lookup_retry.get(key).map_or(false, |t| *t > now_unix()) {
+            "failed"
+        } else {
+            "pending"
+        }
+    }
+
     pub fn names_view(&self) -> Value {
         let mut npcs: Vec<_> = self.wanted.npcs.iter().collect();
         npcs.sort_by(|a, b| b.1 .3.total_cmp(&a.1 .3));
@@ -509,11 +632,34 @@ impl Core {
                 "npcs",
                 Value::Arr(
                     npcs.into_iter()
-                        .map(|(id, (hp, zone, first, last))| Obj::new().set("id", *id as u64).set("max_hp", *hp).set("zone", zone.clone()).set("first", *first).set("last", *last).build())
+                        .map(|(id, (hp, zone, first, last))| {
+                            Obj::new()
+                                .set("id", *id as u64)
+                                .set("max_hp", *hp)
+                                .set("zone", zone.clone())
+                                .set("first", *first)
+                                .set("last", *last)
+                                .set("lookup", self.lookup_state(&format!("n{id}")))
+                                .build()
+                        })
                         .collect(),
                 ),
             )
-            .set("skills", Value::Arr(skills.into_iter().map(|(id, (class, last))| Obj::new().set("id", *id as u64).set("class", class.clone()).set("last", *last).build()).collect()))
+            .set(
+                "skills",
+                Value::Arr(
+                    skills
+                        .into_iter()
+                        .map(|(id, (class, last))| Obj::new().set("id", *id as u64).set("class", class.clone()).set("last", *last).set("lookup", self.lookup_state(&format!("s{id}"))).build())
+                        .collect(),
+                ),
+            )
+            .set("lookup_on", self.settings.lookup_names)
+            .set("lookup_status", self.lookup_status.clone())
+            .set("site_count", {
+                let site: Option<serde_json::Value> = std::fs::read_to_string(self.site_names_path()).ok().and_then(|s| serde_json::from_str(&s).ok());
+                site.map_or(0, |d| d["npcs"].as_object().map_or(0, |o| o.len()) + d["skills"].as_object().map_or(0, |o| o.len()))
+            })
             .set("mine_npcs", count("npcs"))
             .set("mine_skills", count("skills"))
             .set("named", Value::Arr(named))
@@ -917,6 +1063,15 @@ fn load_definitions(paths: &Paths, status: &mut Status) -> (Arc<Definitions>, Na
         None => Names::default(),
     };
     let mut names = names;
+    // gaming.tools names fill gaps; your own names (my-names.json) win.
+    if let Ok(site) = std::fs::read_to_string(paths.data.join("gaming-tools-names.json")).map_err(|e| e.to_string()).and_then(|s| Names::from_json(&s)) {
+        for (k, v) in site.npcs {
+            names.npcs.entry(k).or_insert(v);
+        }
+        for (k, v) in site.skills {
+            names.skills.entry(k).or_insert(v);
+        }
+    }
     let mine = paths.data.join("my-names.json");
     if mine.exists() {
         match std::fs::read_to_string(&mine).map_err(|e| e.to_string()).and_then(|s| Names::from_json(&s)) {
@@ -979,6 +1134,10 @@ pub fn start_threads(shared: Arc<Shared>) {
     {
         let s = shared.clone();
         std::thread::Builder::new().name("event-feed".into()).spawn(move || event_feed(s)).ok();
+    }
+    {
+        let s = shared.clone();
+        std::thread::Builder::new().name("name-lookup".into()).spawn(move || name_lookup(s)).ok();
     }
     {
         let s = shared.clone();
@@ -1057,6 +1216,28 @@ fn event_feed(shared: Arc<Shared>) {
             }
         }
         std::thread::sleep(Duration::from_millis(500));
+    }
+}
+
+/// Looks up unknown monster and skill names on aion2.gaming.tools, one page
+/// at a time and never faster than one request every 3 seconds.
+fn name_lookup(shared: Arc<Shared>) {
+    let agent = ureq::AgentBuilder::new()
+        .timeout(Duration::from_secs(15))
+        .user_agent(concat!("DaevaMeter/", env!("CARGO_PKG_VERSION"), " (+https://aion2.bajubesi.org)"))
+        .build();
+    loop {
+        std::thread::sleep(Duration::from_secs(3));
+        let Some((key, url, section)) = shared.lock().next_lookup() else { continue };
+        let result = match agent.get(&url).call() {
+            Ok(r) => r
+                .into_string()
+                .map(|html| meter_core::gamingtools::parse_name(&html, section))
+                .map_err(|e| format!("gaming.tools read failed: {e}")),
+            Err(ureq::Error::Status(404, _)) | Err(ureq::Error::Status(410, _)) => Ok(None),
+            Err(e) => Err(format!("gaming.tools unreachable: {e}")),
+        };
+        shared.lock().lookup_result(&key, result);
     }
 }
 

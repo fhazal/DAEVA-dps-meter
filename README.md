@@ -74,7 +74,9 @@ The game sends monster template numbers, never names (the client reads names fro
 - Unnamed skills show **✎** in the Details window.
 - **Settings → Monster & skill names** lists everything met without a name (with max HP, zone and when it was seen) and everything already named.
 
-Names are saved in `my-names.json` in the data folder. They take effect at once, fix older fights, survive updates, and override `names.json`. One skill name covers every rank and variant of that skill. This file is the start of the community's own database.
+Unknown monsters and skills are first looked up automatically on the [AION 2 Global Database](https://aion2.gaming.tools) (aion2.gaming.tools), whose ids match the game's, with the kind permission of its team: one page per unknown id, at most one request every 3 seconds, cached in `gaming-tools-names.json`. The 🔎 buttons open the matching page. It can be turned off in Settings.
+
+Names you type are saved in `my-names.json` in the data folder. They take effect at once, fix older fights, survive updates, and override `names.json`. One skill name covers every rank and variant of that skill. This file is the start of the community's own database.
 
 ## Where things live on a player's PC
 
@@ -82,6 +84,7 @@ Names are saved in `my-names.json` in the data folder. They take effect at once,
 
 - `settings.json`
 - `my-names.json`: monster and skill names you gave (your own database; keep it)
+- `gaming-tools-names.json`: names fetched from aion2.gaming.tools (cache)
 - `unnamed.json`: monsters and skills met without a name, waiting to be named
 - `history\fight-*.json`: one file per finished fight (the same format the bot receives)
 - `research\capture-*.pcap` and `*.markers.json`
@@ -91,6 +94,10 @@ Names are saved in `my-names.json` in the data folder. They take effect at once,
 
 - **Phase 2:** decode AION 2 framing, damage, actors and names, skills, deaths, loot and zones from research captures. Build the `names.json` skill/NPC tables.
 - **Phase 3:** buff uptime, a death recap, a boss timeline, field-boss alerts, auto-update, and the Daeva bot API and portal pages.
+
+## Credits
+
+Monster and skill names: [AION 2 Global Database](https://aion2.gaming.tools) by gaming.tools, used with permission. AION 2 and its names belong to NCSOFT.
 
 ## Licence
 

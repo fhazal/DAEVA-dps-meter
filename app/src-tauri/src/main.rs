@@ -104,6 +104,18 @@ fn set_name(st: St<'_>, kind: String, id: u32, name: String) -> Result<String, S
     st.lock().set_name(&kind, id, &name)
 }
 
+/// Opens a gaming.tools page for a monster ("npc") or skill.
+#[tauri::command]
+fn open_lookup(kind: String, id: u32) -> Result<(), String> {
+    let url = match kind.as_str() {
+        "npc" => meter_core::gamingtools::npc_url(id),
+        "skill" => meter_core::gamingtools::skill_url(meter_core::engine::Names::skill_name_key(id)),
+        "site" => meter_core::gamingtools::SITE.to_string(),
+        _ => return Err("unknown kind".into()),
+    };
+    winsys::open_url(&url)
+}
+
 #[tauri::command]
 fn get_names(st: St<'_>) -> String {
     st.lock().names_view().to_string()
@@ -451,6 +463,7 @@ fn main() {
             test_alert,
             set_name,
             get_names,
+            open_lookup,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Daeva Meter");

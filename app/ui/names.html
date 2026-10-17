@@ -17,6 +17,11 @@
   td.inp input { width: 100%; }
   .count { color: var(--dim); font-weight: 400; margin-left: 4px; }
   .done { color: var(--good); }
+  .lk { cursor: pointer; color: var(--accent); white-space: nowrap; }
+  .st { font-size: 11px; color: var(--dim); white-space: nowrap; }
+  .st.pending { color: var(--warn); }
+  .credit { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--muted); }
+  .credit a { color: var(--accent); cursor: pointer; text-decoration: underline; }
 </style>
 </head>
 <body>
@@ -35,6 +40,7 @@
     </div>
     <p class="intro" id="intro"></p>
     <div id="list"></div>
+    <div class="credit" id="credit"></div>
   </div></div>
 </div>
 <script src="common.js"></script>
@@ -46,7 +52,7 @@
   let tab = "npcs";
   let data = { npcs: [], skills: [], named: [] };
   const INTRO = {
-    npcs: "Monsters you have met that have no name yet, most recent first. Type the name exactly as the game shows it on the target frame and press Enter. It sticks for good and fixes old fights too.",
+    npcs: "Monsters met without a name, most recent first. The meter looks each one up on aion2.gaming.tools by itself; anything it can't find, type the name from the target frame and press Enter. Your name always wins and fixes old fights too.",
     skills: "Player skills seen without a name. One name covers every rank and variant of that skill, DoT included.",
     mine: "Everything you have named. This is your own database, saved as my-names.json in the data folder. Clear a name and press Enter to remove it.",
   };
@@ -64,6 +70,9 @@
   }
 
   const ago = (t) => (t ? D.when(t) : "");
+  const ST = { pending: "Looking up…", missing: "Not on gaming.tools", failed: "Lookup failed, retrying later", off: "" };
+  const st = (x) => `<span class="st ${x.lookup || ""}">${ST[x.lookup] || ""}</span>`;
+  const lk = (kind, id) => `<span class="lk" data-lk="${kind}" data-lid="${id}" title="Open this ${kind === "npc" ? "monster" : "skill"} on aion2.gaming.tools">🔎</span>`;
   const input = (kind, id, value, ph) => `<input type="text" maxlength="60" data-kind="${kind}" data-id="${id}" value="${D.esc(value || "")}" placeholder="${D.esc(ph || "Type the name, press Enter")}">`;
 
   function render() {
@@ -74,13 +83,13 @@
     const el = document.getElementById("list");
     if (tab === "npcs") {
       el.innerHTML = data.npcs.length
-        ? `<table class="grid"><thead><tr><th>Monster</th><th>Max HP</th><th>Where</th><th>Seen</th><th>Name</th></tr></thead><tbody>${data.npcs.map((n) => `
-          <tr><td class="id">#${n.id}</td><td>${n.max_hp ? D.fmt(n.max_hp) : "–"}</td><td>${D.esc(n.zone || "")}</td><td>${ago(n.last)}</td><td class="inp">${input("npc", n.id)}</td></tr>`).join("")}</tbody></table>`
+        ? `<table class="grid"><thead><tr><th>Monster</th><th>Max HP</th><th>Where</th><th>Seen</th><th></th><th>Name</th></tr></thead><tbody>${data.npcs.map((n) => `
+          <tr><td class="id">#${n.id} ${lk("npc", n.id)}</td><td>${n.max_hp ? D.fmt(n.max_hp) : "–"}</td><td>${D.esc(n.zone || "")}</td><td>${ago(n.last)}</td><td>${st(n)}</td><td class="inp">${input("npc", n.id)}</td></tr>`).join("")}</tbody></table>`
         : '<p class="done">Every monster you have met has a name.</p>';
     } else if (tab === "skills") {
       el.innerHTML = data.skills.length
-        ? `<table class="grid"><thead><tr><th>Skill</th><th>Class</th><th>Seen</th><th>Name</th></tr></thead><tbody>${data.skills.map((s) => `
-          <tr><td class="id">${s.id}</td><td>${D.classIcon(s.class, 12)} ${D.esc(s.class || "")}</td><td>${ago(s.last)}</td><td class="inp">${input("skill", s.id)}</td></tr>`).join("")}</tbody></table>`
+        ? `<table class="grid"><thead><tr><th>Skill</th><th>Class</th><th>Seen</th><th></th><th>Name</th></tr></thead><tbody>${data.skills.map((s) => `
+          <tr><td class="id">${s.id} ${lk("skill", s.id)}</td><td>${D.classIcon(s.class, 12)} ${D.esc(s.class || "")}</td><td>${ago(s.last)}</td><td>${st(s)}</td><td class="inp">${input("skill", s.id)}</td></tr>`).join("")}</tbody></table>`
         : '<p class="done">Every skill you have seen has a name.</p>';
     } else {
       el.innerHTML = data.named.length
@@ -88,6 +97,9 @@
           <tr><td>${n.kind === "npc" ? "Monster" : "Skill"}</td><td class="id">${n.id}</td><td class="inp">${input(n.kind, n.id, n.name)}</td></tr>`).join("")}</tbody></table>`
         : '<p class="muted">Nothing named yet.</p>';
     }
+    el.querySelectorAll("[data-lk]").forEach((b) => (b.onclick = () => D.call("open_lookup", { kind: b.dataset.lk, id: Number(b.dataset.lid) }).catch((e) => D.toast(String(e)))));
+    document.getElementById("credit").innerHTML = `Monster and skill names from the <a id="gt">AION 2 Global Database (aion2.gaming.tools)</a>, used with the kind permission of its team${data.site_count ? ` · ${data.site_count} names fetched so far` : ""}.${data.lookup_on === false ? " Automatic look-ups are off in Settings." : ""}`;
+    document.getElementById("gt").onclick = () => D.call("open_lookup", { kind: "site", id: 0 });
     el.querySelectorAll("input[data-kind]").forEach((i) => {
       i.onkeydown = async (ev) => {
         if (ev.key === "Escape") { i.value = i.defaultValue; i.blur(); return; }

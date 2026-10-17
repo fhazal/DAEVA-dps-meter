@@ -4,6 +4,7 @@
 //! -> [`events::GameEvent`] -> [`engine::Engine`] -> JSON for the overlay.
 
 pub mod engine;
+pub mod gamingtools;
 pub mod events;
 pub mod json;
 pub mod lz4;

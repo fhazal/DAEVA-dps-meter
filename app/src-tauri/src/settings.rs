@@ -110,6 +110,8 @@ pub struct Settings {
     pub hotkeys: Hotkeys,
     pub share: Share,
     pub alerts: Alerts,
+    /// Fetch names of unknown monsters/skills from aion2.gaming.tools.
+    pub lookup_names: bool,
     pub demo: bool,
     pub window: Option<(i32, i32, u32, u32)>,
     pub history_keep_days: u32,
@@ -142,6 +144,7 @@ impl Default for Settings {
             hotkeys: Hotkeys::default(),
             share: Share::default(),
             alerts: Alerts::default(),
+            lookup_names: true,
             demo: false,
             window: None,
             history_keep_days: 30,

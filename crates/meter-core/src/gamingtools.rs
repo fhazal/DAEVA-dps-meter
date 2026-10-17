@@ -1,0 +1,113 @@
+//! Name lookups from the AION 2 Global Database (aion2.gaming.tools),
+//! used with the site admin's permission. One page per unknown id, cached
+//! forever by the app, credited in the UI.
+
+pub const SITE: &str = "https://aion2.gaming.tools";
+
+pub fn npc_url(template: u32) -> String {
+    format!("{SITE}/npcs/{template}")
+}
+
+pub fn skill_url(key: u32) -> String {
+    format!("{SITE}/skills/{key}")
+}
+
+/// Pulls the entry name out of a gaming.tools page.
+/// Titles look like "Abandoned Daeva - NPCs - Cogni - AION 2 Global".
+pub fn parse_name(html: &str, section: &str) -> Option<String> {
+    let from_title = tag_text(html, "title").and_then(|t| {
+        let t = decode_entities(&t);
+        let marker = format!(" - {section} - ");
+        let name = match t.find(&marker) {
+            Some(i) => t[..i].to_string(),
+            None if t.ends_with("AION 2 Global") => t.split(" - ").next()?.to_string(),
+            None => return None,
+        };
+        Some(name)
+    });
+    let name = from_title.or_else(|| tag_text(html, "h1").map(|h| decode_entities(&strip_tags(&h))))?;
+    let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
+    let lower = name.to_ascii_lowercase();
+    if name.is_empty() || name.chars().count() > 80 || lower.contains("not found") || lower.starts_with("all aion 2") || lower == "404" {
+        return None;
+    }
+    Some(name)
+}
+
+fn tag_text(html: &str, tag: &str) -> Option<String> {
+    let lower = html.to_ascii_lowercase();
+    let open = lower.find(&format!("<{tag}"))?;
+    let start = open + lower[open..].find('>')? + 1;
+    let end = start + lower[start..].find(&format!("</{tag}>"))?;
+    Some(html[start..end].trim().to_string())
+}
+
+fn strip_tags(s: &str) -> String {
+    let mut out = String::new();
+    let mut inside = false;
+    for c in s.chars() {
+        match c {
+            '<' => inside = true,
+            '>' => inside = false,
+            _ if !inside => out.push(c),
+            _ => {}
+        }
+    }
+    out
+}
+
+pub fn decode_entities(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(i) = rest.find('&') {
+        out.push_str(&rest[..i]);
+        rest = &rest[i..];
+        let Some(semi) = rest[..rest.len().min(12)].find(';') else {
+            out.push('&');
+            rest = &rest[1..];
+            continue;
+        };
+        let ent = &rest[1..semi];
+        let ch = match ent {
+            "amp" => Some('&'),
+            "lt" => Some('<'),
+            "gt" => Some('>'),
+            "quot" => Some('"'),
+            "apos" | "#39" | "#x27" => Some('\''),
+            "nbsp" => Some(' '),
+            _ if ent.starts_with("#x") => u32::from_str_radix(&ent[2..], 16).ok().and_then(char::from_u32),
+            _ if ent.starts_with('#') => ent[1..].parse().ok().and_then(char::from_u32),
+            _ => None,
+        };
+        match ch {
+            Some(c) => {
+                out.push(c);
+                rest = &rest[semi + 1..];
+            }
+            None => {
+                out.push('&');
+                rest = &rest[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn names_from_pages() {
+        let npc = r#"<html><head><meta charset="utf-8"><title>Abandoned Daeva - NPCs - Cogni - AION 2 Global</title></head><body><h1 class="x">Abandoned Daeva</h1></body></html>"#;
+        assert_eq!(parse_name(npc, "NPCs").as_deref(), Some("Abandoned Daeva"));
+        let skill = "<title>Earth&#39;s Retribution - Skills - Cleric - AION 2 Global</title>";
+        assert_eq!(parse_name(skill, "Skills").as_deref(), Some("Earth's Retribution"));
+        let h1only = "<title>x</title><h1><span>Black Claw</span> Manduri &amp; Co</h1>";
+        assert_eq!(parse_name(h1only, "NPCs").as_deref(), Some("Black Claw Manduri & Co"));
+        assert_eq!(parse_name("<title>All AION 2 Skills</title><h1>All AION 2 Skills</h1>", "Skills"), None);
+        assert_eq!(parse_name("<title>Page not found - AION 2 Global</title>", "NPCs"), None);
+        assert_eq!(npc_url(2400002), "https://aion2.gaming.tools/npcs/2400002");
+    }
+}

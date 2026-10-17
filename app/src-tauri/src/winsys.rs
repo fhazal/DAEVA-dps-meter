@@ -268,3 +268,19 @@ pub fn chime() {
 
 #[cfg(not(windows))]
 pub fn chime() {}
+
+/// Opens a web page in the default browser.
+#[cfg(windows)]
+pub fn open_url(url: &str) -> Result<(), String> {
+    use windows_sys::Win32::UI::Shell::ShellExecuteW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    let w = |s: &str| s.encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
+    let (op, file) = (w("open"), w(url));
+    let r = unsafe { ShellExecuteW(std::ptr::null_mut(), op.as_ptr(), file.as_ptr(), std::ptr::null(), std::ptr::null(), SW_SHOWNORMAL) };
+    if (r as isize) > 32 { Ok(()) } else { Err(format!("could not open the browser ({})", r as isize)) }
+}
+
+#[cfg(not(windows))]
+pub fn open_url(_url: &str) -> Result<(), String> {
+    Err("not supported".into())
+}

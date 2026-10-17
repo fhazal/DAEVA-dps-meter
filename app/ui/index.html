@@ -240,10 +240,12 @@
     $("target").hidden = false;
     const hp = t.hp_pct != null ? `<div class="hp"><i style="width:${(t.hp_pct * 100).toFixed(1)}%"></i></div>` : "";
     const kill = f.boss_killed ? '<span class="kill">KILLED</span>' : (t.hp_pct != null ? `<span class="meta">${D.pct(t.hp_pct, 1)}</span>` : "");
-    const nameit = t.named === false && t.npc_id ? `<span class="nameit" data-npc="${t.npc_id}" title="Give this monster its name (saved for good)">✎ name it</span>` : "";
+    const nameit = t.named === false && t.npc_id ? `<span class="nameit" data-npc="${t.npc_id}" title="Looking it up on aion2.gaming.tools… or type the name yourself (saved for good)">✎ name it</span><span class="nameit" data-lk="${t.npc_id}" title="Open on aion2.gaming.tools">🔎</span>` : "";
     $("target").innerHTML = `<div class="row1"><div class="name">${D.esc(t.name)}${nameit}</div>${kill}<div class="meta"><b>${D.fmt(f.total)}</b> dmg</div></div>${hp}`;
-    const b = $("target").querySelector(".nameit");
+    const b = $("target").querySelector(".nameit[data-npc]");
     if (b) b.onclick = (ev) => { ev.stopPropagation(); startNaming(Number(b.dataset.npc)); };
+    const l = $("target").querySelector("[data-lk]");
+    if (l) l.onclick = (ev) => { ev.stopPropagation(); D.call("open_lookup", { kind: "npc", id: Number(l.dataset.lk) }).catch((e) => D.toast(String(e))); };
   }
 
   function startNaming(npc) {
