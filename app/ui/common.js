@@ -150,7 +150,14 @@
     return `hsl(${h % 360} 55% 62%)`;
   }
 
+  // Window border in your class colour, shared by every window (remembered).
+  function applyClassBorder(cls) {
+    try { if (cls) localStorage.setItem("daeva.selfClass", cls); else cls = localStorage.getItem("daeva.selfClass"); } catch {}
+    const sh = document.querySelector(".shell");
+    if (sh) sh.style.setProperty("--cls", cls ? classColor(cls) : "");
+  }
   function applyTheme(ui) {
+    applyClassBorder(null);
     if (!ui) return;
     const r = document.documentElement.style;
     if (ui.accent) {
@@ -212,5 +219,5 @@
     });
   }
 
-  window.Daeva = { call, callJSON, fmt, pct, dur, when, esc, classColor, classIcon, skillIcon, npcIcon, eventIcon, loadArt, art, applyTheme, toast, icon, winAction, params, wireTitlebar };
+  window.Daeva = { call, callJSON, fmt, pct, dur, when, esc, classColor, classIcon, skillIcon, npcIcon, eventIcon, loadArt, art, applyTheme, applyClassBorder, toast, icon, winAction, params, wireTitlebar };
 })();

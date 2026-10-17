@@ -965,6 +965,7 @@ impl Engine {
                 .set("dmg_taken", *f.targets.get(&t).unwrap_or(&0))
                 .set("hp_pct", hp_pct)
                 .set("max_hp", a.and_then(|a| a.max_hp))
+                .set("hp", a.and_then(|a| a.hp))
                 .build()
         });
         Obj::new()
