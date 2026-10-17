@@ -244,7 +244,7 @@
       next.hidden = false;
       next.innerHTML = a.next.map((o) => {
         const live = o.active;
-        const t = live ? `live · ${countdown(o.ends - now)} left` : countdown(o.starts - now);
+        const t = live ? `Now · ${countdown(o.ends - now)} left` : countdown(o.starts - now);
         const cls = live ? "live" : o.starts - now < 600 ? "soon" : "";
         const at = new Date(o.starts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
         return `<span class="${cls}" title="${D.esc(o.name)} · ${at}${o.note ? " · " + D.esc(o.note) : ""}">${D.esc(o.emoji || "")} ${D.esc(o.short)} <b>${t}</b></span>`;
