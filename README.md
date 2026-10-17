@@ -1,104 +1,177 @@
+<div align="center">
+
+<img src="docs/branding/daeva-meter-banner.png" alt="Daeva Meter" width="260">
+
 # Daeva Meter
 
-An open, community-run damage meter for **AION 2**, from Bajubesi Network.
+**A passive damage meter for AION 2, made for the Bajubesi Network community.**
+Live DPS · boss target card · skill breakdowns · event alerts · fight history
 
-It reads the game's network traffic with Npcap and shows live DPS, damage share, crits and per-skill breakdowns in a small overlay that stays on top of the game. It **never touches the game client**: no injection, no memory reading and no packets sent.
+[![Build](https://github.com/fhazal/DAEVA-dps-meter/actions/workflows/build.yml/badge.svg)](https://github.com/fhazal/DAEVA-dps-meter/actions/workflows/build.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-e8b04b)](LICENSE)
+![Windows 10/11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078d4?logo=windows&logoColor=white)
+![Tauri 2](https://img.shields.io/badge/Tauri-2-24c8db?logo=tauri&logoColor=white)
+![Rust](https://img.shields.io/badge/Rust-stable-dea584?logo=rust&logoColor=white)
 
-> **Status: Phase 1.** The meter, overlay, history, research tools and demo mode are complete. The AION 2 packet definitions (`definitions/aion2.json`) are **not decoded yet**, so until Phase 2 the meter can't show real fights. Use demo mode to try the overlay, and Research mode to record captures for decoding.
+[![Join our Discord](https://img.shields.io/badge/Discord-Join%20Bajubesi-5865f2?logo=discord&logoColor=white&style=for-the-badge)](https://discord.gg/TCmm8cH3GE)
+[![Live timers](https://img.shields.io/badge/Website-aion2.bajubesi.org-8b5cf6?style=for-the-badge)](https://aion2.bajubesi.org)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20us-ff5e5b?logo=ko-fi&logoColor=white&style=for-the-badge)](https://ko-fi.com/bajubesi)
 
-> **Fair warning:** NCSoft's terms of service generally prohibit third-party tools. Passive packet readers are hard to detect, but they are not sanctioned. Use it at your own risk.
+</div>
 
-## Features
+> [!NOTE]
+> Daeva Meter is an unofficial fan project by the **Bajubesi Network** community. It is not affiliated with or endorsed by NCSOFT. It only **reads** your network traffic: it never injects into, modifies or talks to the game client.
 
-- Live overlay that stays on top, with click-through, adjustable opacity and scale, and class colours. It shows rank, DPS or damage, % share, the target's HP and "killed" status.
-- Each fight starts automatically and ends when you stop dealing damage or the main target dies. Summon and pet damage counts for its owner.
-- **Details** window for each player: DPS timeline, plus a per-skill table with damage, share, hits, crit %, back-attack %, average and max.
-- **History** window: this session's fights plus saved fights on disk (kept for 30 days by default).
-- **Copy summary**: a Discord-ready table on the clipboard, from a button or `Ctrl+Shift+C`.
-- **Global hotkeys** that work while the game has focus. All of them can be rebound.
-- **Privacy mode** hides other players' names for streams and screenshots.
-- **Share with the Daeva bot** (optional, off by default) sends finished fights and rare loot to your community's bot for leaderboards and Discord cards. See [docs/BOT_API.md](docs/BOT_API.md).
-- **Research mode** records game-server traffic, with timestamped markers, for protocol decoding.
-- **Definitions-driven decoder**: the protocol lives in a JSON file, so after a game patch you replace that file instead of the app. See [docs/DEFINITIONS.md](docs/DEFINITIONS.md).
+<p align="center">
+  <img src="docs/branding/preview.png" alt="Daeva Meter overlay with an event alert" width="460">
+</p>
 
-### Default hotkeys
+---
+
+## ✨ Features
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### 📊 Live overlay
+DPS, total damage and share for everyone in the fight, coloured by class, in a small always-on-top window with click-through, opacity and scale.
+
+</td>
+<td width="50%" valign="top">
+
+### 🎯 Target card
+The monster's portrait and name, HP as current / max with a health bar, a **kill-time estimate** and the damage and DPS on it. Turns green with **KILLED** when it falls.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### 🔍 Details and history
+Per-player skill tables (crit, back, multi-hit, parry), healing and damage taken, a DPS timeline, and every fight saved for later.
+
+</td>
+<td valign="top">
+
+### 🔔 Event alerts
+Rift, Shugo Festival, Invasion, field bosses and Gartua, straight from the [Daeva bot](https://github.com/fhazal/Daeva-aion2-discordbot)'s schedule: a countdown line under the meter, a banner and a chime before each event.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### 🏷️ Names and icons
+Monster and skill names and game icons arrive automatically. Anything new can be named in two clicks with **✎ name it**.
+
+</td>
+<td valign="top">
+
+### 🩺 One-key problem reports
+`Ctrl+Shift+P` saves the last few minutes of game traffic as a zip on your Desktop, so bugs can be fixed from real data.
+
+</td>
+</tr>
+</table>
+
+<details>
+<summary><b>Default hotkeys</b></summary>
 
 | Action | Keys |
-|---|---|
+| --- | --- |
 | Toggle click-through | `Ctrl+Shift+L` |
 | End current fight | `Ctrl+Shift+R` |
 | Hide / show overlay | `Ctrl+Shift+H` |
-| Copy summary | `Ctrl+Shift+C` |
+| Copy summary for Discord | `Ctrl+Shift+C` |
+| Report a problem | `Ctrl+Shift+P` |
 | Research marker | `Ctrl+Shift+M` |
-| Report a problem (saves a zip to the Desktop) | `Ctrl+Shift+P` |
 
-## When something looks wrong
+All of them work while the game has focus and can be changed in Settings.
 
-Press **Ctrl+Shift+P** (or Settings → Report a problem). The meter saves `DaevaMeter-report-<time>.zip` on your Desktop: the last 3 minutes of game-server traffic plus what the meter showed. Nothing else on your PC is included. If the meter notices that game traffic has stopped decoding (typical after a game patch), a yellow warning appears at the bottom of the overlay; click it to save the same report.
+</details>
 
-## Installing (players)
+---
 
-1. Install **Npcap** from <https://npcap.com/#download> with the default options. Leave "Restrict Npcap driver's access to Administrators only" **unticked**. Otherwise you'll have to run the meter as administrator.
-2. Run `Daeva Meter_x.y.z_x64-setup.exe`. The installer isn't code-signed yet, so Windows SmartScreen may warn you. Choose **More info → Run anyway**.
-3. Start AION 2, then Daeva Meter. The dot in the top-left turns green while it's capturing.
+## 🚀 Install
 
-The game must run in **borderless/windowed** mode for the overlay to show above it.
+1. Install **[Npcap](https://npcap.com/#download)** with the default options. Leave *"Restrict Npcap driver's access to Administrators only"* **unticked**.
+2. Run the Daeva Meter installer. It isn't code-signed yet, so Windows SmartScreen may warn you: choose **More info → Run anyway**.
+3. Start AION 2 in **borderless or windowed** mode, then Daeva Meter. The dot top-left turns green while it's capturing.
 
-## Building
+> [!TIP]
+> To update, just run the new installer over the top. If an uninstall screen ever asks, leave **"delete application data"** unticked, or you lose your settings, fight history and the names you typed.
 
-The project has two parts:
+> [!TIP]
+> Start the meter **before** you enter a zone. Monsters that were already around when it started can't be identified until you change zone (they show as *Unknown monster*).
 
-| Path | What it is | Builds on |
-|---|---|---|
-| `crates/meter-core` | Capture parsing, TCP reassembly, protocol decoder, combat engine. No dependencies. | any OS |
-| `crates/research` | `daeva-research` CLI for decoding captures | any OS |
-| `app/` | Windows app (Tauri 2 + WebView2), with the overlay UI in `app/ui` | Windows |
+---
 
-**Automatic:** push to GitHub and the included workflow (`.github/workflows/build.yml`) tests the core, builds the Windows installer and `daeva-research.exe`, and uploads them as build artifacts. Push a tag such as `v0.1.0` to publish a GitHub Release.
+## 🩺 When something looks wrong
 
-**On your PC** (Windows 10/11):
+Press **`Ctrl+Shift+P`** (or Settings → Report a problem). A `DaevaMeter-report-<time>.zip` appears on your Desktop with the last 3 minutes of game-server traffic and what the meter showed. Nothing else from your PC is included. If the meter notices the game traffic has stopped decoding, usually after a patch, a yellow warning appears under the overlay: click it for the same report.
 
-```powershell
-# one-time: Rust (https://rustup.rs) and Node.js 20+
-cargo test --workspace                 # core + research
-cd app
-npx @tauri-apps/cli@2 dev              # run with hot reload
-npx @tauri-apps/cli@2 build            # installer -> app/src-tauri/target/release/bundle/nsis/
-```
-
-## Naming monsters and skills
-
-The game sends monster template numbers, never names (the client reads names from its own files). So the meter builds its own name list, typed in once by a player:
-
-- An unnamed target shows **✎ name it** on the overlay. Type the name from the in-game target frame and press Enter.
-- Unnamed skills show **✎** in the Details window.
-- **Settings → Monster & skill names** lists everything met without a name (with max HP, zone and when it was seen) and everything already named.
-
-Monster and skill names come automatically from the [AION 2 Global Database](https://aion2.gaming.tools). The 🔎 buttons open the matching page.
-
-Names you type are saved in `my-names.json` in the data folder. They take effect at once, fix older fights, survive updates, and override `names.json`. One skill name covers every rank and variant of that skill. This file is the start of the community's own database.
-
-## Where things live on a player's PC
+<details>
+<summary><b>Where things live on your PC</b></summary>
 
 `%APPDATA%\org.bajubesi.daevameter\`
 
-- `settings.json`
-- `my-names.json`: monster and skill names you gave (your own database; keep it)
-- `gaming-tools\` and `gaming-tools-names.json`: monster and skill names (updated automatically)
-- `unnamed.json`: monsters and skills met without a name, waiting to be named
-- `history\fight-*.json`: one file per finished fight (the same format the bot receives)
-- `research\capture-*.pcap` and `*.markers.json`
-- `definitions\`: put an updated `aion2.json` or `names.json` here to override the bundled copy
+| File | What it is |
+| --- | --- |
+| `settings.json` | Your settings |
+| `my-names.json` | Monster and skill names you typed. Your own database: keep it |
+| `gaming-tools-names.json` | Monster and skill names (updated automatically) |
+| `history\fight-*.json` | One file per finished fight |
+| `definitions\` | Drop an updated `aion2.json` here after a game patch |
 
-## Roadmap
+</details>
 
-- **Phase 2:** decode AION 2 framing, damage, actors and names, skills, deaths, loot and zones from research captures. Build the `names.json` skill/NPC tables.
-- **Phase 3:** buff uptime, a death recap, a boss timeline, field-boss alerts, auto-update, and the Daeva bot API and portal pages.
+---
 
-## Credits
+## 🛠️ Building
 
-Monster and skill names and game icons: [AION 2 Global Database](https://aion2.gaming.tools) by gaming.tools, with thanks to their team. AION 2 and its artwork belong to NCSOFT.
+<details>
+<summary><b>Project layout and build steps</b></summary>
 
-## Licence
+| Path | What it is |
+| --- | --- |
+| `crates/meter-core` | Capture parsing, TCP reassembly, protocol decoder, combat engine (no dependencies, any OS) |
+| `crates/research` | `daeva-research` CLI for decoding captures |
+| `app/` | Windows app (Tauri 2 + WebView2); the overlay UI is in `app/ui` |
+| `definitions/aion2.json` | The protocol, as data: after a patch you update this file, not the app |
 
-MIT. Not affiliated with or endorsed by NCSoft. AION is a trademark of NCSoft Corporation.
+Every push builds the Windows installer on GitHub Actions. To build on your own PC (Windows 10/11, with [Rust](https://rustup.rs) and Node.js 20+):
+
+```powershell
+cargo test --workspace
+cd app
+npx @tauri-apps/cli@2 dev      # run with hot reload
+npx @tauri-apps/cli@2 build    # installer in app/src-tauri/target/release/bundle/nsis/
+```
+
+More: [docs/DECODING.md](docs/DECODING.md) · [docs/DEFINITIONS.md](docs/DEFINITIONS.md) · [docs/BOT_API.md](docs/BOT_API.md)
+
+</details>
+
+---
+
+## 🗺️ Roadmap
+
+- 💎 Loot decoding and rare-drop cards in Discord
+- 🏆 Daeva bot leaderboards: top DPS of the day, most active players
+- ⏳ Buff uptime and a death recap
+- ⬆️ Releases page with automatic update checks
+
+---
+
+## 🙏 Credits
+
+- **[AION 2 Global Database](https://aion2.gaming.tools)** by gaming.tools: monster and skill names and game icons, with thanks to their team.
+- **[Daeva](https://github.com/fhazal/Daeva-aion2-discordbot)**, our Discord assistant, supplies the event schedule.
+- Released under the [MIT licence](LICENSE).
+
+<div align="center">
+
+<sub>Made with ☕ by the <b>Bajubesi Network</b> community · AION 2 and its artwork belong to NCSOFT Corporation.</sub>
+
+</div>
