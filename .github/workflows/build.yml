@@ -34,9 +34,22 @@ jobs:
           workspaces: |
             app/src-tauri
             .
+      # The cache keeps compiled output between runs; always rebuild the app
+      # crate itself so its build script re-embeds the icon and version.
+      - name: Rebuild app crate from scratch
+        run: cargo clean --release -p daeva-meter --manifest-path app/src-tauri/Cargo.toml
       - name: Build meter installer
         working-directory: app
         run: npx --yes @tauri-apps/cli@2 build
+      - name: Show the icon embedded in the program
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Drawing
+          $exe = Get-ChildItem app/src-tauri/target/release -Filter *.exe | Where-Object { $_.Name -notlike '*setup*' } | Select-Object -First 1
+          $ico = [System.Drawing.Icon]::ExtractAssociatedIcon($exe.FullName)
+          $bmp = $ico.ToBitmap(); $ms = New-Object IO.MemoryStream
+          $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+          Write-Output "EMBEDDED_ICON_PNG_B64=$([Convert]::ToBase64String($ms.ToArray()))"
       - name: Build research toolkit
         run: cargo build --release -p research
       - name: Collect artifacts
