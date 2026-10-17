@@ -3,3 +3,7 @@ app/src-tauri/target/
 app/src-tauri/gen/
 *.pcap
 *.markers.json
+
+# Locally generated name tables (personal testing only, never commit)
+names-local*.json
+*abyss*.json
