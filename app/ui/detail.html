@@ -94,6 +94,7 @@
       .concat(targets.map((t) => `<option value="${t.id}" ${String(t.id) === String(target) ? "selected" : ""}>${D.esc(t.name)} · ${D.fmt(t.dmg)}</option>`)).join("");
     const head = `
       <div class="hdr">
+        ${D.classIcon(data.class, 22)}
         <span class="big acc" style="color:${color}">${D.fmt(tab === "taken" ? data.taken : tab === "heal" ? data.heal : data.dmg)}</span>
         <span class="lbl">${tab === "taken" ? "damage taken" : tab === "heal" ? "healing" : "damage"}</span>
         <span class="big">${D.pct(data.active_share ?? 1)}</span><span class="lbl">active</span>

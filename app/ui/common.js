@@ -45,15 +45,35 @@
 
   // Class colours (AION 2 classes plus a fallback hash for unknown ids).
   const CLASS_COLORS = {
-    gladiator: "#e07a4f",
-    templar: "#d9b44a",
-    assassin: "#b56fd6",
-    ranger: "#6fb55a",
-    sorcerer: "#5aa2e0",
-    spiritmaster: "#8f7ae0",
-    cleric: "#e8e2c4",
-    chanter: "#4fc1b0",
+    gladiator: "#e0794a",
+    templar: "#e3b23c",
+    assassin: "#b96fe0",
+    ranger: "#7bc25a",
+    sorcerer: "#4f9fe8",
+    elementalist: "#8a7cf0",
+    spiritmaster: "#8a7cf0",
+    cleric: "#f0e3b0",
+    chanter: "#3fc7b4",
   };
+  // Original line-art class glyphs (16x16, stroke = currentColor).
+  const CLASS_ICONS = {
+    gladiator: '<path d="M3 13l7-7M10 6l2.5-2.5L13 3l-.5.5L10 6"/><path d="M4.5 9.5l2 2M2.5 13.5l1-1"/><path d="M8 3.5l1 1M11.5 7l1 1"/>',
+    templar: '<path d="M8 2l5 2v4c0 3-2.2 5-5 6-2.8-1-5-3-5-6V4z"/><path d="M8 5v6M6 7.5h4"/>',
+    assassin: '<path d="M3 13l6.5-6.5M9.5 6.5L13 3l-.6 3.4z"/><path d="M5 9.5l1.5 1.5M10 13l1.5-1.5L13 13"/>',
+    ranger: '<path d="M4 2.5c4.5 2 4.5 9 0 11"/><path d="M4 2.5v11"/><path d="M2.5 8h10M10.5 6l2 2-2 2"/>',
+    sorcerer: '<path d="M8 2.5c2 2.2 3.5 3.8 3.5 6a3.5 3.5 0 0 1-7 0c0-1.6.9-2.7 1.8-3.5.1 1.2.7 2 1.4 2.2C7.4 5.5 7.6 3.9 8 2.5z"/>',
+    elementalist: '<path d="M8 8a2 2 0 1 1 2-2c0 2.8-2.2 5-5 5"/><path d="M8 8a2 2 0 1 0-2 2c2.8 0 5-2.2 5-5" opacity=".7"/><circle cx="8" cy="8" r="6"/>',
+    spiritmaster: '<path d="M8 8a2 2 0 1 1 2-2c0 2.8-2.2 5-5 5"/><circle cx="8" cy="8" r="6"/>',
+    cleric: '<path d="M8 2v12M4.5 5.5h7"/><circle cx="8" cy="5.5" r="2.2"/>',
+    chanter: '<circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="8" r="2.5"/><path d="M8 2.5v2.5M8 11v2.5M2.5 8H5M11 8h2.5"/>',
+  };
+  function classIcon(cls, size) {
+    const key = String(cls || "").toLowerCase();
+    const path = CLASS_ICONS[key];
+    if (!path) return "";
+    const px = size || 14;
+    return `<svg class="cls-icon" viewBox="0 0 16 16" width="${px}" height="${px}" style="color:${classColor(cls)};flex:none" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="${key}">${path}</svg>`;
+  }
   function classColor(cls, name) {
     const key = String(cls || "").toLowerCase();
     if (CLASS_COLORS[key]) return CLASS_COLORS[key];
@@ -124,5 +144,5 @@
     });
   }
 
-  window.Daeva = { call, callJSON, fmt, pct, dur, when, esc, classColor, applyTheme, toast, icon, winAction, params, wireTitlebar };
+  window.Daeva = { call, callJSON, fmt, pct, dur, when, esc, classColor, classIcon, applyTheme, toast, icon, winAction, params, wireTitlebar };
 })();

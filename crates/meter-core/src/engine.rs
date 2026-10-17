@@ -413,10 +413,12 @@ impl Engine {
                     }
                 }
                 let attacker = self.resolve_owner(*src);
+                self.learn_class(attacker, *skill);
                 let key = if fl & flags::DOT != 0 { *skill | DOT_KEY } else { *skill };
                 // Friendly on friendly: the game reports heals in the same
                 // message as damage.
                 if self.is_friendly(attacker) && self.is_friendly(self.resolve_owner(*tgt)) {
+                    // (class already learned above)
                     self.record_heal(*ts, attacker, *tgt, key, *amount, *fl);
                     return finished;
                 }
@@ -517,6 +519,7 @@ impl Engine {
             }
             GameEvent::Heal { ts, src, tgt, skill, amount, flags: fl } => {
                 let healer = self.resolve_owner(*src);
+                self.learn_class(healer, *skill);
                 let key = if fl & flags::DOT != 0 { *skill | DOT_KEY } else { *skill };
                 self.record_heal(*ts, healer, *tgt, key, *amount, *fl);
             }
@@ -672,6 +675,22 @@ impl Engine {
             self.finish()
         } else {
             None
+        }
+    }
+
+    /// Player class skills carry the class in their id (18xxxxxx = Chanter,
+    /// ...); names.json maps the two-digit prefix to a class name.
+    fn learn_class(&mut self, id: u64, skill: u32) {
+        if !(10_000_000..20_000_000).contains(&skill) {
+            return;
+        }
+        let key = (skill / 1_000_000).to_string();
+        if !self.names.classes.contains_key(&key) {
+            return;
+        }
+        let a = self.actor(id);
+        if a.class.is_none() && matches!(a.kind, ActorKind::Player | ActorKind::Unknown) {
+            a.class = Some(key);
         }
     }
 

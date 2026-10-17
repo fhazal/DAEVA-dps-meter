@@ -1,10 +1,21 @@
 {
   "classes": {
-    "1": "Gladiator", "2": "Templar", "3": "Assassin", "4": "Ranger",
-    "5": "Sorcerer", "6": "Spiritmaster", "7": "Cleric", "8": "Chanter"
+    "11": "Gladiator",
+    "12": "Templar",
+    "13": "Assassin",
+    "14": "Ranger",
+    "15": "Sorcerer",
+    "16": "Elementalist",
+    "17": "Cleric",
+    "18": "Chanter"
   },
   "grades": {
-    "0": "Common", "1": "Superior", "2": "Heroic", "3": "Fabled", "4": "Eternal", "5": "Mythic"
+    "0": "Common",
+    "1": "Superior",
+    "2": "Heroic",
+    "3": "Fabled",
+    "4": "Eternal",
+    "5": "Mythic"
   },
   "skills": {},
   "npcs": {},

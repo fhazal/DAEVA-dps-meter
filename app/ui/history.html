@@ -85,7 +85,7 @@
       el.innerHTML = `<div class="fight">
         <div class="hd"><span class="t">${D.esc(rec.target ? rec.target.name : "Fight")}</span><span class="muted">${D.dur(rec.duration)} · ${D.fmt(rec.total)} dmg · ${D.fmt(rec.dps)}/s</span><span class="sp"></span><button class="btn" id="bCopyF">Copy summary</button></div>
         <table class="grid"><thead><tr><th>Player</th><th>DPS</th><th>Damage</th><th>Share</th><th>Crit</th><th>Max hit</th></tr></thead><tbody>
-        ${rec.players.map((p) => `<tr class="click" data-id="${p.id}"><td><span class="dotc" style="background:${D.classColor(p.class, p.name)}"></span>${D.esc(p.name)} <span class="muted">${D.esc(p.class || "")}</span></td><td>${D.fmt(p.dps)}</td><td>${D.fmt(p.dmg)}</td><td>${D.pct(p.share, 1)}</td><td>${D.pct(p.crit_rate)}</td><td>${D.fmt(p.max_hit)}</td></tr>`).join("")}
+        ${rec.players.map((p) => `<tr class="click" data-id="${p.id}"><td>${D.classIcon(p.class, 13) || `<span class="dotc" style="background:${D.classColor(p.class, p.name)}"></span>`} ${D.esc(p.name)} <span class="muted">${D.esc(p.class || "")}</span></td><td>${D.fmt(p.dps)}</td><td>${D.fmt(p.dmg)}</td><td>${D.pct(p.share, 1)}</td><td>${D.pct(p.crit_rate)}</td><td>${D.fmt(p.max_hit)}</td></tr>`).join("")}
         </tbody></table>
         ${rec.loot && rec.loot.length ? `<h2>Loot</h2><table class="grid"><tbody>${rec.loot.map((l) => `<tr><td>${D.esc(l.item)}${l.count > 1 ? " ×" + l.count : ""}</td><td>${D.esc(l.grade_name || (l.grade != null ? "grade " + l.grade : ""))}</td><td>${D.esc(l.who)}</td></tr>`).join("")}</tbody></table>` : ""}
       </div>`;

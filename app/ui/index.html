@@ -35,8 +35,9 @@
   .row.self { background: var(--self); }
   .row > * { position: relative; }
   .rank { color: var(--dim); font-size: 11px; text-align: right; font-variant-numeric: tabular-nums; }
-  .who { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .who .cls { color: var(--muted); font-size: 11px; margin-left: 5px; }
+  .who { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 6px; }
+  .who .nm { overflow: hidden; text-overflow: ellipsis; }
+  .who .cls { color: var(--muted); font-size: 11px; }
   .val { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; font-weight: 600; }
   .val small { color: var(--muted); font-weight: 400; margin-left: 6px; font-size: 11px; display: inline-block; min-width: 34px; }
   .val .sub { color: var(--muted); font-weight: 400; font-size: 11px; margin-left: 6px; }
@@ -196,7 +197,7 @@
         <i class="fill" style="width:${((v / top) * 100).toFixed(1)}%;background:${color}"></i>
         <i class="edge" style="background:${color}"></i>
         <span class="rank">${i + 1}</span>
-        <span class="who">${D.esc(displayName(p, i))}${p.class ? `<span class="cls">${D.esc(p.class)}</span>` : ""}</span>
+        <span class="who">${D.classIcon(p.class, 13)}<span class="nm">${D.esc(displayName(p, i))}</span>${p.class ? `<span class="cls">${D.esc(p.class)}</span>` : ""}</span>
         <span class="val">${main}${heal}${sub}</span>
       </div>`;
     }).join("");
