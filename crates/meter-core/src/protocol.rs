@@ -884,10 +884,14 @@ fn emit(e: &Emit, header: &Scope, scope: &Scope, ts: f64, out: &mut Vec<GameEven
             ("evade", flags::EVADE),
             ("dot", flags::DOT),
             ("resist", flags::RESIST),
+            ("double", flags::DOUBLE),
         ] {
             if num(k).unwrap_or(0) != 0 {
                 fl |= bit;
             }
+        }
+        if let Some(c) = num("cast") {
+            fl |= ((c as u32 & 0xffff) + 1) << flags::CAST_SHIFT;
         }
         let ev = match e.event.as_str() {
             "damage" => GameEvent::Damage {
@@ -917,6 +921,7 @@ fn emit(e: &Emit, header: &Scope, scope: &Scope, ts: f64, out: &mut Vec<GameEven
                 max_hp: num("max_hp"),
             },
             "self" => GameEvent::SelfId { id: num("id").unwrap_or(0), name: txt("name") },
+            "self_stats" => GameEvent::SelfStats { cp: num("cp") },
             "hp" => GameEvent::Hp { ts, id: num("id").unwrap_or(0), hp: num("hp").unwrap_or(0), max_hp: num("max_hp") },
             "zone" => GameEvent::Zone { ts, zone_id: num("zone").unwrap_or(0) as u32 },
             "loot" => GameEvent::Loot {

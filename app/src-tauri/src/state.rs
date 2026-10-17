@@ -384,6 +384,7 @@ impl Core {
             .set("hotkey_errors", Value::Arr(st.hotkey_errors.iter().map(|d| Value::from(d.as_str())).collect()))
             .set("save_error", st.last_save_error.clone())
             .set("self", e.self_id.map(|id| e.actor_name(id)))
+            .set("self_cp", e.self_cp)
             .set("uploads_pending", self.uploads.len())
             .set("version", env!("CARGO_PKG_VERSION"))
             .build();

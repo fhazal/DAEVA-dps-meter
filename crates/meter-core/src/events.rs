@@ -38,6 +38,10 @@ pub mod flags {
     pub const EVADE: u32 = 1 << 5;
     pub const DOT: u32 = 1 << 6;
     pub const RESIST: u32 = 1 << 7;
+    pub const DOUBLE: u32 = 1 << 8;
+    /// Bits 16..31 carry the cast id (+1, 0 = unknown) so hits can be
+    /// grouped into casts without widening the event.
+    pub const CAST_SHIFT: u32 = 16;
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -60,6 +64,8 @@ pub enum GameEvent {
     Zone { ts: f64, zone_id: u32 },
     Loot { ts: f64, who: u64, item_id: u32, grade: Option<u32>, count: u32 },
     Buff { ts: f64, src: u64, tgt: u64, buff_id: u32, applied: bool, duration_ms: Option<u64> },
+    /// Stats about the local player (combat power, ...).
+    SelfStats { cp: Option<u64> },
 }
 
 impl GameEvent {
@@ -74,6 +80,7 @@ impl GameEvent {
             GameEvent::Zone { .. } => "zone",
             GameEvent::Loot { .. } => "loot",
             GameEvent::Buff { .. } => "buff",
+            GameEvent::SelfStats { .. } => "self_stats",
         }
     }
 }

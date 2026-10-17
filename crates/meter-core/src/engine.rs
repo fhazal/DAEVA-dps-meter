@@ -76,8 +76,10 @@ impl Names {
         if id == 0 {
             return "Auto attack".into();
         }
-        for div in [1u32, 10, 100, 1000, 10000] {
-            if let Some(s) = self.skills.get(&(id / div)) {
+        // exact id, then the same skill at its base rank (last digits zeroed),
+        // then coarser ids
+        for cand in [id, id / 10 * 10, id / 100 * 100, id / 10, id / 100, id / 1000, id / 10000] {
+            if let Some(s) = self.skills.get(&cand) {
                 return s.clone();
             }
         }
@@ -97,9 +99,51 @@ pub struct SkillStat {
     pub crits: u64,
     pub back: u64,
     pub perfect: u64,
+    pub double: u64,
     pub max: u64,
     pub min: u64,
     pub dot: u64,
+    /// Number of casts (hits grouped by cast id).
+    pub casts: u64,
+    /// Casts that landed more than one hit.
+    pub multi: u64,
+    last_cast: u32,
+    cast_hits: u32,
+}
+
+impl SkillStat {
+    fn add(&mut self, amount: u64, fl: u32) {
+        self.dmg += amount;
+        self.hits += 1;
+        if fl & flags::CRIT != 0 {
+            self.crits += 1;
+        }
+        if fl & flags::BACK != 0 {
+            self.back += 1;
+        }
+        if fl & flags::PERFECT != 0 {
+            self.perfect += 1;
+        }
+        if fl & flags::DOUBLE != 0 {
+            self.double += 1;
+        }
+        if fl & flags::DOT != 0 {
+            self.dot += 1;
+        }
+        self.max = self.max.max(amount);
+        self.min = if self.min == 0 { amount } else { self.min.min(amount) };
+        let cast = fl >> flags::CAST_SHIFT;
+        if cast == 0 || cast != self.last_cast {
+            self.casts += 1;
+            self.last_cast = cast;
+            self.cast_hits = 1;
+        } else {
+            self.cast_hits += 1;
+            if self.cast_hits == 2 {
+                self.multi += 1;
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -117,7 +161,12 @@ pub struct ActorStat {
     pub first: f64,
     pub last: f64,
     pub skills: HashMap<u32, SkillStat>,
+    /// Same breakdown split per target (for the target selector).
+    pub target_skills: HashMap<u64, HashMap<u32, SkillStat>>,
     pub by_target: HashMap<u64, u64>,
+    /// Damage taken per attacker.
+    pub taken_from: HashMap<u64, u64>,
+    pub doubles: u64,
     /// Damage per second bucket from fight start.
     pub timeline: Vec<u64>,
 }
@@ -215,6 +264,7 @@ pub struct Engine {
     /// Set when the main target dies: the fight ends at this time unless
     /// damage continues (chain-pulling packs stays one fight).
     pending_end: Option<f64>,
+    pub self_cp: Option<u64>,
 }
 
 impl Engine {
@@ -235,6 +285,7 @@ impl Engine {
             events_seen: 0,
             loot_seen: 0,
             pending_end: None,
+            self_cp: None,
         }
     }
 
@@ -303,6 +354,7 @@ impl Engine {
                     if let Some(f) = self.current.as_mut() {
                         let s = f.stats.entry(t).or_insert_with(|| ActorStat { first: *ts, last: *ts, ..Default::default() });
                         s.taken += amount;
+                        *s.taken_from.entry(attacker).or_default() += amount;
                     }
                     return finished;
                 }
@@ -340,23 +392,11 @@ impl Engine {
                     }
                     s.timeline[bucket] += amount;
                 }
-                let sk = s.skills.entry(*skill).or_default();
-                sk.dmg += amount;
-                sk.hits += 1;
-                if crit {
-                    sk.crits += 1;
+                if fl & flags::DOUBLE != 0 {
+                    s.doubles += 1;
                 }
-                if fl & flags::BACK != 0 {
-                    sk.back += 1;
-                }
-                if fl & flags::PERFECT != 0 {
-                    sk.perfect += 1;
-                }
-                if fl & flags::DOT != 0 {
-                    sk.dot += 1;
-                }
-                sk.max = sk.max.max(*amount);
-                sk.min = if sk.min == 0 { *amount } else { sk.min.min(*amount) };
+                s.skills.entry(*skill).or_default().add(*amount, *fl);
+                s.target_skills.entry(*tgt).or_default().entry(*skill).or_default().add(*amount, *fl);
             }
             GameEvent::Heal { ts, src, amount, .. } => {
                 let healer = self.resolve_owner(*src);
@@ -459,6 +499,11 @@ impl Engine {
                 }
             }
             GameEvent::Buff { .. } => {}
+            GameEvent::SelfStats { cp } => {
+                if cp.is_some() {
+                    self.self_cp = *cp;
+                }
+            }
         }
         finished
     }
@@ -643,10 +688,23 @@ impl Engine {
 
     /// Per-skill breakdown and timeline for one actor in one fight.
     pub fn actor_detail(&self, f: &Fight, actor: u64) -> Option<Value> {
+        self.actor_detail_for(f, actor, None)
+    }
+
+    /// Per-skill breakdown, rates, targets, damage taken and timeline for one
+    /// actor. `target` restricts the skill table to hits on that target.
+    pub fn actor_detail_for(&self, f: &Fight, actor: u64, target: Option<u64>) -> Option<Value> {
         let s = f.stats.get(&actor)?;
-        let mut skills: Vec<(&u32, &SkillStat)> = s.skills.iter().collect();
+        let empty = HashMap::new();
+        let table = match target {
+            Some(t) => s.target_skills.get(&t).unwrap_or(&empty),
+            None => &s.skills,
+        };
+        let mut skills: Vec<(&u32, &SkillStat)> = table.iter().collect();
         skills.sort_by(|a, b| b.1.dmg.cmp(&a.1.dmg));
         let dur = f.duration();
+        let total: u64 = table.values().map(|k| k.dmg).sum();
+        let rate = |n: u64, d: u64| if d > 0 { n as f64 / d as f64 } else { 0.0 };
         let sk: Vec<Value> = skills
             .iter()
             .map(|(id, k)| {
@@ -655,11 +713,14 @@ impl Engine {
                     .set("name", self.names.skill(**id))
                     .set("dmg", k.dmg)
                     .set("dps", k.dmg as f64 / dur)
-                    .set("share", if s.dmg > 0 { k.dmg as f64 / s.dmg as f64 } else { 0.0 })
+                    .set("share", rate(k.dmg, total))
                     .set("hits", k.hits)
-                    .set("crit_rate", if k.hits > 0 { k.crits as f64 / k.hits as f64 } else { 0.0 })
-                    .set("back_rate", if k.hits > 0 { k.back as f64 / k.hits as f64 } else { 0.0 })
-                    .set("perfect_rate", if k.hits > 0 { k.perfect as f64 / k.hits as f64 } else { 0.0 })
+                    .set("casts", k.casts)
+                    .set("multi_rate", rate(k.multi, k.casts))
+                    .set("crit_rate", rate(k.crits, k.hits))
+                    .set("back_rate", rate(k.back, k.hits))
+                    .set("perfect_rate", rate(k.perfect, k.hits))
+                    .set("double_rate", rate(k.double, k.hits))
                     .set("avg", if k.hits > 0 { k.dmg as f64 / k.hits as f64 } else { 0.0 })
                     .set("max", k.max)
                     .set("min", k.min)
@@ -667,23 +728,41 @@ impl Engine {
                     .build()
             })
             .collect();
+        let sum = |g: fn(&SkillStat) -> u64| -> u64 { table.values().map(g).sum() };
+        let hits = sum(|k| k.hits);
         let mut targets: Vec<(&u64, &u64)> = s.by_target.iter().collect();
         targets.sort_by(|a, b| b.1.cmp(a.1));
-        let tg: Vec<Value> = targets.iter().take(20).map(|(t, d)| Obj::new().set("id", **t).set("name", self.actor_name(**t)).set("dmg", **d).build()).collect();
+        let tg: Vec<Value> = targets.iter().take(30).map(|(t, d)| Obj::new().set("id", **t).set("name", self.actor_name(**t)).set("dmg", **d).build()).collect();
+        let mut taken: Vec<(&u64, &u64)> = s.taken_from.iter().collect();
+        taken.sort_by(|a, b| b.1.cmp(a.1));
+        let tk: Vec<Value> = taken.iter().take(30).map(|(t, d)| Obj::new().set("id", **t).set("name", self.actor_name(**t)).set("dmg", **d).build()).collect();
+        let first_hit = target.and(Some(s.first)).unwrap_or(s.first);
         Some(
             Obj::new()
                 .set("id", actor)
                 .set("name", self.actor_name(actor))
                 .set("class", self.actor_class(actor))
-                .set("dmg", s.dmg)
-                .set("dps", s.dmg as f64 / dur)
-                .set("active_time", (s.last - s.first).max(1.0))
-                .set("hits", s.hits)
-                .set("max_hit", s.max_hit)
+                .set("is_self", Some(actor) == self.self_id)
+                .set("cp", if Some(actor) == self.self_id { self.self_cp } else { None })
+                .set("target", target)
+                .set("dmg", total)
+                .set("fight_dmg", s.dmg)
+                .set("dps", total as f64 / dur)
+                .set("active_time", (s.last - first_hit).max(1.0))
+                .set("active_share", ((s.last - s.first).max(1.0) / dur).min(1.0))
+                .set("hits", hits)
+                .set("casts", sum(|k| k.casts))
+                .set("crit_rate", rate(sum(|k| k.crits), hits))
+                .set("back_rate", rate(sum(|k| k.back), hits))
+                .set("perfect_rate", rate(sum(|k| k.perfect), hits))
+                .set("double_rate", rate(sum(|k| k.double), hits))
+                .set("multi_rate", rate(sum(|k| k.multi), sum(|k| k.casts)))
+                .set("max_hit", table.values().map(|k| k.max).max().unwrap_or(0))
                 .set("heal", s.heal)
                 .set("taken", s.taken)
                 .set("skills", Value::Arr(sk))
                 .set("targets", Value::Arr(tg))
+                .set("taken_from", Value::Arr(tk))
                 .set("timeline", Value::Arr(s.timeline.iter().map(|x| Value::from(*x)).collect()))
                 .build(),
         )

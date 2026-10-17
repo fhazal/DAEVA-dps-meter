@@ -6,16 +6,27 @@
 <title>Details</title>
 <link rel="stylesheet" href="common.css">
 <style>
-  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; margin-bottom: 14px; }
-  .tile { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; }
-  .tile .k { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
-  .tile .v { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; }
-  .chart { height: 110px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px; margin-bottom: 14px; }
+  .hdr { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .big { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .big.acc { color: var(--accent); }
+  .lbl { color: var(--muted); font-size: 12px; }
+  .sp { flex: 1; }
+  .tabs { display: inline-flex; background: rgba(255,255,255,0.05); border: 1px solid var(--line); border-radius: 8px; padding: 2px; }
+  .tabs button { font: inherit; font-size: 12px; border: 0; background: transparent; color: var(--muted); padding: 4px 12px; border-radius: 6px; cursor: pointer; }
+  .tabs button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .tabs button:disabled { opacity: 0.35; cursor: default; }
+  .row2 { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+  select.target { min-width: 240px; font-weight: 600; }
+  .summary { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 9px 12px; margin-bottom: 12px; }
+  .summary .l1 { font-weight: 600; margin-bottom: 4px; font-variant-numeric: tabular-nums; }
+  .summary .l2 { display: flex; gap: 16px; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
+  .summary .l2 b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .chart { height: 90px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px; margin-bottom: 12px; }
   .chart svg { width: 100%; height: 100%; display: block; overflow: visible; }
-  .head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
-  .head .nm { font-size: 18px; font-weight: 600; }
-  .head .cls { color: var(--muted); }
-  .head .sp { flex: 1; }
+  td.sk { position: relative; font-weight: 600; }
+  td.sk .bg { position: absolute; left: 0; top: 2px; bottom: 2px; background: var(--accent-soft); border-radius: 4px; z-index: 0; }
+  td.sk span { position: relative; }
+  .note { color: var(--dim); font-size: 11.5px; margin-top: 10px; }
 </style>
 </head>
 <body>
@@ -36,18 +47,22 @@
   D.wireTitlebar();
   let p = {};
   let data = null;
+  let tab = "dmg";
+  let target = null; // null = all targets
   let timer = null;
+  let record = null;
 
   async function load() {
     try {
       if (p.file) {
-        const rec = JSON.parse(await D.call("get_fight_record", { file: p.file }));
-        data = (rec.details || []).find((d) => d.id === p.actor_id) || null;
-        if (data) data.fight_duration = rec.duration;
+        if (!record) record = JSON.parse(await D.call("get_fight_record", { file: p.file }));
+        data = (record.details || []).find((d) => d.id === p.actor_id) || null;
+        if (data) data.fight_duration = record.duration;
       } else {
-        data = await D.callJSON("get_detail", { fightId: p.fight_id ?? null, actorId: p.actor_id });
+        data = await D.callJSON("get_detail", { fightId: p.fight_id ?? null, actorId: p.actor_id, target });
         const snap = await D.callJSON("get_snapshot", {});
         D.applyTheme(snap.ui);
+        if (data && snap.fight) data.fight_duration = snap.fight.duration;
       }
       render();
     } catch (e) {
@@ -56,58 +71,88 @@
   }
 
   function chart(tl) {
-    if (!tl || tl.length < 2) return '<div class="muted" style="padding:30px;text-align:center">Not enough data for a timeline yet</div>';
-    // 3-second rolling DPS
+    if (!tl || tl.length < 2) return "";
     const sm = tl.map((_, i) => { let s = 0, n = 0; for (let j = Math.max(0, i - 2); j <= i; j++) { s += tl[j]; n++; } return s / n; });
     const max = Math.max(1, ...sm);
-    const W = 500, H = 90;
+    const W = 500, H = 74;
     const pts = sm.map((v, i) => `${((i / (sm.length - 1)) * W).toFixed(1)},${(H - (v / max) * H).toFixed(1)}`).join(" ");
-    return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+    return `<div class="chart"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
       <polygon points="0,${H} ${pts} ${W},${H}" fill="var(--accent-soft)"/>
       <polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
-      <text x="4" y="10" fill="#9a978f" font-size="9">${D.fmt(max)}/s peak (3s avg)</text>
-    </svg>`;
+      <text x="4" y="10" fill="#9a978f" font-size="9">${D.fmt(max)}/s peak (3s avg)</text></svg></div>`;
   }
+
+  const pc = (x) => D.pct(x, 1);
 
   function render() {
     const c = document.getElementById("c");
     if (!data) { c.innerHTML = '<span class="muted">No data for this player.</span>'; return; }
-    document.getElementById("title").textContent = data.name + " — skills";
-    const crit = data.hits ? data.skills.reduce((a, s) => a + s.crit_rate * s.hits, 0) / data.hits : 0;
-    c.innerHTML = `
-      <div class="head"><span class="nm" style="color:${D.classColor(data.class, data.name)}">${D.esc(data.name)}</span><span class="cls">${D.esc(data.class || "")}</span><span class="sp"></span><span class="muted">${p.file ? "saved fight" : ""}</span></div>
-      <div class="tiles">
-        <div class="tile"><div class="k">DPS</div><div class="v">${D.fmt(data.dps)}</div></div>
-        <div class="tile"><div class="k">Damage</div><div class="v">${D.fmt(data.dmg)}</div></div>
-        <div class="tile"><div class="k">Crit</div><div class="v">${D.pct(crit)}</div></div>
-        <div class="tile"><div class="k">Hits</div><div class="v">${data.hits}</div></div>
-        <div class="tile"><div class="k">Max hit</div><div class="v">${D.fmt(data.max_hit)}</div></div>
-        ${data.heal ? `<div class="tile"><div class="k">Healing</div><div class="v">${D.fmt(data.heal)}</div></div>` : ""}
-        ${data.taken ? `<div class="tile"><div class="k">Taken</div><div class="v">${D.fmt(data.taken)}</div></div>` : ""}
-      </div>
-      <div class="chart">${chart(data.timeline)}</div>
-      <h2>Skills</h2>
-      <table class="grid">
-        <thead><tr><th>Skill</th><th>Damage</th><th>Share</th><th>Hits</th><th>Crit</th><th>Back</th><th>Avg</th><th>Max</th></tr></thead>
-        <tbody>${data.skills.map((s) => `<tr>
-          <td>${D.esc(s.name)}</td>
-          <td>${D.fmt(s.dmg)}</td>
-          <td class="share-cell">${D.pct(s.share, 1)}<span class="bar" style="width:${Math.max(2, s.share * 80)}px"></span></td>
-          <td>${s.hits}</td><td>${D.pct(s.crit_rate)}</td><td>${D.pct(s.back_rate)}</td>
-          <td>${D.fmt(s.avg)}</td><td>${D.fmt(s.max)}</td></tr>`).join("")}</tbody>
-      </table>
-      ${data.targets && data.targets.length > 1 ? `<h2>Targets</h2><table class="grid"><thead><tr><th>Target</th><th>Damage</th></tr></thead><tbody>${data.targets.map((t) => `<tr><td>${D.esc(t.name)}</td><td>${D.fmt(t.dmg)}</td></tr>`).join("")}</tbody></table>` : ""}`;
+    document.getElementById("title").innerHTML = `${D.esc(data.name)} <small>${D.dur(data.fight_duration || data.active_time)}</small>`;
+    const color = D.classColor(data.class, data.name);
+    const targets = data.targets || [];
+    const opts = [`<option value="">All targets · ${D.fmt(data.fight_dmg ?? data.dmg)}</option>`]
+      .concat(targets.map((t) => `<option value="${t.id}" ${String(t.id) === String(target) ? "selected" : ""}>${D.esc(t.name)} · ${D.fmt(t.dmg)}</option>`)).join("");
+    const head = `
+      <div class="hdr">
+        <span class="big acc" style="color:${color}">${D.fmt(tab === "taken" ? data.taken : data.dmg)}</span>
+        <span class="lbl">${tab === "taken" ? "damage taken" : "damage"}</span>
+        <span class="big">${D.pct(data.active_share ?? 1)}</span><span class="lbl">active</span>
+        ${data.cp ? `<span class="lbl">CP ${Number(data.cp).toLocaleString()}</span>` : ""}
+        <span class="sp"></span>
+        <span class="tabs">
+          <button data-tab="dmg" class="${tab === "dmg" ? "on" : ""}">Dmg</button>
+          <button data-tab="heal" disabled title="Healing is not decoded yet">Heal</button>
+          <button data-tab="taken" class="${tab === "taken" ? "on" : ""}">Taken</button>
+        </span>
+      </div>`;
+    let body;
+    if (tab === "taken") {
+      const rows = data.taken_from || [];
+      body = rows.length
+        ? `<table class="grid"><thead><tr><th>Source</th><th>Damage</th><th>%</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${D.esc(r.name)}</td><td>${D.fmt(r.dmg)}</td><td>${pc(r.dmg / Math.max(1, data.taken))}</td></tr>`).join("")}</tbody></table>`
+        : '<p class="muted">No damage taken in this fight.</p>';
+    } else {
+      const top = Math.max(1, ...data.skills.map((s) => s.dmg));
+      body = `
+        <div class="row2">${p.file ? "" : `<select class="target" id="tsel">${opts}</select>`}</div>
+        <div class="summary">
+          <div class="l1">${D.dur(data.active_time)} · ${D.fmt(data.dps)} DPS · ${data.casts ?? "–"} casts · ${data.hits} hits · max ${D.fmt(data.max_hit)}</div>
+          <div class="l2">
+            <span>Crit <b>${pc(data.crit_rate)}</b></span>
+            <span>Back <b>${pc(data.back_rate)}</b></span>
+            <span>Double <b>${pc(data.double_rate)}</b></span>
+            <span>Multi <b>${pc(data.multi_rate)}</b></span>
+          </div>
+        </div>
+        ${target ? "" : chart(data.timeline)}
+        <table class="grid">
+          <thead><tr><th>Skill</th><th>Damage</th><th>%</th><th>Casts</th><th>Hits</th><th>Multi%</th><th>Crit</th><th>Back</th><th>Double</th><th>Max</th><th>Avg</th></tr></thead>
+          <tbody>${data.skills.map((s) => `<tr>
+            <td class="sk"><i class="bg" style="width:${((s.dmg / top) * 100).toFixed(1)}%"></i><span>${D.esc(s.name)}</span></td>
+            <td><b>${D.fmt(s.dmg)}</b></td><td>${pc(s.share)}</td>
+            <td>${s.casts ?? "–"}×</td><td>${s.hits}</td><td>${pc(s.multi_rate)}</td>
+            <td>${pc(s.crit_rate)}</td><td>${pc(s.back_rate)}</td><td>${pc(s.double_rate)}</td>
+            <td>${D.fmt(s.max)}</td><td>${D.fmt(s.avg)}</td></tr>`).join("")}</tbody>
+        </table>
+        <div class="note">Back and Double are still provisional labels until confirmed against the game. Parry, Front and Perfect come next.</div>`;
+    }
+    c.innerHTML = head + body;
+    c.querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => { if (!b.disabled) { tab = b.dataset.tab; render(); } }));
+    const sel = document.getElementById("tsel");
+    if (sel) sel.onchange = () => { target = sel.value ? Number(sel.value) : null; load(); };
   }
 
   document.getElementById("bCopy").onclick = async () => {
     if (!data) return;
-    const lines = [`**${data.name}**${data.class ? " (" + data.class + ")" : ""} — ${D.fmt(data.dmg)} dmg, ${D.fmt(data.dps)}/s`];
-    data.skills.slice(0, 12).forEach((s, i) => lines.push(`\`${String(i + 1).padStart(2)}.\` ${s.name} — ${D.fmt(s.dmg)} (${D.pct(s.share, 1)}) · ${s.hits} hits · crit ${D.pct(s.crit_rate)}`));
+    const lines = [`**${data.name}**${data.class ? " (" + data.class + ")" : ""} — ${D.fmt(data.dmg)} dmg, ${D.fmt(data.dps)}/s · crit ${pc(data.crit_rate)}`];
+    data.skills.slice(0, 12).forEach((s, i) => lines.push(`\`${String(i + 1).padStart(2)}.\` ${s.name} — ${D.fmt(s.dmg)} (${pc(s.share)}) · ${s.casts ?? "?"} casts · ${s.hits} hits · crit ${pc(s.crit_rate)}`));
     try { await D.call("copy_text", { text: lines.join("\n") }); D.toast("Copied"); } catch (e) { D.toast(String(e)); }
   };
 
   async function init() {
     p = await D.params();
+    target = null;
+    record = null;
     clearInterval(timer);
     await load();
     if (!p.file) timer = setInterval(load, 1000);
