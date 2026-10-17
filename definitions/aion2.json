@@ -6,7 +6,7 @@
 // updates after a game patch never need a new build.
 {
   "name": "AION 2 (global)",
-  "version": "0.5.0-alpha",
+  "version": "0.5.1",
   "process_names": ["aion2"],
   // Server ports, if they turn out to be fixed. Auto-detection by process
   // already finds the server, so this can stay empty.
@@ -30,9 +30,10 @@
     //   flags&0x4  = carries damage      flags&0x2 = 3-byte x0/x1/x2 block
     //   flags&0x20 = multi-hit: u8 count of sub-hits (+ their split values);
     //                verified vs Abyss: Onslaught 2 results x 3 = 6 hits
-    //   kind==3    = critical hit (verified)
-    //   x0&0x8     = ~2x hit ("double"), x0&0x4 = small bonus ("perfect"?)
-    //   x2         = direction: 2 = front (verified 1 sample), 1 = back (guess)
+    //   kind==3    = critical hit                       (verified)
+    //   x0&0x8     = double (~2x)                        (verified, marker "back double")
+    //   x0&0x4     = perfect (small bonus)               (verified, marker "front perfect")
+    //   x2         = direction: 2 = front, 1 = back      (verified, markers)
     //   seq        = cast id (several results share it)
     {"opcode": "0x3804", "name": "S_SKILL_RESULT", "dir": "server",
      "fields": [

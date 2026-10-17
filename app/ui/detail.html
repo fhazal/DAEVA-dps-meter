@@ -136,7 +136,7 @@
             <td>${pc(s.crit_rate)}</td><td>${pc(s.back_rate)}</td><td>${pc(s.front_rate)}</td><td>${pc(s.double_rate)}</td>
             <td>${D.fmt(s.max)}</td><td>${D.fmt(s.avg)}</td></tr>`).join("")}</tbody>
         </table>
-        <div class="note">Crit, Front and multi-hits are confirmed against Abyss. Back, Perfect and Double are still provisional. Rates are per damage result, like Abyss.</div>`;
+        <div class="note">Crit, Back, Front, Perfect, Double and multi-hits are confirmed. Rates are per damage result, like Abyss.</div>`;
     }
     c.innerHTML = head + body;
     c.querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => { if (!b.disabled) { tab = b.dataset.tab; render(); } }));
