@@ -116,8 +116,9 @@
         : '<p class="muted">No healing in this fight.</p>';
     } else if (tab === "taken") {
       const rows = data.taken_from || [];
+      const def = data.taken_hits ? `<div class="summary"><div class="l1">${data.taken_hits} hits taken</div><div class="l2"><span>Parried <b>${pc(data.taken_parry_rate)}</b></span><span>Blocked <b>${pc(data.taken_block_rate)}</b></span><span>Perfect block <b>${pc(data.taken_perfect_block_rate)}</b></span></div></div>` : "";
       body = rows.length
-        ? `<table class="grid"><thead><tr><th>Source</th><th>Damage</th><th>%</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${D.esc(r.name)}</td><td>${D.fmt(r.dmg)}</td><td>${pc(r.dmg / Math.max(1, data.taken))}</td></tr>`).join("")}</tbody></table>`
+        ? def + `<table class="grid"><thead><tr><th>Source</th><th>Damage</th><th>%</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${D.esc(r.name)}</td><td>${D.fmt(r.dmg)}</td><td>${pc(r.dmg / Math.max(1, data.taken))}</td></tr>`).join("")}</tbody></table>`
         : '<p class="muted">No damage taken in this fight.</p>';
     } else {
       const top = Math.max(1, ...data.skills.map((s) => s.dmg));
@@ -127,6 +128,7 @@
           <div class="l1">${D.dur(data.active_time)} · ${D.fmt(data.dps)} DPS · ${data.casts ?? "–"} casts · ${data.hits} hits · max ${D.fmt(data.max_hit)}</div>
           <div class="l2">
             <span>Crit <b>${pc(data.crit_rate)}</b></span>
+            <span>Parry <b>${pc(data.parry_rate)}</b></span>
             <span>Back <b>${pc(data.back_rate)}</b></span>
             <span>Front <b>${pc(data.front_rate)}</b></span>
             <span>Perfect <b>${pc(data.perfect_rate)}</b></span>
@@ -136,13 +138,13 @@
         </div>
         ${target ? "" : chart(data.timeline)}
         <table class="grid">
-          <thead><tr><th>Skill</th><th>Damage</th><th>%</th><th>Casts</th><th>Hits</th><th>Multi%</th><th>Crit</th><th>Back</th><th>Front</th><th>Double</th><th>Max</th><th>Avg</th></tr></thead>
+          <thead><tr><th>Skill</th><th>Damage</th><th>%</th><th>Casts</th><th>Hits</th><th>Multi%</th><th>Crit</th><th>Back</th><th>Front</th><th>Double</th><th>Max</th><th>Avg</th><th>Parry%</th></tr></thead>
           <tbody>${data.skills.map((s) => `<tr>
             <td class="sk"><i class="bg" style="width:${((s.dmg / top) * 100).toFixed(1)}%"></i><span>${D.esc(s.name)}</span></td>
             <td><b>${D.fmt(s.dmg)}</b></td><td>${pc(s.share)}</td>
             <td>${s.casts == null ? "–" : s.casts + "×"}</td><td>${s.hits}</td><td>${pc(s.multi_rate)}</td>
             <td>${pc(s.crit_rate)}</td><td>${pc(s.back_rate)}</td><td>${pc(s.front_rate)}</td><td>${pc(s.double_rate)}</td>
-            <td>${D.fmt(s.max)}</td><td>${D.fmt(s.avg)}</td></tr>`).join("")}</tbody>
+            <td>${D.fmt(s.max)}</td><td>${D.fmt(s.avg)}</td><td>${pc(s.parry_rate)}</td></tr>`).join("")}</tbody>
         </table>
         <div class="note">Crit, Back, Front, Perfect, Double and multi-hits are confirmed. Rates are per damage result, like Abyss.</div>`;
     }

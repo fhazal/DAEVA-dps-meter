@@ -36,8 +36,8 @@ pub mod flags {
     pub const PARRY: u32 = 1 << 3;
     pub const BLOCK: u32 = 1 << 4;
     pub const EVADE: u32 = 1 << 5;
+    pub const PERFECT_BLOCK: u32 = 1 << 7;
     pub const DOT: u32 = 1 << 6;
-    pub const RESIST: u32 = 1 << 7;
     pub const DOUBLE: u32 = 1 << 8;
     pub const FRONT: u32 = 1 << 9;
     /// Bits 10..15: number of sub-hits this result stands for (0 = 1).

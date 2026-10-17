@@ -116,6 +116,8 @@ pub struct SkillStat {
     pub front: u64,
     pub perfect: u64,
     pub double: u64,
+    pub parry: u64,
+    pub block: u64,
     pub max: u64,
     pub min: u64,
     pub dot: u64,
@@ -140,6 +142,8 @@ impl SkillStat {
             (flags::FRONT, &mut self.front),
             (flags::PERFECT, &mut self.perfect),
             (flags::DOUBLE, &mut self.double),
+            (flags::PARRY, &mut self.parry),
+            (flags::BLOCK, &mut self.block),
             (flags::DOT, &mut self.dot),
         ] {
             if fl & bit != 0 {
@@ -185,6 +189,11 @@ pub struct ActorStat {
     pub taken_from: HashMap<u64, u64>,
     /// Healing done, per skill and per target.
     pub heal_skills: HashMap<u32, SkillStat>,
+    /// Incoming hits and how they were defended.
+    pub taken_hits: u64,
+    pub taken_parry: u64,
+    pub taken_block: u64,
+    pub taken_perfect_block: u64,
     pub healed: HashMap<u64, u64>,
     pub doubles: u64,
     /// Damage per second bucket from fight start.
@@ -408,7 +417,7 @@ impl Engine {
                 // Damage dealt *by* NPCs only counts as damage taken.
                 let attacker_is_npc = self.is_npc(attacker);
                 let target_is_friendly = self.actors.get(tgt).map_or(false, |a| matches!(a.kind, ActorKind::Player | ActorKind::Summon));
-                if *amount == 0 && fl & (flags::EVADE | flags::PARRY | flags::RESIST) == 0 {
+                if *amount == 0 && fl & (flags::EVADE | flags::PARRY | flags::BLOCK) == 0 {
                     return finished;
                 }
                 if attacker_is_npc || target_is_friendly {
@@ -417,6 +426,18 @@ impl Engine {
                         let s = f.stats.entry(t).or_insert_with(|| ActorStat { first: *ts, last: *ts, ..Default::default() });
                         s.taken += amount;
                         *s.taken_from.entry(attacker).or_default() += amount;
+                        if fl & flags::DOT == 0 {
+                            s.taken_hits += 1;
+                            if fl & flags::PARRY != 0 {
+                                s.taken_parry += 1;
+                            }
+                            if fl & flags::BLOCK != 0 {
+                                s.taken_block += 1;
+                            }
+                            if fl & flags::PERFECT_BLOCK != 0 {
+                                s.taken_perfect_block += 1;
+                            }
+                        }
                     }
                     return finished;
                 }
@@ -844,6 +865,7 @@ impl Engine {
                     .set("perfect_rate", rate(k.perfect, k.swings))
                     .set("double_rate", rate(k.double, k.swings))
                     .set("front_rate", rate(k.front, k.swings))
+                    .set("parry_rate", rate(k.parry, k.swings))
                     .set("avg", if k.swings > 0 { k.dmg as f64 / k.swings as f64 } else { 0.0 })
                     .set("max", k.max)
                     .set("min", k.min)
@@ -881,6 +903,11 @@ impl Engine {
                 .set("perfect_rate", rate(sum(|k| k.perfect), swings))
                 .set("double_rate", rate(sum(|k| k.double), swings))
                 .set("front_rate", rate(sum(|k| k.front), swings))
+                .set("parry_rate", rate(sum(|k| k.parry), swings))
+                .set("taken_hits", s.taken_hits)
+                .set("taken_parry_rate", rate(s.taken_parry, s.taken_hits))
+                .set("taken_block_rate", rate(s.taken_block, s.taken_hits))
+                .set("taken_perfect_block_rate", rate(s.taken_perfect_block, s.taken_hits))
                 .set("multi_rate", rate(sum(|k| k.multi), sum(|k| k.casts)))
                 .set("max_hit", table.values().map(|k| k.max).max().unwrap_or(0))
                 .set("heal", s.heal)

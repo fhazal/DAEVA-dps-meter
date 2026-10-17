@@ -883,7 +883,7 @@ fn emit(e: &Emit, header: &Scope, scope: &Scope, ts: f64, out: &mut Vec<GameEven
             ("block", flags::BLOCK),
             ("evade", flags::EVADE),
             ("dot", flags::DOT),
-            ("resist", flags::RESIST),
+            ("perfect_block", flags::PERFECT_BLOCK),
             ("double", flags::DOUBLE),
             ("front", flags::FRONT),
         ] {
