@@ -240,8 +240,12 @@
     if (editing) return;
     if (!ui.show_target || !t) { $("target").hidden = true; return; }
     $("target").hidden = false;
-    const hp = t.hp_pct != null ? `<div class="hp"><i style="width:${(t.hp_pct * 100).toFixed(1)}%"></i></div>` : "";
-    const kill = f.boss_killed ? '<span class="kill">KILLED</span>' : (t.hp_pct != null ? `<span class="meta">${D.pct(t.hp_pct, 1)}</span>` : "");
+    // Health bar = the target's HP left (from the game's HP updates).
+    // A dead target shows KILLED instead of an empty bar and "0.0%".
+    const dead = f.boss_killed || (t.hp_pct != null && t.hp_pct <= 0.0005);
+    const pctv = t.hp_pct == null ? null : Math.min(1, Math.max(0, t.hp_pct));
+    const hp = !dead && pctv != null ? `<div class="hp" title="Health left"><i style="width:${(pctv * 100).toFixed(1)}%"></i></div>` : "";
+    const kill = dead ? '<span class="kill">KILLED</span>' : (pctv != null ? `<span class="meta" title="Health left">${D.pct(pctv, pctv < 0.1 ? 1 : 0)} HP</span>` : "");
     const nameit = t.named === false && t.npc_id ? `<span class="nameit" data-npc="${t.npc_id}" title="Looking it up on aion2.gaming.tools… or type the name yourself (saved for good)">✎ name it</span><span class="nameit" data-lk="${t.npc_id}" title="Open on aion2.gaming.tools">🔎</span>` : "";
     const unknownTip = t.name === "Unknown monster" ? ` title="This monster was already nearby when the meter started, so the game never said which one it is. It gets its name after you change zone or it comes back into view."` : "";
     const html = `<div class="row1">${D.npcIcon(t.npc_id, 24)}<div class="name"${unknownTip}>${D.esc(t.name)}${nameit}</div>${kill}<div class="meta"><b>${D.fmt(f.total)}</b> dmg</div></div>${hp}`;
