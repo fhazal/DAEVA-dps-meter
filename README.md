@@ -30,6 +30,11 @@ It reads the game's network traffic with Npcap and shows live DPS, damage share,
 | Hide / show overlay | `Ctrl+Shift+H` |
 | Copy summary | `Ctrl+Shift+C` |
 | Research marker | `Ctrl+Shift+M` |
+| Report a problem (saves a zip to the Desktop) | `Ctrl+Shift+P` |
+
+## When something looks wrong
+
+Press **Ctrl+Shift+P** (or Settings → Report a problem). The meter saves `DaevaMeter-report-<time>.zip` on your Desktop: the last 3 minutes of game-server traffic plus what the meter showed. Nothing else on your PC is included. If the meter notices that game traffic has stopped decoding (typical after a game patch), a yellow warning appears at the bottom of the overlay; click it to save the same report.
 
 ## Installing (players)
 

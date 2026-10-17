@@ -13,6 +13,7 @@ pub mod protocol;
 pub mod sim;
 pub mod tcp;
 pub mod wire;
+pub mod zipstore;
 
 use engine::{Engine, Fight};
 use events::GameEvent;

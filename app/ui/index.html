@@ -48,6 +48,7 @@
   .foot span:last-child { margin-left: auto; }
   .ping { font-weight: 600; font-variant-numeric: tabular-nums; }
   .ping { color: var(--dim); }
+  .warnline { color: var(--warn); cursor: pointer; overflow: hidden; text-overflow: ellipsis; }
   .ping.good { color: var(--good); } .ping.warn { color: var(--warn); } .ping.bad { color: var(--bad); }
   .sig { display: inline-flex; align-items: flex-end; gap: 1px; margin-right: 4px; height: 9px; }
   .sig i { width: 2px; background: currentColor; opacity: 0.25; border-radius: 1px; }
@@ -159,6 +160,14 @@
     const ping = `<b class="ping ${pc}" title="Latency to the game server (measured passively)"><span class="sig">${sig}</span>${s.ping_ms == null ? "-- ms" : Math.round(s.ping_ms) + " ms"}</b>`;
     $("foot").innerHTML = `<span>${D.esc(footL)}</span><span>${self}${s.uploads_pending ? " · ↑" + s.uploads_pending : ""} · ${ping}</span>`;
     $("foot").title = "Daeva Meter " + (s.version || "");
+    if (s.warning) {
+      const w = document.createElement("span");
+      w.className = "warnline";
+      w.textContent = "⚠ " + s.warning;
+      w.title = "Click to save a problem report to your Desktop";
+      w.onclick = sendReport;
+      $("foot").firstElementChild.replaceWith(w);
+    }
   }
 
   function renderTarget(f) {
@@ -211,6 +220,14 @@
     document.querySelectorAll("[data-act=research]").forEach((a) => (a.onclick = () => D.call("open_window", { kind: "research" })));
     document.querySelectorAll("[data-link]").forEach((a) => (a.onclick = () => D.call("copy_text", { text: a.dataset.link }).then(() => D.toast("Link copied — paste it in your browser"))));
   }
+
+  async function sendReport() {
+    try {
+      const p = await D.call("report_problem", { note: "overlay" });
+      D.toast("Report saved: " + p.split(/[\\/]/).pop() + " — send it in the chat");
+    } catch (e) { D.toast("Could not save report: " + e); }
+  }
+  window.__sendReport = sendReport;
 
   async function poll() {
     try { render(await D.callJSON("get_snapshot", {})); } catch (e) { console.warn(e); }

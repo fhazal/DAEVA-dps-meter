@@ -9,6 +9,7 @@ pub struct Hotkeys {
     pub hide: String,
     pub marker: String,
     pub copy: String,
+    pub report: String,
 }
 
 impl Default for Hotkeys {
@@ -19,6 +20,7 @@ impl Default for Hotkeys {
             hide: "Ctrl+Shift+H".into(),
             marker: "Ctrl+Shift+M".into(),
             copy: "Ctrl+Shift+C".into(),
+            report: "Ctrl+Shift+P".into(),
         }
     }
 }
@@ -132,6 +134,7 @@ impl Settings {
             ("hide".into(), h.hide.clone()),
             ("marker".into(), h.marker.clone()),
             ("copy".into(), h.copy.clone()),
+            ("report".into(), h.report.clone()),
         ]
     }
 }

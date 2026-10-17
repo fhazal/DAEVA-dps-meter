@@ -166,6 +166,17 @@ fn get_research(st: St<'_>) -> String {
     st.lock().research_view().to_string()
 }
 
+fn reveal(path: &str) {
+    let _ = std::process::Command::new("explorer").arg(format!("/select,{path}")).spawn();
+}
+
+#[tauri::command]
+fn report_problem(st: St<'_>, note: Option<String>) -> Result<String, String> {
+    let p = st.lock().report_problem(note.as_deref().unwrap_or(""))?;
+    reveal(&p);
+    Ok(p)
+}
+
 #[tauri::command]
 fn take_uploads(st: St<'_>) -> Vec<String> {
     std::mem::take(&mut st.lock().uploads)
@@ -298,6 +309,12 @@ fn start_hotkeys(app: &AppHandle, shared: &Arc<Shared>) {
         "copy" => {
             let _ = copy_summary_inner(&sh, None);
         }
+        "report" => {
+            let r = sh.lock().report_problem("hotkey");
+            if let Ok(p) = r {
+                reveal(&p);
+            }
+        }
         _ => {}
     });
     shared.lock().status.hotkey_errors = failed;
@@ -371,6 +388,7 @@ fn main() {
             research_marker,
             get_research,
             take_uploads,
+            report_problem,
             get_loot,
             restart_capture,
             reload_definitions,

@@ -88,7 +88,18 @@ pub struct Core {
     pub settings_dirty: bool,
     pub window_params: HashMap<String, String>,
     last_settings_save: Instant,
+    /// Last few minutes of game traffic, kept in memory for problem reports.
+    rolling: std::collections::VecDeque<(f64, Vec<u8>)>,
+    rolling_bytes: usize,
+    health_at: f64,
+    health_decoded: u64,
+    health_frames: u64,
+    health_resyncs: u64,
+    pub warning: Option<String>,
 }
+
+const ROLLING_SECS: f64 = 180.0;
+const ROLLING_MAX_BYTES: usize = 48 << 20;
 
 pub struct Shared {
     pub core: Mutex<Core>,
@@ -142,7 +153,7 @@ impl Core {
         if settings.demo {
             pipeline.engine.names = Names::from_json(DEMO_NAMES).unwrap_or_default();
         }
-        let c = Core {
+        let mut c = Core {
             pipeline,
             sim,
             settings,
@@ -154,7 +165,15 @@ impl Core {
             settings_dirty: false,
             window_params: HashMap::new(),
             last_settings_save: Instant::now(),
+            rolling: Default::default(),
+            rolling_bytes: 0,
+            health_at: 0.0,
+            health_decoded: 0,
+            health_frames: 0,
+            health_resyncs: 0,
+            warning: None,
         };
+        c.pipeline.decoder.keep_recent = 200;
         c.prune_history();
         c
     }
@@ -162,7 +181,7 @@ impl Core {
     pub fn reload_definitions(&mut self) {
         let (defs, names) = load_definitions(&self.paths, &mut self.status);
         self.pipeline.decoder = Decoder::new(defs, Some(decompressor()));
-        self.pipeline.decoder.keep_recent = if self.recorder.is_some() { 400 } else { 0 };
+        self.pipeline.decoder.keep_recent = if self.recorder.is_some() { 400 } else { 200 };
         self.pipeline.server_ports = self.pipeline.decoder.defs.ports.iter().copied().chain(self.settings.manual_ports.iter().copied()).collect();
         if !self.settings.demo {
             self.pipeline.engine.names = names;
@@ -203,15 +222,25 @@ impl Core {
             return;
         }
         let (lt, ts, data) = p;
-        if let Some(rec) = self.recorder.as_mut() {
-            if let Some(seg) = net::parse_frame(lt, &data) {
-                if self.pipeline.classify(&seg.flow).is_some() {
-                    // Re-encode as a clean Ethernet frame: consistent link type
-                    // and no MAC addresses in shared captures.
-                    let frame = net::build_frame_ack(&seg.flow, seg.seq, seg.ack, seg.flags, seg.payload);
+        if let Some(seg) = net::parse_frame(lt, &data) {
+            if self.pipeline.classify(&seg.flow).is_some() {
+                // Re-encode as a clean Ethernet frame: consistent link type
+                // and no MAC addresses in shared captures.
+                let frame = net::build_frame_ack(&seg.flow, seg.seq, seg.ack, seg.flags, seg.payload);
+                if let Some(rec) = self.recorder.as_mut() {
                     if rec.writer.write(ts, &frame).is_ok() {
                         rec.packets += 1;
                         rec.bytes += seg.payload.len() as u64;
+                    }
+                }
+                self.rolling_bytes += frame.len();
+                self.rolling.push_back((ts, frame));
+                while let Some((t0, f0)) = self.rolling.front() {
+                    if ts - t0 > ROLLING_SECS || self.rolling_bytes > ROLLING_MAX_BYTES {
+                        self.rolling_bytes -= f0.len();
+                        self.rolling.pop_front();
+                    } else {
+                        break;
                     }
                 }
             }
@@ -232,6 +261,7 @@ impl Core {
             self.fight_finished(f);
         }
         self.queue_loot();
+        self.check_health(now);
         if self.sim.is_none() {
             let e = &self.pipeline.engine;
             if let Some(id) = e.self_id {
@@ -326,6 +356,74 @@ impl Core {
         }
     }
 
+    /// Notices when game traffic keeps arriving but nothing decodes any more
+    /// (the usual sign of a game patch changing the protocol).
+    fn check_health(&mut self, now: f64) {
+        if self.sim.is_some() || now - self.health_at < 60.0 {
+            return;
+        }
+        let d = &self.pipeline.decoder;
+        let decoded: u64 = d.stats.values().map(|s| s.decoded).sum();
+        let frames = d.frames_total;
+        let resyncs = d.resyncs();
+        if self.health_at > 0.0 {
+            let new_frames = frames.saturating_sub(self.health_frames);
+            let new_decoded = decoded.saturating_sub(self.health_decoded);
+            let new_resyncs = resyncs.saturating_sub(self.health_resyncs);
+            let bytes_flowing = self.pipeline.last_game_ts > 0.0 && now - self.pipeline.last_game_ts < 30.0;
+            self.warning = if bytes_flowing && new_frames == 0 {
+                Some("Game traffic arrives but can't be read (the game may have been patched). Press Ctrl+Shift+P to send a report.".into())
+            } else if new_frames > 1500 && new_decoded == 0 {
+                Some("Game messages arrive but none decode any more (the game may have been patched). Press Ctrl+Shift+P to send a report.".into())
+            } else if new_resyncs > 50 {
+                Some("Lots of unreadable game traffic. If damage looks wrong, press Ctrl+Shift+P to send a report.".into())
+            } else {
+                None
+            };
+        }
+        self.health_at = now;
+        self.health_decoded = decoded;
+        self.health_frames = frames;
+        self.health_resyncs = resyncs;
+    }
+
+    /// Writes one zip with the last few minutes of game traffic plus what the
+    /// meter showed. Returns the file path.
+    pub fn report_problem(&mut self, note: &str) -> Result<String, String> {
+        let mut pcap = Vec::new();
+        {
+            let mut w = PcapWriter::new(&mut pcap, net::DLT_EN10MB).map_err(|e| e.to_string())?;
+            for (ts, f) in &self.rolling {
+                w.write(*ts, f).map_err(|e| e.to_string())?;
+            }
+        }
+        let e = &self.pipeline.engine;
+        let fights: Vec<Value> = e.history.iter().rev().take(5).map(|f| e.fight_record(f)).chain(e.current.as_ref().map(|f| e.fight_record(f))).collect();
+        let mut settings = self.settings.clone();
+        settings.share.token = String::new();
+        let info = Obj::new()
+            .set("meter_version", env!("CARGO_PKG_VERSION"))
+            .set("definitions", self.status.defs_name.as_str())
+            .set("created_unix", now_unix())
+            .set("note", note)
+            .set("seconds_of_traffic", self.rolling.back().zip(self.rolling.front()).map(|(b, a)| b.0 - a.0).unwrap_or(0.0))
+            .set("self_id", e.self_id)
+            .set("self_name", e.self_name.clone())
+            .set("snapshot", self.snapshot(None))
+            .set("decoder", self.research_view())
+            .set("fights", Value::Arr(fights))
+            .set("settings", json::parse(&serde_json::to_string(&settings).unwrap_or_else(|_| "{}".into())).unwrap_or(Value::Null))
+            .build();
+        let stamp = now_unix() as i64;
+        let zip = meter_core::zipstore::build(&[("capture.pcap", &pcap), ("report.json", info.to_string_pretty().as_bytes())]);
+        let desktop = std::env::var("USERPROFILE").ok().map(|h| PathBuf::from(h).join("Desktop")).filter(|d| d.is_dir());
+        let dir = desktop.unwrap_or_else(|| self.paths.data.join("reports"));
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let path = dir.join(format!("DaevaMeter-report-{stamp}.zip"));
+        std::fs::write(&path, zip).map_err(|e| e.to_string())?;
+        Ok(path.display().to_string())
+    }
+
     // ------------------------------------------------------------ research
 
     pub fn research_start(&mut self, label: &str) -> Result<String, String> {
@@ -354,8 +452,7 @@ impl Core {
         let mut r = self.recorder.take().ok_or("not recording")?;
         let _ = r.writer.flush();
         r.save_markers();
-        self.pipeline.decoder.keep_recent = 0;
-        self.pipeline.decoder.recent.clear();
+        self.pipeline.decoder.keep_recent = 200;
         Ok(r.path.display().to_string())
     }
 
@@ -405,6 +502,7 @@ impl Core {
             .set("self_cp", e.self_cp)
             .set("uploads_pending", self.uploads.len())
             .set("version", env!("CARGO_PKG_VERSION"))
+            .set("warning", self.warning.clone())
             .build();
         let ui = Obj::new()
             .set("opacity", s.opacity)
