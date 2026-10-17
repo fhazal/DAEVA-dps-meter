@@ -6,7 +6,7 @@
 // updates after a game patch never need a new build.
 {
   "name": "AION 2 (global)",
-  "version": "0.6.5",
+  "version": "0.6.6",
   "process_names": ["aion2"],
   // Server ports, if they turn out to be fixed. Auto-detection by process
   // already finds the server, so this can stay empty.
@@ -122,6 +122,13 @@
     {"opcode": "0x3656", "name": "S_SELF_CP", "dir": "server",
      "fields": ["cp:u64le", "cp2:u64le"],
      "emit": {"event": "self_stats", "cp": "cp"}},
+    // Account counter update. kind 1 + tag 51591 = Odyle: flag 4 carries the
+    // base amount, flag 8 the bonus shown as "(+N)". The 840 cap is fixed.
+    {"opcode": "0x610c", "name": "S_COUNTER_UPDATE", "dir": "server",
+     "fields": ["x:u8", "flags:u8", "kind:u8", "tag:varint",
+                {"name": "cur", "type": "varint", "if": "flags&4"},
+                {"name": "bonus", "type": "varint", "if": "flags&8"}],
+     "emit": {"event": "odyle", "when": "kind==1&&tag==51591", "cur": "cur", "bonus": "bonus"}},
     // Stat update. kind 2 = HP (u32), kind 1 = MP.
     {"opcode": "0x8d00", "name": "S_STAT_UPDATE", "dir": "server",
      // (Kept free of "&&" so the file also loads in meter v0.1.0/0.1.1.)

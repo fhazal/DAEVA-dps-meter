@@ -959,6 +959,9 @@ impl Core {
             .set("self", e.self_id.map(|id| e.actor_name(id)))
             .set("self_class", e.self_id.and_then(|id| e.actor_class(id)))
             .set("self_cp", e.self_cp)
+            .set("odyle", e.self_odyle.map(|o| o.0))
+            .set("odyle_bonus", e.self_odyle.map(|o| o.1))
+            .set("odyle_max", 840u64)
             .set("server", {
                 let manual = self.settings.server_name.trim();
                 if !manual.is_empty() {

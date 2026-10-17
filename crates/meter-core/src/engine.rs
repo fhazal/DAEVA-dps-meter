@@ -368,6 +368,8 @@ pub struct Engine {
     pub self_cp: Option<u64>,
     /// Your game server number (from effect packets you cause).
     pub self_server: Option<u32>,
+    /// Your Odyle (base, bonus); only sent by the game when it changes.
+    pub self_odyle: Option<(u64, u64)>,
 }
 
 impl Engine {
@@ -390,6 +392,7 @@ impl Engine {
             pending_end: None,
             self_cp: None,
             self_server: None,
+            self_odyle: None,
         }
     }
 
@@ -685,6 +688,14 @@ impl Engine {
             GameEvent::ActorServer { id, server } => {
                 if Some(*id) == self.self_id {
                     self.self_server = Some(*server);
+                }
+            }
+            GameEvent::Odyle { cur, bonus } => {
+                let (c0, b0) = self.self_odyle.unwrap_or((0, 0));
+                let c = cur.unwrap_or(c0);
+                let b = bonus.unwrap_or(b0);
+                if c <= 100_000 && b <= 100_000 {
+                    self.self_odyle = Some((c, b));
                 }
             }
             GameEvent::SelfStats { cp } => {

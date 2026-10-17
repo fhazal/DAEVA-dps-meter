@@ -72,6 +72,8 @@ pub enum GameEvent {
     SelfStats { cp: Option<u64> },
     /// The game server (world) an actor belongs to.
     ActorServer { id: u64, server: u32 },
+    /// Your Odyle: base amount and the extra (+N) shown in brackets.
+    Odyle { cur: Option<u64>, bonus: Option<u64> },
 }
 
 impl GameEvent {
@@ -88,6 +90,7 @@ impl GameEvent {
             GameEvent::Buff { .. } => "buff",
             GameEvent::SelfStats { .. } => "self_stats",
             GameEvent::ActorServer { .. } => "actor_server",
+            GameEvent::Odyle { .. } => "odyle",
         }
     }
 }

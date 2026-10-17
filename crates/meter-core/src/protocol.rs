@@ -933,6 +933,10 @@ fn emit(e: &Emit, header: &Scope, scope: &Scope, ts: f64, out: &mut Vec<GameEven
                 (Some(id), Some(server)) if id != 0 && server != 0 => GameEvent::ActorServer { id, server: server as u32 },
                 _ => continue,
             },
+            "odyle" => match (num("cur"), num("bonus")) {
+                (None, None) => continue,
+                (cur, bonus) => GameEvent::Odyle { cur, bonus },
+            },
             "hp" => GameEvent::Hp { ts, id: num("id").unwrap_or(0), hp: num("hp").unwrap_or(0), max_hp: num("max_hp") },
             "zone" => GameEvent::Zone { ts, zone_id: num("zone").unwrap_or(0) as u32 },
             "loot" => GameEvent::Loot {
@@ -1077,5 +1081,28 @@ mod skill_split {
             let s: Scope = vec![("skill".into(), FVal::U(skill))];
             assert_eq!(e.truthy(&[&s]), player, "{skill}");
         }
+    }
+}
+
+#[cfg(test)]
+mod odyle_tests {
+    use super::*;
+    use crate::net::Endpoint;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn odyle_from_real_frames() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
+        let mut d = Decoder::new(Arc::new(Definitions::from_json(&src).unwrap()), None);
+        let flow = FlowKey { src: Endpoint { ip: Ipv4Addr::new(9, 9, 9, 9), port: 13328 }, dst: Endpoint { ip: Ipv4Addr::new(10, 0, 0, 2), port: 5000 } };
+        let hex = "14 0c 61 01 0c 01 87 93 03 a0 01 28 01 28 00 00 00 \
+                   0f 0c 61 00 04 01 87 93 03 a0 01 03 \
+                   0e 0c 61 00 04 0a 00 00 00 0e 02 \
+                   0e 0c 61 00 04 65 87 93 03 0e 02";
+        let bytes: Vec<u8> = hex.split_whitespace().map(|h| u8::from_str_radix(h, 16).unwrap()).collect();
+        let mut out = Vec::new();
+        d.push(flow, true, &bytes, false, 1.0, &mut out);
+        let ody: Vec<_> = out.iter().filter_map(|e| match e { GameEvent::Odyle { cur, bonus } => Some((*cur, *bonus)), _ => None }).collect();
+        assert_eq!(ody, vec![(Some(160), Some(40)), (Some(160), None)]);
     }
 }
