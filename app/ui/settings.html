@@ -51,6 +51,7 @@
       ${F("Main number", sel("primary_metric", [["dps", "DPS"], ["dmg", "Total damage"], ["share", "Damage share"]]))}
       ${F("Accent colour", `<input type="color" data-k="accent">`)}
       ${F("Show", `<div class="row-btns">${chk("show_target", "Target & HP")}${chk("show_heal", "Healing")}</div>`)}
+      ${F("Players listed", sel("show_players", [["all", "Everyone fighting your target"], ["me", "Only me"]]), "Others' damage is still counted (share %, fight totals); this only hides their rows.")}
       ${F("Privacy", chk("anonymize_others", "Hide other players' names"), "For screenshots and streams. Your own name stays visible.")}
       ${F("Window", `<div class="row-btns">${chk("always_on_top", "Always on top")}${chk("click_through", "Click-through")}</div>`)}
     </div>

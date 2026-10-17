@@ -1008,6 +1008,7 @@ impl Core {
             .set("rows", s.rows)
             .set("show_heal", s.show_heal)
             .set("show_target", s.show_target)
+            .set("show_players", s.show_players.as_str())
             .set("primary_metric", s.primary_metric.as_str())
             .set("anonymize_others", s.anonymize_others)
             .set("click_through", s.click_through)

@@ -102,6 +102,9 @@ pub struct Settings {
     pub rows: usize,
     pub show_heal: bool,
     pub show_target: bool,
+    /// Whose rows the overlay lists: "all" (everyone fighting your targets)
+    /// or "me" (only you). "party" comes once party membership is decoded.
+    pub show_players: String,
     /// "dps" | "dmg" | "share"
     pub primary_metric: String,
     /// Hide other players' names on the overlay (screenshots/streams).
@@ -151,6 +154,7 @@ impl Default for Settings {
             rows: 8,
             show_heal: false,
             show_target: true,
+            show_players: "all".into(),
             primary_metric: "dps".into(),
             anonymize_others: false,
             click_through: false,
