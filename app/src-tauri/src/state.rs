@@ -95,6 +95,9 @@ pub struct Core {
     health_at: f64,
     health_decoded: u64,
     health_frames: u64,
+    /// Frame count last seen and when it last moved (fast stall check).
+    stall_frames: u64,
+    stall_since: f64,
     health_resyncs: u64,
     pub warning: Option<String>,
     pub events: EventFeed,
@@ -233,6 +236,8 @@ impl Core {
             health_at: 0.0,
             health_decoded: 0,
             health_frames: 0,
+            stall_frames: 0,
+            stall_since: 0.0,
             health_resyncs: 0,
             warning: None,
             events: EventFeed::new(&Default::default()),
@@ -817,6 +822,20 @@ impl Core {
     /// Notices when game traffic keeps arriving but nothing decodes any more
     /// (the usual sign of a game patch changing the protocol).
     fn check_health(&mut self, now: f64) {
+        // Fast self-heal: bytes keep arriving but no frame for 15 s means a
+        // stream is stuck (lost sync); restart reading from the next packet.
+        if self.sim.is_none() {
+            let frames = self.pipeline.decoder.frames_total;
+            let flowing = self.pipeline.last_game_ts > 0.0 && now - self.pipeline.last_game_ts < 5.0;
+            if frames != self.stall_frames || !flowing {
+                self.stall_frames = frames;
+                self.stall_since = now;
+            } else if now - self.stall_since > 15.0 {
+                self.pipeline.reasm.reset();
+                self.pipeline.decoder.reset_all();
+                self.stall_since = now;
+            }
+        }
         if self.sim.is_some() || now - self.health_at < 60.0 {
             return;
         }

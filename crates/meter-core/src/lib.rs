@@ -300,4 +300,21 @@ mod aion2_framing {
         let ops: Vec<u64> = out.iter().map(|f| f.opcode).collect();
         assert_eq!(ops, vec![0x3600, 0x3804, 0x3804, 0x3600, 0x371d]);
     }
+
+    /// A misread length claiming ~200 KB must not stall the stream.
+    #[test]
+    fn bogus_big_length_does_not_stall() {
+        let d = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
+        let defs = crate::protocol::Definitions::from_json(&d).unwrap();
+        let good = "0e 00 36 aa 21 fd 47 a1 01 00 00 1e 04 38 d1 5d 00 00 d1 5d bb 8e 15 01 eb 02 17 c1 6b 6c 01 00 00 00 e6 56 01 00 \
+                    0e 00 36 46 97 fa 47 a1 01 00 00 11 1d 37 b3 04 2f 03 45 b6 05 c7 de c7 de";
+        let mut bytes: Vec<u8> = vec![0xff, 0xff, 0x0c, 0x77, 0x55];
+        bytes.extend(good.split_whitespace().map(|h| u8::from_str_radix(h, 16).unwrap()));
+        let known = |op: u64| defs.messages.contains_key(&op);
+        let mut fr = crate::protocol::Framer::new();
+        let mut out = Vec::new();
+        fr.push(&defs.framing, &known, &bytes, false, &mut out);
+        let ops: Vec<u64> = out.iter().map(|f| f.opcode).collect();
+        assert!(ops.ends_with(&[0x3600, 0x3804, 0x3600, 0x371d]), "{ops:x?}");
+    }
 }

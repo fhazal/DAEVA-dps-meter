@@ -45,6 +45,11 @@ fn seq_diff(a: u32, b: u32) -> i64 {
 }
 
 impl Reassembler {
+    /// Forgets every stream; the next bytes of each restart as a fresh join.
+    pub fn reset(&mut self) {
+        self.flows.clear();
+    }
+
     pub fn new() -> Self {
         Reassembler {
             flows: HashMap::new(),
@@ -85,6 +90,16 @@ impl Reassembler {
                 }
                 Some(next) => {
                     let d = seq_diff(seq, next);
+                    if d < -(8 << 20) {
+                        // Far behind anything we've had: not a retransmission
+                        // but a new sequence space (reused connection, missed
+                        // SYN). Follow it rather than drop the flow forever.
+                        st.pending.clear();
+                        st.pending_bytes = 0;
+                        st.next = Some(seq.wrapping_add(seg.payload.len() as u32));
+                        out.push(StreamEvent::Data { flow: seg.flow, bytes: seg.payload.to_vec(), gap: true, ts });
+                        return;
+                    }
                     if d <= 0 {
                         let skip = (-d) as usize;
                         if skip < seg.payload.len() {
@@ -205,5 +220,17 @@ mod tests {
         let (b, gaps) = collect(&out);
         assert_eq!(b, b"ABXYZ");
         assert_eq!(gaps, 1);
+    }
+
+    #[test]
+    fn follows_new_sequence_space() {
+        let mut r = Reassembler::new();
+        let mut out = Vec::new();
+        r.push(&seg(500_000_000, TCP_ACK, b"AB"), 0.0, &mut out);
+        // Same flow, far "behind": used to be dropped as a retransmission forever.
+        r.push(&seg(1000, TCP_ACK, b"CD"), 0.1, &mut out);
+        r.push(&seg(1002, TCP_ACK, b"EF"), 0.2, &mut out);
+        let (b, _) = collect(&out);
+        assert_eq!(b, b"ABCDEF");
     }
 }

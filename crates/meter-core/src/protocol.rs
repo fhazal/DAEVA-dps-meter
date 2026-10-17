@@ -587,8 +587,14 @@ impl Frame {
 enum Try {
     Frame(Frame),
     NeedMore,
+    /// Header read; waiting for a frame of this total size and opcode.
+    Waiting(usize, u64),
     Invalid,
 }
+
+/// Frames this large are only waited for when their opcode is known: a
+/// misread length must not stall the stream for hundreds of KB.
+const BIG_FRAME: usize = 128 * 1024;
 
 fn try_frame(fr: &Framing, buf: &[u8]) -> Try {
     let mut r = Reader::new(buf);
@@ -615,10 +621,10 @@ fn try_frame(fr: &Framing, buf: &[u8]) -> Try {
         return Try::Invalid;
     }
     let total = total as usize;
-    if buf.len() < total {
-        return Try::NeedMore;
-    }
     let opcode = lookup(&[&header], "opcode").map(|v| v.as_u64()).unwrap_or(0);
+    if buf.len() < total {
+        return Try::Waiting(total, opcode);
+    }
     Try::Frame(Frame { header, opcode, raw: buf[..total].to_vec(), payload_offset: header_len })
 }
 
@@ -672,6 +678,11 @@ impl Framer {
                     out.push(f);
                 }
                 Try::NeedMore => break,
+                Try::Waiting(total, op) if total > BIG_FRAME && !known(op) => {
+                    self.synced = false;
+                    pos += 1;
+                }
+                Try::Waiting(..) => break,
                 Try::Invalid => {
                     self.synced = false;
                     pos += 1;
@@ -705,7 +716,8 @@ fn find_sync(fr: &Framing, known: &dyn Fn(u64) -> bool, buf: &[u8]) -> Option<us
                         continue 'outer;
                     }
                 }
-                Try::NeedMore => {
+                Try::Waiting(total, op) if total > BIG_FRAME && !known(op) => continue 'outer,
+                Try::NeedMore | Try::Waiting(..) => {
                     if n >= 1 && first_known {
                         return Some(start);
                     }
@@ -770,6 +782,11 @@ impl Decoder {
             keep_bytes: 96,
             frames_total: 0,
         }
+    }
+
+    /// Drops all partial frames (used to recover from a stalled stream).
+    pub fn reset_all(&mut self) {
+        self.framers.clear();
     }
 
     pub fn reset_flow(&mut self, flow: &FlowKey) {
