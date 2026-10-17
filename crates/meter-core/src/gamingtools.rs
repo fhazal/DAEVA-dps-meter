@@ -149,17 +149,29 @@ pub fn devalue(src: &str) -> Result<crate::json::Value, String> {
     Ok(go(arr, 0, 0))
 }
 
-/// `(id, name)` pairs from a gaming.tools `*.d.json` data file.
-pub fn names_from_data(src: &str) -> Result<Vec<(u32, String)>, String> {
+/// Where gaming.tools serves its images; `iconPath` values are relative to it.
+pub const IMAGES: &str = "https://cdn-hosted.gaming.tools/aion2";
+
+/// One entry of a gaming.tools data file.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Entry {
+    pub id: u32,
+    pub name: String,
+    pub icon: Option<String>,
+}
+
+/// Entries from a gaming.tools `*.d.json` data file.
+pub fn entries_from_data(src: &str) -> Result<Vec<Entry>, String> {
     let root = devalue(src)?;
     let list = root.as_arr().ok_or("data root is not a list")?;
     let mut out = Vec::new();
     for r in list {
         let id = r.get("id").and_then(|x| x.as_str().and_then(|s| s.parse::<u32>().ok()).or_else(|| x.as_u64().map(|n| n as u32)));
         let name = r.get("name").and_then(|x| x.as_str()).map(|s| s.trim().to_string());
+        let icon = r.get("iconPath").and_then(|x| x.as_str()).filter(|p| p.starts_with('/') && !p.contains("..") && p.len() < 200).map(String::from);
         if let (Some(id), Some(name)) = (id, name) {
             if !name.is_empty() {
-                out.push((id, name));
+                out.push(Entry { id, name, icon });
             }
         }
     }
@@ -167,6 +179,11 @@ pub fn names_from_data(src: &str) -> Result<Vec<(u32, String)>, String> {
         return Err("no names in data file".into());
     }
     Ok(out)
+}
+
+/// `(id, name)` pairs from a gaming.tools `*.d.json` data file.
+pub fn names_from_data(src: &str) -> Result<Vec<(u32, String)>, String> {
+    Ok(entries_from_data(src)?.into_iter().map(|e| (e.id, e.name)).collect())
 }
 
 #[cfg(test)]
@@ -178,6 +195,7 @@ mod devalue_tests {
         let src = r#"[[1,14],{"entityType":2,"categories":3,"aliases":6,"minimumLevel":8,"maximumLevel":9,"level":10,"mainCategoryId":11,"name":7,"iconPath":12,"id":13},"npc",[4,5],"npcs/monster/intellect","npcs/citizen",[7,7,7,7],"Draconute Ranger",17,70,0,"npcs","/images/custom/npcs.2000002.webp","2000002",{"name":15,"id":16,"x":-1},"Earth's Retribution","17010000"]"#;
         let n = names_from_data(src).unwrap();
         assert_eq!(n, vec![(2000002, "Draconute Ranger".to_string()), (17010000, "Earth's Retribution".to_string())]);
+        assert_eq!(entries_from_data(src).unwrap()[0].icon.as_deref(), Some("/images/custom/npcs.2000002.webp"));
         let v = devalue(src).unwrap();
         assert_eq!(v.as_arr().unwrap()[0].get("aliases").unwrap().as_arr().unwrap().len(), 4);
     }

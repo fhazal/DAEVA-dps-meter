@@ -97,7 +97,7 @@ Names you type are saved in `my-names.json` in the data folder. They take effect
 
 ## Credits
 
-Monster and skill names: [AION 2 Global Database](https://aion2.gaming.tools) by gaming.tools, used with permission. AION 2 and its names belong to NCSOFT.
+Monster and skill names, class emblems, skill icons and monster portraits: [AION 2 Global Database](https://aion2.gaming.tools) by gaming.tools, used with permission. The images are loaded from their CDN at run time and are not part of this repository or the installer. AION 2, its names and its artwork belong to NCSOFT. Settings → "Show game icons" switches back to the built-in icons.
 
 ## Licence
 

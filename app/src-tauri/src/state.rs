@@ -107,6 +107,8 @@ pub struct Core {
     pub lookup_status: Option<String>,
     /// gaming.tools bulk data loaded: (npc names, skill names, fetched at).
     pub site_bulk: Option<(usize, usize, f64)>,
+    /// Picture paths from gaming.tools: "n<template>" / "s<skill>" -> path.
+    pub icons: HashMap<String, String>,
 }
 
 #[derive(Default)]
@@ -235,6 +237,7 @@ impl Core {
             lookup_missing: HashSet::new(),
             lookup_status: None,
             site_bulk: None,
+            icons: HashMap::new(),
         };
         c.load_wanted();
         c.load_site_missing();
@@ -377,6 +380,9 @@ impl Core {
 
     fn load_site_missing(&mut self) {
         let Some(doc) = std::fs::read_to_string(self.site_names_path()).ok().and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok()) else { return };
+        if let Some(o) = doc["icons"].as_object() {
+            self.icons = o.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string()))).collect();
+        }
         let now = now_unix();
         if let Some(o) = doc["missing"].as_object() {
             for (k, at) in o {
@@ -457,15 +463,22 @@ impl Core {
     }
 
     /// Stores names from the gaming.tools data files and applies them.
-    pub fn apply_site_bulk(&mut self, npcs: Vec<(u32, String)>, skills: Vec<(u32, String)>, fetched_at: f64) {
+    pub fn apply_site_bulk(&mut self, npcs: Vec<meter_core::gamingtools::Entry>, skills: Vec<meter_core::gamingtools::Entry>, fetched_at: f64) {
         let counts = (npcs.len(), skills.len());
+        let icons: HashMap<String, String> = npcs
+            .iter()
+            .filter_map(|e| Some((format!("n{}", e.id), e.icon.clone()?)))
+            .chain(skills.iter().filter_map(|e| Some((format!("s{}", e.id), e.icon.clone()?))))
+            .collect();
         self.update_site_file(|doc| {
-            doc["npcs"] = serde_json::Value::Object(npcs.iter().map(|(id, n)| (id.to_string(), serde_json::json!(n))).collect());
-            doc["skills"] = serde_json::Value::Object(skills.iter().map(|(id, n)| (id.to_string(), serde_json::json!(n))).collect());
+            doc["npcs"] = serde_json::Value::Object(npcs.iter().map(|e| (e.id.to_string(), serde_json::json!(e.name))).collect());
+            doc["skills"] = serde_json::Value::Object(skills.iter().map(|e| (e.id.to_string(), serde_json::json!(e.name))).collect());
+            doc["icons"] = serde_json::Value::Object(icons.iter().map(|(k, v)| (k.clone(), serde_json::json!(v))).collect());
             doc["missing"] = serde_json::json!({});
             doc["fetched_at"] = serde_json::json!(fetched_at);
         });
         self.site_bulk = Some((counts.0, counts.1, fetched_at));
+        self.icons = icons;
         self.lookup_missing.clear();
         self.lookup_retry.clear();
         self.lookup_status = None;
@@ -637,6 +650,15 @@ impl Core {
         } else {
             "pending"
         }
+    }
+
+    pub fn icons_view(&self) -> String {
+        let icons: serde_json::Map<String, serde_json::Value> = if self.settings.game_art {
+            self.icons.iter().map(|(k, v)| (k.clone(), serde_json::json!(v))).collect()
+        } else {
+            Default::default()
+        };
+        serde_json::json!({"base": meter_core::gamingtools::IMAGES, "on": self.settings.game_art, "icons": icons}).to_string()
     }
 
     pub fn names_view(&self) -> Value {
@@ -1258,7 +1280,7 @@ fn event_feed(shared: Arc<Shared>) {
 /// (conditional requests, so an unchanged file costs almost nothing) and
 /// keeps a copy so the meter works offline.
 fn site_sync(shared: Arc<Shared>) {
-    use meter_core::gamingtools::{names_from_data, NPCS_DATA, SKILLS_DATA};
+    use meter_core::gamingtools::{entries_from_data, names_from_data, NPCS_DATA, SKILLS_DATA};
     let agent = ureq::AgentBuilder::new()
         .timeout(Duration::from_secs(60))
         .user_agent(concat!("DaevaMeter/", env!("CARGO_PKG_VERSION"), " (+https://aion2.bajubesi.org)"))
@@ -1323,7 +1345,7 @@ fn site_sync(shared: Arc<Shared>) {
             let _ = std::fs::write(&meta_path, serde_json::to_string_pretty(&meta).unwrap_or_default());
         }
         if due || first {
-            let read = |f: &str| std::fs::read_to_string(dir.join(f)).ok().and_then(|s| names_from_data(&s).ok());
+            let read = |f: &str| std::fs::read_to_string(dir.join(f)).ok().and_then(|s| entries_from_data(&s).ok());
             let (npcs, skills) = (read("npcs.d.json"), read("skills.d.json"));
             let mut c = shared.lock();
             if npcs.is_some() || skills.is_some() {

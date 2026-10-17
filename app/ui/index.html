@@ -18,7 +18,7 @@
   body.locked .tools .hide-locked { display: none; }
 
   .target { padding: 7px 10px 6px; border-bottom: 1px solid var(--line); }
-  .target .row1 { display: flex; align-items: baseline; gap: 8px; }
+  .target .row1 { display: flex; align-items: center; gap: 8px; }
   .target .name { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .target .meta { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .target .meta b { color: var(--text); font-weight: 600; }
@@ -241,7 +241,7 @@
     const hp = t.hp_pct != null ? `<div class="hp"><i style="width:${(t.hp_pct * 100).toFixed(1)}%"></i></div>` : "";
     const kill = f.boss_killed ? '<span class="kill">KILLED</span>' : (t.hp_pct != null ? `<span class="meta">${D.pct(t.hp_pct, 1)}</span>` : "");
     const nameit = t.named === false && t.npc_id ? `<span class="nameit" data-npc="${t.npc_id}" title="Looking it up on aion2.gaming.tools… or type the name yourself (saved for good)">✎ name it</span><span class="nameit" data-lk="${t.npc_id}" title="Open on aion2.gaming.tools">🔎</span>` : "";
-    $("target").innerHTML = `<div class="row1"><div class="name">${D.esc(t.name)}${nameit}</div>${kill}<div class="meta"><b>${D.fmt(f.total)}</b> dmg</div></div>${hp}`;
+    $("target").innerHTML = `<div class="row1">${D.npcIcon(t.npc_id, 24)}<div class="name">${D.esc(t.name)}${nameit}</div>${kill}<div class="meta"><b>${D.fmt(f.total)}</b> dmg</div></div>${hp}`;
     const b = $("target").querySelector(".nameit[data-npc]");
     if (b) b.onclick = (ev) => { ev.stopPropagation(); startNaming(Number(b.dataset.npc)); };
     const l = $("target").querySelector("[data-lk]");
@@ -281,7 +281,7 @@
         <i class="fill" style="width:${((v / top) * 100).toFixed(1)}%;background:${color}"></i>
         <i class="edge" style="background:${color}"></i>
         <span class="rank">${i + 1}</span>
-        <span class="who">${D.classIcon(p.class, 13)}<span class="nm">${D.esc(displayName(p, i))}</span>${p.class ? `<span class="cls">${D.esc(p.class)}</span>` : ""}</span>
+        <span class="who">${D.classIcon(p.class, 15)}<span class="nm">${D.esc(displayName(p, i))}</span>${p.class ? `<span class="cls">${D.esc(p.class)}</span>` : ""}</span>
         <span class="val">${main}${heal}${sub}</span>
       </div>`;
     }).join("");

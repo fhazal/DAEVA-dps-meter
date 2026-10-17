@@ -155,3 +155,9 @@ table.grid tr.click:hover td { background: rgba(255, 255, 255, 0.04); }
 .pill.good { color: var(--good); background: rgba(111, 207, 142, 0.12); }
 .pill.warn { color: var(--warn); background: rgba(231, 180, 76, 0.12); }
 .pill.bad { color: var(--bad); background: rgba(229, 103, 95, 0.12); }
+
+/* game art from aion2.gaming.tools */
+.gt-ic { flex: none; vertical-align: middle; object-fit: cover; border-radius: 4px; background: rgba(255,255,255,0.04); }
+.gt-ic.npc-ic { border-radius: 50%; border: 1px solid var(--line); background: rgba(0,0,0,0.35); }
+.gt-ic.sk-ic { margin-right: 6px; position: relative; }
+.gt-cls { vertical-align: middle; }

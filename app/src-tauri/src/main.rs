@@ -117,6 +117,11 @@ fn open_lookup(kind: String, id: u32) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn get_icons(st: St<'_>) -> String {
+    st.lock().icons_view()
+}
+
+#[tauri::command]
 fn get_names(st: St<'_>) -> String {
     st.lock().names_view().to_string()
 }
@@ -464,6 +469,7 @@ fn main() {
             set_name,
             get_names,
             open_lookup,
+            get_icons,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Daeva Meter");

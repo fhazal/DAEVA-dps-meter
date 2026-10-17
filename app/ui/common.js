@@ -67,11 +67,59 @@
     cleric: '<path d="M8 2v12M4.5 5.5h7"/><circle cx="8" cy="5.5" r="2.2"/>',
     chanter: '<circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="8" r="2.5"/><path d="M8 2.5v2.5M8 11v2.5M2.5 8H5M11 8h2.5"/>',
   };
+  // ---- game art from aion2.gaming.tools (used with permission) ----
+  // Images belong to NCSOFT; served by gaming.tools. Built-in SVGs are the
+  // fallback whenever art is off or an image fails.
+  const art = { on: false, base: "", icons: {}, sprites: {} };
+  async function loadArt() {
+    try {
+      const a = await callJSON("get_icons");
+      art.on = !!a.on; art.base = a.base || ""; art.icons = a.icons || {};
+    } catch { art.on = false; }
+  }
+  if (!mock) { loadArt(); setInterval(loadArt, 60 * 1000); }
+  function skillKey(id) {
+    id = Number(id) || 0;
+    if (id >= 2147483648) id -= 2147483648; // DoT entries carry the top bit
+    return id >= 10000000 && id < 20000000 ? Math.floor(id / 10000) * 10000 : id;
+  }
+  const imgTag = (path, px, cls, title) => `<img class="gt-ic ${cls || ""}" src="${esc(art.base + path)}" width="${px}" height="${px}" loading="lazy" alt="" ${title ? `title="${esc(title)}"` : ""} onerror="this.remove()">`;
+  function skillIcon(id, size) {
+    if (!art.on) return "";
+    const raw = Number(id) >= 2147483648 ? Number(id) - 2147483648 : Number(id);
+    const p = art.icons["s" + raw] || art.icons["s" + skillKey(id)];
+    return p ? imgTag(p, size || 18, "sk-ic") : "";
+  }
+  function npcIcon(tid, size) {
+    if (!art.on || !tid) return "";
+    const p = art.icons["n" + tid];
+    return p ? imgTag(p, size || 28, "npc-ic") : "";
+  }
+  function classSprite(key) {
+    const sp = art.sprites[key];
+    if (sp) return sp.ok ? sp : null;
+    const s2 = (art.sprites[key] = { ok: false });
+    const img = new Image();
+    img.onload = () => {
+      const w = img.naturalWidth, h = img.naturalHeight;
+      if (!w || !h) return;
+      // Sprite sheets hold several square states; show the first one.
+      s2.size = w > h ? "auto 100%" : h > w ? "100% auto" : "100% 100%";
+      s2.url = img.src;
+      s2.ok = true;
+    };
+    img.src = `${art.base}/images/ui/resource/sprite/common/ut_common_icon_class_${key}_sprite.webp`;
+    return null;
+  }
   function classIcon(cls, size) {
     const key = String(cls || "").toLowerCase();
+    const px = size || 14;
+    if (art.on && CLASS_COLORS[key]) {
+      const sp = classSprite(key);
+      if (sp) return `<span class="cls-icon gt-cls" title="${esc(cls)}" style="display:inline-block;flex:none;width:${px}px;height:${px}px;background:url('${sp.url}') 0 0 / ${sp.size} no-repeat"></span>`;
+    }
     const path = CLASS_ICONS[key];
     if (!path) return "";
-    const px = size || 14;
     return `<svg class="cls-icon" viewBox="0 0 16 16" width="${px}" height="${px}" style="color:${classColor(cls)};flex:none" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="${key}">${path}</svg>`;
   }
   function classColor(cls, name) {
@@ -144,5 +192,5 @@
     });
   }
 
-  window.Daeva = { call, callJSON, fmt, pct, dur, when, esc, classColor, classIcon, applyTheme, toast, icon, winAction, params, wireTitlebar };
+  window.Daeva = { call, callJSON, fmt, pct, dur, when, esc, classColor, classIcon, skillIcon, npcIcon, loadArt, art, applyTheme, toast, icon, winAction, params, wireTitlebar };
 })();
