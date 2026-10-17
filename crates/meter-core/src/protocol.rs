@@ -731,6 +731,8 @@ pub struct Decoder {
     /// Ring buffer of recent frames for the research view.
     pub recent: VecDeque<DecodedFrame>,
     pub keep_recent: usize,
+    /// Bytes of each recent frame to keep (96 in the app, everything offline).
+    pub keep_bytes: usize,
     pub frames_total: u64,
 }
 
@@ -743,6 +745,7 @@ impl Decoder {
             stats: HashMap::new(),
             recent: VecDeque::new(),
             keep_recent: 0,
+            keep_bytes: 96,
             frames_total: 0,
         }
     }
@@ -846,7 +849,7 @@ impl Decoder {
                 name: def.map(|d| d.name.clone()),
                 len: f.raw.len(),
                 fields: decoded_fields,
-                raw_head: f.raw.iter().take(96).copied().collect(),
+                raw_head: f.raw.iter().take(self.keep_bytes).copied().collect(),
             });
             while self.recent.len() > self.keep_recent {
                 self.recent.pop_front();

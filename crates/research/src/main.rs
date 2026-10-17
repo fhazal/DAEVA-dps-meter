@@ -389,6 +389,7 @@ fn decompressor() -> meter_core::protocol::Decompressor {
 fn decode_stream(defs: &Arc<Definitions>, s: &Stream, from_server: bool) -> Decoder {
     let mut d = Decoder::new(defs.clone(), Some(decompressor()));
     d.keep_recent = 2_000_000;
+    d.keep_bytes = usize::MAX;
     let mut evs = Vec::new();
     for (i, c) in s.chunks.iter().enumerate() {
         let end = s.chunks.get(i + 1).map_or(s.bytes.len(), |n| n.offset);
@@ -423,15 +424,16 @@ fn cmd_ops(pairs: &[FlowPair], a: &Args) -> Result<(), String> {
 
 fn cmd_frames(pairs: &[FlowPair], a: &Args) -> Result<(), String> {
     let defs = load_defs(a)?;
-    let op = a.get("op").and_then(json::parse_number_str).ok_or("--op is required")? as u64;
+    let any = a.get("op") == Some("any");
+    let op = if any { 0 } else { a.get("op").and_then(json::parse_number_str).ok_or("--op is required (or --op any)")? as u64 };
     let (_, s, srv) = pick(pairs, a)?;
     let d = decode_stream(&defs, s, srv);
     let limit = a.num("limit", 20.0) as usize;
     let markers = load_markers(a)?;
     let mut out = String::new();
-    for f in d.recent.iter().filter(|f| f.opcode == op).take(limit) {
+    for f in d.recent.iter().filter(|f| any || f.opcode == op).take(limit) {
         let mk = nearest_marker(&markers, f.ts).map(|(d, l)| format!("  <- {:+.2}s after '{l}'", d)).unwrap_or_default();
-        out.push_str(&format!("t={:.3} len={}{}\n", f.ts - s.first, f.len, mk));
+        out.push_str(&format!("t={:.3} op=0x{:04x} len={}{}\n", f.ts - s.first, f.opcode, f.len, mk));
         if let Some(fields) = &f.fields {
             out.push_str(&format!("  {}\n", scope_json(fields).to_string()));
         }
