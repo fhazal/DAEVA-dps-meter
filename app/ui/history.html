@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>History</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  .tabs { display: flex; gap: 4px; margin-bottom: 12px; align-items: center; }
+  .tab { padding: 5px 12px; border-radius: 6px; cursor: pointer; color: var(--muted); font-size: 12px; }
+  .tab.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .tabs .sp { flex: 1; }
+  .fight { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 12px; }
+  .fight .hd { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+  .fight .hd .t { font-size: 15px; font-weight: 600; }
+  .fight .hd .sp { flex: 1; }
+  .ok { color: var(--good); }
+  .dotc { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+  tr.sel td { background: var(--accent-soft); }
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="titlebar" data-tauri-drag-region>
+    <div class="title" data-tauri-drag-region>Fight history</div>
+    <button class="icon-btn close" data-win="close" title="Close"></button>
+  </div>
+  <div class="scroll"><div class="content">
+    <div class="tabs">
+      <span class="tab on" data-tab="session">This session</span>
+      <span class="tab" data-tab="saved">Saved</span>
+      <span class="sp"></span>
+      <button class="btn" id="bFolder">Open folder</button>
+    </div>
+    <div id="list"></div>
+    <div id="fight"></div>
+  </div></div>
+</div>
+<script src="common.js"></script>
+<script>
+(() => {
+  const D = window.Daeva;
+  document.querySelector("[data-win=close]").innerHTML = D.icon("close");
+  D.wireTitlebar();
+  let tab = "session";
+  let data = { session: [], saved: [] };
+  let selected = null;
+
+  document.querySelectorAll(".tab").forEach((t) => (t.onclick = () => {
+    tab = t.dataset.tab;
+    document.querySelectorAll(".tab").forEach((x) => x.classList.toggle("on", x === t));
+    selected = null;
+    document.getElementById("fight").innerHTML = "";
+    renderList();
+  }));
+  document.getElementById("bFolder").onclick = () => D.call("open_folder", { which: "history" });
+
+  async function refresh() {
+    try {
+      data = await D.callJSON("get_history");
+      renderList();
+    } catch (e) { document.getElementById("list").textContent = String(e); }
+  }
+
+  function key(f) { return f.file || f.fight_id; }
+
+  function renderList() {
+    const rows = data[tab] || [];
+    if (!rows.length) {
+      document.getElementById("list").innerHTML = `<p class="muted">${tab === "session" ? "No finished fights yet this session." : "No saved fights yet. Finished fights are saved automatically."}</p>`;
+      return;
+    }
+    document.getElementById("list").innerHTML = `<table class="grid"><thead><tr><th>When</th><th>Target</th><th>Time</th><th>Party DPS</th><th>Total</th><th>Top</th><th></th></tr></thead><tbody>${rows.map((f) => `
+      <tr class="click${String(key(f)) === String(selected) ? " sel" : ""}" data-k="${D.esc(key(f))}">
+        <td>${D.when(f.started_unix)}</td><td style="text-align:left">${D.esc(f.target || "—")}</td><td>${D.dur(f.duration)}</td>
+        <td>${D.fmt(f.dps)}</td><td>${D.fmt(f.total)}</td><td>${D.esc(f.top || "")}</td><td>${f.boss_killed ? '<span class="ok">✓</span>' : ""}</td></tr>`).join("")}</tbody></table>`;
+    document.querySelectorAll("#list tr.click").forEach((tr) => (tr.onclick = () => { selected = tr.dataset.k; renderList(); openFight(selected); }));
+  }
+
+  async function openFight(k) {
+    const args = tab === "saved" ? { file: k } : { fightId: Number(k) };
+    try {
+      const rec = JSON.parse(await D.call("get_fight_record", args));
+      const el = document.getElementById("fight");
+      el.innerHTML = `<div class="fight">
+        <div class="hd"><span class="t">${D.esc(rec.target ? rec.target.name : "Fight")}</span><span class="muted">${D.dur(rec.duration)} · ${D.fmt(rec.total)} dmg · ${D.fmt(rec.dps)}/s</span><span class="sp"></span><button class="btn" id="bCopyF">Copy summary</button></div>
+        <table class="grid"><thead><tr><th>Player</th><th>DPS</th><th>Damage</th><th>Share</th><th>Crit</th><th>Max hit</th></tr></thead><tbody>
+        ${rec.players.map((p) => `<tr class="click" data-id="${p.id}"><td><span class="dotc" style="background:${D.classColor(p.class, p.name)}"></span>${D.esc(p.name)} <span class="muted">${D.esc(p.class || "")}</span></td><td>${D.fmt(p.dps)}</td><td>${D.fmt(p.dmg)}</td><td>${D.pct(p.share, 1)}</td><td>${D.pct(p.crit_rate)}</td><td>${D.fmt(p.max_hit)}</td></tr>`).join("")}
+        </tbody></table>
+        ${rec.loot && rec.loot.length ? `<h2>Loot</h2><table class="grid"><tbody>${rec.loot.map((l) => `<tr><td>${D.esc(l.item)}${l.count > 1 ? " ×" + l.count : ""}</td><td>${D.esc(l.grade_name || (l.grade != null ? "grade " + l.grade : ""))}</td><td>${D.esc(l.who)}</td></tr>`).join("")}</tbody></table>` : ""}
+      </div>`;
+      el.querySelectorAll("tr.click").forEach((tr) => (tr.onclick = () => {
+        const params = tab === "saved" ? { file: k, actor_id: Number(tr.dataset.id) } : { fight_id: Number(k), actor_id: Number(tr.dataset.id) };
+        D.call("open_window", { kind: "detail", params: JSON.stringify(params) });
+      }));
+      document.getElementById("bCopyF").onclick = async () => {
+        const lines = [`**${rec.target ? rec.target.name : "Fight"}** — ${D.dur(rec.duration)} — ${D.fmt(rec.total)} total, ${D.fmt(rec.dps)}/s${rec.boss_killed ? " — killed" : ""}`];
+        rec.players.slice(0, 12).forEach((p, i) => lines.push(`\`${String(i + 1).padStart(2)}.\` ${p.name}${p.class ? " (" + p.class + ")" : ""} — ${D.fmt(p.dmg)} (${D.fmt(p.dps)}/s) ${D.pct(p.share, 1)}`));
+        await D.call("copy_text", { text: lines.join("\n") });
+        D.toast("Copied");
+      };
+    } catch (e) { D.toast(String(e)); }
+  }
+
+  window.__reloadParams = refresh;
+  D.callJSON("get_snapshot", {}).then((s) => D.applyTheme(s.ui)).catch(() => {});
+  refresh();
+  setInterval(() => { if (tab === "session") refresh(); }, 5000);
+})();
+</script>
+</body>
+</html>

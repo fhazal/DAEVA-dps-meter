@@ -1,0 +1,11 @@
+[workspace]
+resolver = "2"
+members = ["crates/meter-core", "crates/research"]
+# The Windows app lives in app/src-tauri as its own workspace so the
+# dependency-free core can be built and tested anywhere.
+exclude = ["app/src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"

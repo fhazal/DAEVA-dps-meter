@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Research</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  .content { display: flex; flex-direction: column; gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; }
+  .line { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .line input[type=text] { flex: 1; min-width: 160px; }
+  .stat { font-variant-numeric: tabular-nums; }
+  .quick { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .quick button { font-size: 11.5px; padding: 4px 9px; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; min-height: 0; }
+  .frames { max-height: 360px; overflow: auto; }
+  .fr { padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+  .fr .h { display: flex; gap: 8px; font-size: 11.5px; }
+  .fr .h b { color: var(--accent); font-weight: 600; }
+  .fr .x { font-family: var(--mono); font-size: 10.5px; color: var(--muted); word-break: break-all; }
+  .fr .j { font-family: var(--mono); font-size: 10.5px; color: var(--good); word-break: break-all; }
+  ol { margin: 6px 0 0 18px; padding: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+  ol b { color: var(--text); }
+  .ops { max-height: 360px; overflow: auto; }
+  .ops td.mono { text-align: left; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="titlebar" data-tauri-drag-region>
+    <div class="title" data-tauri-drag-region>Research mode <small>record captures for protocol decoding</small></div>
+    <button class="icon-btn close" data-win="close" title="Close"></button>
+  </div>
+  <div class="scroll"><div class="content">
+    <div class="card">
+      <div class="line">
+        <input type="text" id="label" placeholder="What are you recording? e.g. dummy-gladiator-skills">
+        <button class="btn primary" id="bRec">Start recording</button>
+        <button class="btn" id="bFolder">Open folder</button>
+      </div>
+      <div class="muted stat" id="recStat" style="margin-top:8px">Not recording.</div>
+      <ol>
+        <li>Stand at a <b>training dummy</b>, start recording.</li>
+        <li>Before each action, add a marker that says what you did and the <b>exact damage number</b> the game showed (e.g. “Ferocious Strike 12,345 crit”).</li>
+        <li>Do a few of each: single skills, crits, a heal, a death, picking up loot, changing zone.</li>
+        <li>Stop, then send the <span class="mono">.pcap</span> and <span class="mono">.markers.json</span> files for decoding. Only game-server traffic is recorded.</li>
+      </ol>
+    </div>
+    <div class="card">
+      <div class="line">
+        <input type="text" id="marker" placeholder="Marker: what just happened + damage shown (Enter to add)">
+        <button class="btn" id="bMark" disabled>Add marker</button>
+      </div>
+      <div class="quick" id="quick"></div>
+    </div>
+    <div class="cols">
+      <div class="card"><h2>Opcodes</h2><div class="ops" id="ops"><span class="muted">Start recording to see live opcodes.</span></div></div>
+      <div class="card"><h2>Recent frames</h2><div class="frames" id="frames"></div></div>
+    </div>
+  </div></div>
+</div>
+<script src="common.js"></script>
+<script>
+(() => {
+  const D = window.Daeva;
+  document.querySelector("[data-win=close]").innerHTML = D.icon("close");
+  D.wireTitlebar();
+  const $ = (id) => document.getElementById(id);
+  let recording = false;
+  const QUICK = ["auto attack", "skill 1", "skill 2", "crit", "heal", "took damage", "died", "loot picked up", "zone change", "target killed"];
+  $("quick").innerHTML = QUICK.map((q) => `<button class="btn" data-q="${q}">${q}</button>`).join("");
+
+  async function mark(text) {
+    if (!recording || !text) return;
+    try { const n = await D.call("research_marker", { label: text }); D.toast(`Marker ${n}: ${text}`); } catch (e) { D.toast(String(e)); }
+  }
+  $("bMark").onclick = () => { mark($("marker").value.trim()); $("marker").value = ""; };
+  $("marker").onkeydown = (e) => { if (e.key === "Enter") $("bMark").click(); };
+  document.querySelectorAll("[data-q]").forEach((b) => (b.onclick = () => {
+    const extra = $("marker").value.trim();
+    mark(b.dataset.q + (extra ? " — " + extra : ""));
+    $("marker").value = "";
+  }));
+  $("bFolder").onclick = () => D.call("open_folder", { which: "research" });
+  $("bRec").onclick = async () => {
+    try {
+      if (recording) {
+        const p = await D.call("research_stop");
+        D.toast("Saved " + p.split(/[\\/]/).pop());
+      } else {
+        await D.call("research_start", { label: $("label").value.trim() || "session" });
+        D.toast("Recording");
+      }
+    } catch (e) { D.toast(String(e)); }
+    tick();
+  };
+
+  async function tick() {
+    try {
+      const snap = await D.callJSON("get_snapshot", {});
+      D.applyTheme(snap.ui);
+      const r = snap.research;
+      recording = !!r;
+      $("bRec").textContent = recording ? "Stop & save" : "Start recording";
+      $("bRec").classList.toggle("primary", !recording);
+      $("bRec").classList.toggle("danger", recording);
+      $("bMark").disabled = !recording;
+      const st = snap.status;
+      const srv = st.servers.length ? st.servers.join(", ") : "no game server detected yet";
+      $("recStat").innerHTML = recording
+        ? `<span class="pill bad">● REC</span> ${D.dur(r.elapsed)} · ${r.packets} packets · ${D.fmt(r.bytes)} bytes · ${r.markers} markers · <span class="mono">${D.esc(srv)}</span>`
+        : `Not recording · ${st.game_process ? "Game: " + D.esc(st.game_process) : "Game not running"} · <span class="mono">${D.esc(srv)}</span>`;
+      if (recording) {
+        const v = await D.callJSON("get_research");
+        $("ops").innerHTML = `<table class="grid"><thead><tr><th>Op</th><th>Dir</th><th>Count</th><th>Avg</th><th>Dec</th><th>Sample</th></tr></thead><tbody>${v.ops.map((o) => `<tr><td class="mono">${o.opcode}${o.name ? " " + D.esc(o.name) : ""}</td><td>${o.dir}</td><td>${o.count}</td><td>${o.avg_len.toFixed(0)}</td><td>${o.decoded}${o.errors ? `/<span style="color:var(--bad)">${o.errors}</span>` : ""}</td><td class="mono">${o.sample}</td></tr>`).join("")}</tbody></table>`;
+        $("frames").innerHTML = v.recent.slice(0, 80).map((f) => `<div class="fr"><div class="h"><b>${f.dir} ${f.opcode}</b><span>${D.esc(f.name || "")}</span><span class="muted">${f.len} B</span></div>${f.fields ? `<div class="j">${D.esc(JSON.stringify(f.fields))}</div>` : ""}<div class="x">${f.hex}</div></div>`).join("");
+      }
+    } catch (e) { console.warn(e); }
+  }
+  setInterval(tick, 1000);
+  tick();
+})();
+</script>
+</body>
+</html>

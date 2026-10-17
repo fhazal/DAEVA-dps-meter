@@ -1,0 +1,8 @@
+[package]
+name = "meter-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Dependency-free capture, decoding and combat engine for Daeva Meter"
+
+[dependencies]

@@ -1,0 +1,13 @@
+[package]
+name = "research"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Protocol research toolkit for Daeva Meter captures"
+
+[[bin]]
+name = "daeva-research"
+path = "src/main.rs"
+
+[dependencies]
+meter-core = { path = "../meter-core" }

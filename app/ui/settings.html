@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  .f { display: grid; grid-template-columns: 170px 1fr; gap: 6px 14px; align-items: center; }
+  .f label { color: var(--muted); font-size: 12px; }
+  .f .hint { grid-column: 2; font-size: 11px; color: var(--dim); margin-top: -2px; }
+  .f input[type=text], .f input[type=password], .f input[type=number], .f select { width: 100%; }
+  .f .inline { display: flex; align-items: center; gap: 8px; }
+  .bar { position: sticky; bottom: 0; display: flex; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--line); background: rgba(var(--bg), 0.98); }
+  .bar .sp { flex: 1; }
+  .errs { color: var(--bad); font-size: 12px; margin-top: 8px; }
+  .row-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+  .warnbox { border: 1px solid rgba(231,180,76,0.35); background: rgba(231,180,76,0.08); border-radius: 8px; padding: 8px 10px; font-size: 12px; color: var(--muted); margin: 6px 0 10px; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="titlebar" data-tauri-drag-region>
+    <div class="title" data-tauri-drag-region>Settings</div>
+    <button class="icon-btn close" data-win="close" title="Close"></button>
+  </div>
+  <div class="scroll"><div class="content" id="form"></div></div>
+  <div class="bar"><span class="muted" id="msg"></span><span class="sp"></span><button class="btn" data-win="close">Cancel</button><button class="btn primary" id="bSave">Save</button></div>
+</div>
+<script src="common.js"></script>
+<script>
+(() => {
+  const D = window.Daeva;
+  document.querySelector(".titlebar [data-win=close]").innerHTML = D.icon("close");
+  D.wireTitlebar();
+  let s = null;
+
+  const F = (label, html, hint) => `<label>${label}</label><div>${html}</div>${hint ? `<div class="hint">${hint}</div>` : ""}`;
+  const chk = (k, text) => `<span class="inline"><input type="checkbox" data-k="${k}"> ${text || ""}</span>`;
+  const txt = (k, ph, type) => `<input type="${type || "text"}" data-k="${k}" placeholder="${ph || ""}">`;
+  const num = (k, min, max, step) => `<input type="number" data-k="${k}" min="${min}" max="${max}" step="${step || 1}">`;
+  const rng = (k, min, max, step) => `<span class="inline"><input type="range" data-k="${k}" min="${min}" max="${max}" step="${step}" style="flex:1"><span class="num muted" data-v="${k}"></span></span>`;
+  const sel = (k, opts) => `<select data-k="${k}">${opts.map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select>`;
+
+  function build() {
+    document.getElementById("form").innerHTML = `
+    <h2>Overlay</h2><div class="f">
+      ${F("Background opacity", rng("opacity", 0.2, 1, 0.02))}
+      ${F("Scale", rng("scale", 0.7, 1.6, 0.05))}
+      ${F("Rows shown", num("rows", 1, 24))}
+      ${F("Main number", sel("primary_metric", [["dps", "DPS"], ["dmg", "Total damage"], ["share", "Damage share"]]))}
+      ${F("Accent colour", `<input type="color" data-k="accent">`)}
+      ${F("Show", `<div class="row-btns">${chk("show_target", "Target & HP")}${chk("show_heal", "Healing")}</div>`)}
+      ${F("Privacy", chk("anonymize_others", "Hide other players' names"), "For screenshots and streams. Your own name stays visible.")}
+      ${F("Window", `<div class="row-btns">${chk("always_on_top", "Always on top")}${chk("click_through", "Click-through")}</div>`)}
+    </div>
+    <h2>Fights</h2><div class="f">
+      ${F("End fight after idle (s)", num("idle_timeout", 2, 120, 1))}
+      ${F("", chk("end_on_target_death", "End fight when the main target dies"))}
+      ${F("", chk("merge_summons", "Count summon/pet damage for its owner"))}
+      ${F("Keep saved fights (days)", num("history_keep_days", 1, 365))}
+    </div>
+    <h2>Capture</h2><div class="f">
+      ${F("Game process names", txt("process_names", "aion2"), "Comma separated, matched anywhere in the .exe name.")}
+      ${F("Extra server ports", txt("manual_ports", "e.g. 7777"), "Only needed if auto-detection fails.")}
+      ${F("Ignore ports", txt("ignore_ports", "80, 443"))}
+      ${F("Network adapter filter", txt("device_filter", "blank = all adapters"))}
+      ${F("", `<div class="row-btns"><button class="btn" id="bRestart">Restart capture</button>${chk("demo", "Demo mode (simulated party)")}</div>`)}
+    </div>
+    <h2>Hotkeys</h2><div class="f">
+      ${F("Toggle click-through", txt("hotkeys.click_through"))}
+      ${F("End fight", txt("hotkeys.reset"))}
+      ${F("Hide / show overlay", txt("hotkeys.hide"))}
+      ${F("Copy summary", txt("hotkeys.copy"))}
+      ${F("Research marker", txt("hotkeys.marker"), "Format: Ctrl+Shift+F9. Leave empty to disable.")}
+    </div>
+    <div class="errs" id="hkErr"></div>
+    <h2>Share with Daeva bot</h2>
+    <div class="warnbox">Sends finished fights (and optionally rare loot) to your community's Daeva bot for leaderboards and Discord cards. Off by default. “Only me” never sends other players' names.</div>
+    <div class="f">
+      ${F("", chk("share.enabled", "Enable sharing"))}
+      ${F("Endpoint URL", txt("share.endpoint", "https://portal.example.org/api/meter"))}
+      ${F("Token", txt("share.token", "from the bot: /meter link", "password"))}
+      ${F("What to share", sel("share.scope", [["self", "Only me"], ["party", "Everyone in the fight"], ["none", "Nothing"]]))}
+      ${F("Minimum fight length (s)", num("share.min_duration", 0, 3600))}
+      ${F("", chk("share.share_loot", "Share rare loot drops"))}
+      ${F("Minimum loot grade", num("share.min_loot_grade", 0, 10))}
+    </div>
+    <h2>Data</h2>
+    <div class="row-btns">
+      <button class="btn" data-folder="data">Open data folder</button>
+      <button class="btn" data-folder="definitions">Definitions folder</button>
+      <button class="btn" id="bReload">Reload definitions</button>
+    </div>
+    <p class="muted" style="font-size:11.5px">Drop an updated <span class="mono">aion2.json</span> or <span class="mono">names.json</span> in the definitions folder to override the bundled copy after a game patch.</p>`;
+  }
+
+  function get(o, path) { return path.split(".").reduce((a, k) => (a == null ? a : a[k]), o); }
+  function set(o, path, v) { const ks = path.split("."); const last = ks.pop(); ks.reduce((a, k) => (a[k] = a[k] || {}), o)[last] = v; }
+  const LISTS = { process_names: "str", manual_ports: "num", ignore_ports: "num" };
+
+  function fill() {
+    document.querySelectorAll("[data-k]").forEach((el) => {
+      const k = el.dataset.k;
+      let v = get(s, k);
+      if (LISTS[k]) v = (v || []).join(", ");
+      if (el.type === "checkbox") el.checked = !!v; else el.value = v == null ? "" : v;
+    });
+    updateRanges();
+  }
+  function updateRanges() {
+    document.querySelectorAll("[data-v]").forEach((el) => {
+      const inp = document.querySelector(`[data-k="${el.dataset.v}"]`);
+      el.textContent = Math.round(Number(inp.value) * 100) + "%";
+    });
+  }
+  function collect() {
+    const out = JSON.parse(JSON.stringify(s));
+    document.querySelectorAll("[data-k]").forEach((el) => {
+      const k = el.dataset.k;
+      let v;
+      if (el.type === "checkbox") v = el.checked;
+      else if (el.type === "number" || el.type === "range") v = Number(el.value);
+      else v = el.value.trim();
+      if (LISTS[k]) {
+        v = v.split(/[,\s]+/).filter(Boolean);
+        if (LISTS[k] === "num") v = v.map(Number).filter((n) => n > 0 && n < 65536);
+      }
+      set(out, k, v);
+    });
+    return out;
+  }
+
+  async function init() {
+    s = await D.call("get_settings");
+    D.applyTheme({ accent: s.accent, opacity: 0.97 });
+    build();
+    fill();
+    document.querySelectorAll("input[type=range]").forEach((r) => (r.oninput = updateRanges));
+    document.getElementById("bRestart").onclick = async () => { await D.call("restart_capture"); D.toast("Capture restarted"); };
+    document.getElementById("bReload").onclick = async () => {
+      const r = JSON.parse(await D.call("reload_definitions"));
+      D.toast(r.error ? "Error: " + r.error : "Loaded " + r.defs);
+    };
+    document.querySelectorAll("[data-folder]").forEach((b) => (b.onclick = () => D.call("open_folder", { which: b.dataset.folder })));
+  }
+
+  document.getElementById("bSave").onclick = async () => {
+    const next = collect();
+    if (next.share.enabled && next.share.endpoint && !/^https?:\/\//.test(next.share.endpoint)) { D.toast("Endpoint must start with https://"); return; }
+    try {
+      const errs = await D.call("save_settings", { settings: next });
+      s = next;
+      document.getElementById("hkErr").textContent = (errs || []).join(" · ");
+      D.toast(errs && errs.length ? "Saved, but some hotkeys failed" : "Saved");
+    } catch (e) { D.toast("Could not save: " + e); }
+  };
+
+  init().catch((e) => (document.getElementById("form").textContent = String(e)));
+})();
+</script>
+</body>
+</html>

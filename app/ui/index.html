@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Daeva Meter</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  .titlebar { gap: 2px; }
+  .state-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); flex: none; margin-right: 6px; box-shadow: 0 0 0 3px rgba(255,255,255,0.03); }
+  .state-dot.live { background: var(--good); box-shadow: 0 0 8px rgba(111,207,142,0.7); }
+  .state-dot.wait { background: var(--warn); }
+  .state-dot.err { background: var(--bad); }
+  .state-dot.demo { background: #8f7ae0; }
+  .state-dot.rec { background: var(--bad); animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: 0.35; } }
+  .tools { display: flex; gap: 0; }
+  body.locked .tools .hide-locked { display: none; }
+
+  .target { padding: 7px 10px 6px; border-bottom: 1px solid var(--line); }
+  .target .row1 { display: flex; align-items: baseline; gap: 8px; }
+  .target .name { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .target .meta { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .target .meta b { color: var(--text); font-weight: 600; }
+  .hp { height: 4px; border-radius: 2px; background: rgba(255,255,255,0.08); margin-top: 6px; overflow: hidden; }
+  .hp i { display: block; height: 100%; background: linear-gradient(90deg, #c94b45, #e5675f); transition: width .25s; }
+  .kill { color: var(--good); font-size: 11px; font-weight: 600; }
+
+  .rows { padding: 4px 4px 6px; }
+  .row { position: relative; display: grid; grid-template-columns: 18px 1fr auto; align-items: center; gap: 6px; height: 26px; padding: 0 8px 0 6px; border-radius: 6px; cursor: pointer; overflow: hidden; }
+  .row + .row { margin-top: 2px; }
+  .row:hover { background: rgba(255,255,255,0.05); }
+  .row .fill { position: absolute; left: 0; top: 0; bottom: 0; opacity: 0.22; border-radius: 6px; transition: width .3s ease; }
+  .row .edge { position: absolute; left: 0; top: 4px; bottom: 4px; width: 3px; border-radius: 2px; }
+  .row.self { background: var(--self); }
+  .row > * { position: relative; }
+  .rank { color: var(--dim); font-size: 11px; text-align: right; font-variant-numeric: tabular-nums; }
+  .who { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .who .cls { color: var(--muted); font-size: 11px; margin-left: 5px; }
+  .val { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; font-weight: 600; }
+  .val small { color: var(--muted); font-weight: 400; margin-left: 6px; font-size: 11px; display: inline-block; min-width: 34px; }
+  .val .sub { color: var(--muted); font-weight: 400; font-size: 11px; margin-left: 6px; }
+
+  .empty { padding: 18px 14px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+  .empty b { color: var(--text); font-weight: 600; }
+  .empty a { color: var(--accent); cursor: pointer; text-decoration: underline; }
+  .foot { flex: none; display: flex; align-items: center; gap: 8px; padding: 3px 10px; font-size: 10.5px; color: var(--dim); border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; }
+  .foot span:last-child { margin-left: auto; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="titlebar" data-tauri-drag-region>
+    <span class="state-dot" id="dot" data-tauri-drag-region></span>
+    <div class="title" id="title" data-tauri-drag-region>Daeva Meter</div>
+    <div class="tools">
+      <button class="icon-btn hide-locked" id="bMetric" title="Switch DPS / damage / share"></button>
+      <button class="icon-btn hide-locked" id="bCopy" title="Copy summary for Discord"></button>
+      <button class="icon-btn hide-locked" id="bReset" title="End fight now"></button>
+      <button class="icon-btn hide-locked" id="bHistory" title="History"></button>
+      <button class="icon-btn hide-locked" id="bResearch" title="Research mode"></button>
+      <button class="icon-btn hide-locked" id="bSettings" title="Settings"></button>
+      <button class="icon-btn" id="bLock" title="Click-through (Ctrl+Shift+L)"></button>
+      <button class="icon-btn hide-locked" data-win="minimize" title="Minimise"></button>
+      <button class="icon-btn close hide-locked" data-win="close" title="Quit"></button>
+    </div>
+  </div>
+  <div class="target" id="target" hidden></div>
+  <div class="scroll"><div class="rows" id="rows"></div></div>
+  <div class="foot" id="foot"></div>
+</div>
+<script src="common.js"></script>
+<script>
+(() => {
+  const D = window.Daeva;
+  const $ = (id) => document.getElementById(id);
+  const metrics = ["dps", "dmg", "share"];
+  let metric = null;
+  let ui = {};
+  let share = null;
+  let lastFight = null;
+
+  $("bMetric").innerHTML = D.icon("metric");
+  $("bCopy").innerHTML = D.icon("copy");
+  $("bReset").innerHTML = D.icon("reset");
+  $("bHistory").innerHTML = D.icon("history");
+  $("bResearch").innerHTML = D.icon("flask");
+  $("bSettings").innerHTML = D.icon("gear");
+  document.querySelector('[data-win="minimize"]').innerHTML = D.icon("min");
+  document.querySelector('[data-win="close"]').innerHTML = D.icon("close");
+  D.wireTitlebar();
+
+  $("bMetric").onclick = () => { metric = metrics[(metrics.indexOf(metric || ui.primary_metric || "dps") + 1) % metrics.length]; D.toast("Showing " + ({ dps: "DPS", dmg: "total damage", share: "damage share" })[metric]); render(lastSnap); };
+  $("bCopy").onclick = async () => { try { await D.call("copy_summary", {}); D.toast("Summary copied — paste it in Discord"); } catch (e) { D.toast(String(e)); } };
+  $("bReset").onclick = async () => { await D.call("reset_fight"); D.toast("Fight ended"); };
+  $("bHistory").onclick = () => D.call("open_window", { kind: "history" });
+  $("bResearch").onclick = () => D.call("open_window", { kind: "research" });
+  $("bSettings").onclick = () => D.call("open_window", { kind: "settings" });
+  $("bLock").onclick = async () => { const on = await D.call("toggle_click_through"); D.toast(on ? "Click-through on — Ctrl+Shift+L to unlock" : "Click-through off"); };
+
+  let lastSnap = null;
+  let anonMap = new Map();
+
+  function displayName(p, i) {
+    if (!ui.anonymize_others || p.is_self) return p.name;
+    return (p.class || "Player") + " " + (i + 1);
+  }
+
+  function statusLine(s) {
+    if (s.demo) return ["demo", "Demo mode — simulated party"];
+    if (s.npcap_error) return ["err", s.npcap_error];
+    if (s.defs_error) return ["err", "Definitions: " + s.defs_error];
+    if (!s.devices || !s.devices.length) return ["wait", "Opening network adapters…"];
+    if (!s.game_process) return ["wait", "Waiting for AION 2 to start"];
+    if (!s.servers.length) return ["wait", "AION 2 found — waiting for server connection"];
+    if (s.game_idle != null && s.game_idle < 5) return ["live", "Capturing"];
+    return ["wait", "Connected — no game traffic yet"];
+  }
+
+  function render(snap) {
+    if (!snap) return;
+    lastSnap = snap;
+    ui = snap.ui || {};
+    D.applyTheme(ui);
+    document.body.classList.toggle("locked", !!ui.click_through);
+    $("bLock").innerHTML = D.icon(ui.click_through ? "lock" : "unlock");
+    $("bLock").classList.toggle("on", !!ui.click_through);
+
+    const s = snap.status;
+    let [state, text] = statusLine(s);
+    if (snap.research) { state = "rec"; text = `Recording · ${snap.research.packets} pkts · ${snap.research.markers} markers`; }
+    $("dot").className = "state-dot " + state;
+    $("dot").title = text;
+
+    const f = snap.fight;
+    lastFight = f;
+    const m = metric || ui.primary_metric || "dps";
+    if (!f || !f.players.length) {
+      $("title").innerHTML = "Daeva Meter";
+      $("target").hidden = true;
+      $("rows").innerHTML = emptyState(s, state, text);
+      wireEmpty();
+    } else {
+      $("title").innerHTML = `${f.live ? "" : '<span class="muted">Last · </span>'}${D.dur(f.duration)} <small>${D.fmt(f.dps)}/s party</small>`;
+      renderTarget(f);
+      renderRows(f, m);
+    }
+    const footL = snap.research ? `● REC ${D.dur(snap.research.elapsed)}` : text;
+    const self = s.self ? `${D.esc(s.self)}` : "";
+    $("foot").innerHTML = `<span>${D.esc(footL)}</span><span>${self}${s.uploads_pending ? " · ↑" + s.uploads_pending : ""}</span>`;
+  }
+
+  function renderTarget(f) {
+    const t = f.target;
+    if (!ui.show_target || !t) { $("target").hidden = true; return; }
+    $("target").hidden = false;
+    const hp = t.hp_pct != null ? `<div class="hp"><i style="width:${(t.hp_pct * 100).toFixed(1)}%"></i></div>` : "";
+    const kill = f.boss_killed ? '<span class="kill">KILLED</span>' : (t.hp_pct != null ? `<span class="meta">${D.pct(t.hp_pct, 1)}</span>` : "");
+    $("target").innerHTML = `<div class="row1"><div class="name">${D.esc(t.name)}</div>${kill}<div class="meta"><b>${D.fmt(f.total)}</b> dmg</div></div>${hp}`;
+  }
+
+  function renderRows(f, m) {
+    const rows = f.players.slice(0, Math.max(1, ui.rows || 8));
+    const top = Math.max(1, ...rows.map((p) => (m === "dps" ? p.dps : p.dmg)));
+    $("rows").innerHTML = rows.map((p, i) => {
+      const v = m === "dps" ? p.dps : p.dmg;
+      const color = D.classColor(p.class, p.name);
+      const main = m === "share" ? D.pct(p.share, 1) : D.fmt(v);
+      const sub = m === "share" ? `<span class="sub">${D.fmt(p.dps)}/s</span>` : `<small>${D.pct(p.share)}</small>`;
+      const heal = ui.show_heal && p.heal ? `<span class="sub">♥ ${D.fmt(p.hps)}/s</span>` : "";
+      const tip = `${p.name}${p.class ? " (" + p.class + ")" : ""}\nDamage ${D.fmt(p.dmg)} · ${D.fmt(p.dps)}/s\nCrit ${D.pct(p.crit_rate)} · Back ${D.pct(p.back_rate)} · Hits ${p.hits}\nMax hit ${D.fmt(p.max_hit)} (${p.max_hit_skill})${p.heal ? "\nHealing " + D.fmt(p.heal) : ""}${p.deaths ? "\nDeaths " + p.deaths : ""}`;
+      return `<div class="row${p.is_self ? " self" : ""}" data-id="${p.id}" title="${D.esc(tip)}">
+        <i class="fill" style="width:${((v / top) * 100).toFixed(1)}%;background:${color}"></i>
+        <i class="edge" style="background:${color}"></i>
+        <span class="rank">${i + 1}</span>
+        <span class="who">${D.esc(displayName(p, i))}${p.class ? `<span class="cls">${D.esc(p.class)}</span>` : ""}</span>
+        <span class="val">${main}${heal}${sub}</span>
+      </div>`;
+    }).join("");
+    document.querySelectorAll(".row").forEach((r) => {
+      r.onclick = () => D.call("open_window", { kind: "detail", params: JSON.stringify({ fight_id: lastFight.fight_id, actor_id: Number(r.dataset.id) }) });
+    });
+  }
+
+  function emptyState(s, state, text) {
+    if (s.npcap_error) {
+      return `<div class="empty"><b>Npcap is needed to read game traffic.</b><br>Install it from <a data-link="https://npcap.com/#download">npcap.com</a> with the default options, then restart Daeva Meter.<br><br>Or try <a data-act="demo">demo mode</a> to see the overlay.</div>`;
+    }
+    const hint = s.defs_messages === 0 && !s.demo
+      ? `<br><span class="dim">The AION 2 protocol definitions are not filled in yet, so no damage can be decoded. Use <a data-act="research">Research mode</a> to record captures for decoding.</span>`
+      : "";
+    return `<div class="empty"><b>${D.esc(text)}</b><br>Damage appears here as soon as combat starts.${hint}</div>`;
+  }
+
+  function wireEmpty() {
+    document.querySelectorAll("[data-act=demo]").forEach((a) => (a.onclick = () => D.call("set_demo", { on: true })));
+    document.querySelectorAll("[data-act=research]").forEach((a) => (a.onclick = () => D.call("open_window", { kind: "research" })));
+    document.querySelectorAll("[data-link]").forEach((a) => (a.onclick = () => D.call("copy_text", { text: a.dataset.link }).then(() => D.toast("Link copied — paste it in your browser"))));
+  }
+
+  async function poll() {
+    try { render(await D.callJSON("get_snapshot", {})); } catch (e) { console.warn(e); }
+    setTimeout(poll, 250);
+  }
+  poll();
+
+  // ---- sharing to the Daeva bot (fights and loot) ----
+  const retry = [];
+  async function loadShare() {
+    try { share = (await D.call("get_settings")).share; } catch { share = null; }
+  }
+  async function pump() {
+    try {
+      if (!share) await loadShare();
+      const fresh = await D.call("take_uploads");
+      for (const body of fresh) retry.push({ body, tries: 0 });
+      if (share && share.enabled && share.endpoint) {
+        for (let i = 0; i < retry.length; ) {
+          const item = retry[i];
+          try {
+            const r = await fetch(share.endpoint, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", ...(share.token ? { Authorization: "Bearer " + share.token } : {}) },
+              body: item.body,
+            });
+            if (!r.ok) throw new Error("HTTP " + r.status);
+            retry.splice(i, 1);
+          } catch (e) {
+            item.tries++;
+            if (item.tries >= 5) { retry.splice(i, 1); console.warn("upload dropped", e); } else i++;
+          }
+        }
+      } else {
+        retry.length = 0;
+      }
+    } catch (e) { console.warn(e); }
+    setTimeout(pump, 3000);
+  }
+  setInterval(loadShare, 15000);
+  pump();
+})();
+</script>
+</body>
+</html>

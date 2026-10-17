@@ -1,0 +1,49 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Daeva Meter",
+  "version": "0.1.0",
+  "identifier": "org.bajubesi.daevameter",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Daeva Meter",
+        "url": "index.html",
+        "width": 380,
+        "height": 320,
+        "minWidth": 260,
+        "minHeight": 120,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "resizable": true,
+        "shadow": false,
+        "skipTaskbar": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "publisher": "Bajubesi Network",
+    "shortDescription": "AION 2 damage meter",
+    "longDescription": "Open, passive damage meter for AION 2. Reads game traffic via Npcap; never touches the game client.",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.ico"],
+    "resources": {
+      "../../definitions/aion2.json": "definitions/aion2.json",
+      "../../definitions/names.json": "definitions/names.json"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  }
+}

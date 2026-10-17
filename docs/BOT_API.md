@@ -1,0 +1,90 @@
+# Daeva bot ingest API
+
+When a player turns on **Settings → Share with Daeva bot**, the meter `POST`s JSON to the configured endpoint. This is the contract the Daeva bot and portal implement. It feeds the "Top DPS today" and "Most active players" cards and the rare-loot announcements.
+
+## Request
+
+```
+POST <endpoint>
+Content-Type: application/json
+Authorization: Bearer <token>        (if the player set one)
+```
+
+The meter sends from its WebView, whose origin is `http://tauri.localhost`, so the endpoint must answer CORS preflight:
+
+```
+Access-Control-Allow-Origin: http://tauri.localhost
+Access-Control-Allow-Methods: POST, OPTIONS
+Access-Control-Allow-Headers: Content-Type, Authorization
+```
+
+Return any `2xx` on success. A failed request is retried up to 5 times, 3 seconds apart, and then dropped.
+
+## Bodies
+
+### Fight
+
+```json
+{
+  "type": "fight",
+  "meter": "daeva-meter",
+  "meter_version": "0.1.0",
+  "demo": false,
+  "record": {
+    "format": "daeva-meter/fight@1",
+    "fight_id": 12,
+    "started_unix": 1760001234.5,
+    "duration": 77.25,
+    "total": 1563000,
+    "dps": 20233,
+    "boss_killed": true,
+    "zone": "Zone 110010000",
+    "self_name": "DewaPutih",
+    "target": {"id": 90003, "name": "Frost Wyrm Matriarch", "dmg_taken": 1563000, "hp_pct": 0, "max_hp": 1563000},
+    "players": [
+      {"id": 1001, "name": "DewaPutih", "class": "Gladiator", "is_self": true,
+       "dmg": 341800, "dps": 4410, "share": 0.219, "hits": 77, "crit_rate": 0.34,
+       "back_rate": 0.12, "perfect_rate": 0.05, "max_hit": 12300, "max_hit_skill": "Shockwave",
+       "heal": 0, "hps": 0, "taken": 2690, "deaths": 0}
+    ],
+    "details": [
+      {"id": 1001, "name": "DewaPutih", "class": "Gladiator", "dmg": 341800, "dps": 4410,
+       "active_time": 75.0, "hits": 77, "max_hit": 12300, "heal": 0, "taken": 2690,
+       "skills": [{"id": 11051, "name": "Shockwave", "dmg": 112000, "dps": 1450, "share": 0.33,
+                   "hits": 14, "crit_rate": 0.5, "back_rate": 0.0, "perfect_rate": 0.0,
+                   "avg": 8000, "max": 12300, "min": 5200, "dot_hits": 0}],
+       "targets": [{"id": 90003, "name": "Frost Wyrm Matriarch", "dmg": 341800}],
+       "timeline": [0, 5120, 3980]}
+    ],
+    "loot": [],
+    "deaths": [{"t": 41.2, "target": "Mirelle", "killer": "Frost Wyrm Matriarch"}]
+  }
+}
+```
+
+With scope **Only me** (the default), `players` and `details` contain only the sender's row, and `deaths` is left out. With **Everyone in the fight**, all rows are included.
+
+`timeline` holds damage per second from the start of the fight.
+
+### Loot
+
+```json
+{
+  "type": "loot",
+  "meter": "daeva-meter",
+  "meter_version": "0.1.0",
+  "demo": false,
+  "record": {"unix": 1760001300.1, "who": "DewaPutih", "is_self": true,
+             "item_id": 100000901, "item": "Some Greatsword", "grade": 4,
+             "grade_name": "Eternal", "count": 1}
+}
+```
+
+Loot is only sent when the player enables it and the item meets their minimum grade.
+
+## Suggested bot behaviour
+
+- **Ignore `demo: true`**, or keep it in a test channel.
+- **De-duplicate party fights:** several members may upload the same kill. Key on `(target.name, round(started_unix / 10))` plus the player set.
+- **Daily cards:** highest single-fight DPS per class, total damage, number of fights (most active), and boss kills.
+- **Tokens:** issue one per Discord user with a `/meter link` command, so uploads map to members and can be revoked.

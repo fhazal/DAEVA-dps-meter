@@ -1,0 +1,33 @@
+// AION 2 protocol definitions for Daeva Meter.
+//
+// STATUS: framing and messages are NOT decoded yet. Fill this in from
+// research captures (see docs/DECODING.md). The meter reloads this file
+// from %APPDATA%\org.bajubesi.daevameter\definitions\ if present, so
+// updates after a game patch never need a new build.
+{
+  "name": "AION 2 (global)",
+  "version": "0.0.0-undecoded",
+  "process_names": ["aion2"],
+  // Server ports, if they turn out to be fixed. Auto-detection by process
+  // already finds the server, so this can stay empty.
+  "ports": [],
+  "framing": {
+    // Placeholder guess. Replace with the output of `daeva-research framing`.
+    "header": ["length:u16le", "opcode:u16le"],
+    "length_counts": "frame",
+    "length_adjust": 0,
+    "max_frame": 262144
+    // "compressed_if": "flags&0x80", "compression": "zlib"
+  },
+  "messages": [
+    // Example of the shape a decoded damage packet will take:
+    // {
+    //   "opcode": "0x0000", "name": "S_ATTACK_RESULT", "dir": "server",
+    //   "fields": ["src:varint", "tgt:varint", "skill:u32", "count:u8",
+    //     {"name": "hits", "type": "repeat", "count": "count",
+    //      "fields": ["dmg:varint", "flags:u16le"]}],
+    //   "emit": {"event": "damage", "each": "hits", "src": "src", "tgt": "tgt",
+    //            "skill": "skill", "amount": "dmg", "crit": "flags&0x1", "back": "flags&0x4"}
+    // }
+  ]
+}

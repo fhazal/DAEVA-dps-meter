@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Details</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; margin-bottom: 14px; }
+  .tile { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; }
+  .tile .k { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .tile .v { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .chart { height: 110px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px; margin-bottom: 14px; }
+  .chart svg { width: 100%; height: 100%; display: block; overflow: visible; }
+  .head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+  .head .nm { font-size: 18px; font-weight: 600; }
+  .head .cls { color: var(--muted); }
+  .head .sp { flex: 1; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="titlebar" data-tauri-drag-region>
+    <div class="title" data-tauri-drag-region id="title">Details</div>
+    <button class="icon-btn" id="bCopy" title="Copy skill breakdown"></button>
+    <button class="icon-btn close" data-win="close" title="Close"></button>
+  </div>
+  <div class="scroll"><div class="content" id="c"><span class="muted">Loading…</span></div></div>
+</div>
+<script src="common.js"></script>
+<script>
+(() => {
+  const D = window.Daeva;
+  document.querySelector("[data-win=close]").innerHTML = D.icon("close");
+  document.getElementById("bCopy").innerHTML = D.icon("copy");
+  D.wireTitlebar();
+  let p = {};
+  let data = null;
+  let timer = null;
+
+  async function load() {
+    try {
+      if (p.file) {
+        const rec = JSON.parse(await D.call("get_fight_record", { file: p.file }));
+        data = (rec.details || []).find((d) => d.id === p.actor_id) || null;
+        if (data) data.fight_duration = rec.duration;
+      } else {
+        data = await D.callJSON("get_detail", { fightId: p.fight_id ?? null, actorId: p.actor_id });
+        const snap = await D.callJSON("get_snapshot", {});
+        D.applyTheme(snap.ui);
+      }
+      render();
+    } catch (e) {
+      document.getElementById("c").innerHTML = `<span class="muted">${D.esc(e)}</span>`;
+    }
+  }
+
+  function chart(tl) {
+    if (!tl || tl.length < 2) return '<div class="muted" style="padding:30px;text-align:center">Not enough data for a timeline yet</div>';
+    // 3-second rolling DPS
+    const sm = tl.map((_, i) => { let s = 0, n = 0; for (let j = Math.max(0, i - 2); j <= i; j++) { s += tl[j]; n++; } return s / n; });
+    const max = Math.max(1, ...sm);
+    const W = 500, H = 90;
+    const pts = sm.map((v, i) => `${((i / (sm.length - 1)) * W).toFixed(1)},${(H - (v / max) * H).toFixed(1)}`).join(" ");
+    return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      <polygon points="0,${H} ${pts} ${W},${H}" fill="var(--accent-soft)"/>
+      <polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
+      <text x="4" y="10" fill="#9a978f" font-size="9">${D.fmt(max)}/s peak (3s avg)</text>
+    </svg>`;
+  }
+
+  function render() {
+    const c = document.getElementById("c");
+    if (!data) { c.innerHTML = '<span class="muted">No data for this player.</span>'; return; }
+    document.getElementById("title").textContent = data.name + " — skills";
+    const crit = data.hits ? data.skills.reduce((a, s) => a + s.crit_rate * s.hits, 0) / data.hits : 0;
+    c.innerHTML = `
+      <div class="head"><span class="nm" style="color:${D.classColor(data.class, data.name)}">${D.esc(data.name)}</span><span class="cls">${D.esc(data.class || "")}</span><span class="sp"></span><span class="muted">${p.file ? "saved fight" : ""}</span></div>
+      <div class="tiles">
+        <div class="tile"><div class="k">DPS</div><div class="v">${D.fmt(data.dps)}</div></div>
+        <div class="tile"><div class="k">Damage</div><div class="v">${D.fmt(data.dmg)}</div></div>
+        <div class="tile"><div class="k">Crit</div><div class="v">${D.pct(crit)}</div></div>
+        <div class="tile"><div class="k">Hits</div><div class="v">${data.hits}</div></div>
+        <div class="tile"><div class="k">Max hit</div><div class="v">${D.fmt(data.max_hit)}</div></div>
+        ${data.heal ? `<div class="tile"><div class="k">Healing</div><div class="v">${D.fmt(data.heal)}</div></div>` : ""}
+        ${data.taken ? `<div class="tile"><div class="k">Taken</div><div class="v">${D.fmt(data.taken)}</div></div>` : ""}
+      </div>
+      <div class="chart">${chart(data.timeline)}</div>
+      <h2>Skills</h2>
+      <table class="grid">
+        <thead><tr><th>Skill</th><th>Damage</th><th>Share</th><th>Hits</th><th>Crit</th><th>Back</th><th>Avg</th><th>Max</th></tr></thead>
+        <tbody>${data.skills.map((s) => `<tr>
+          <td>${D.esc(s.name)}</td>
+          <td>${D.fmt(s.dmg)}</td>
+          <td class="share-cell">${D.pct(s.share, 1)}<span class="bar" style="width:${Math.max(2, s.share * 80)}px"></span></td>
+          <td>${s.hits}</td><td>${D.pct(s.crit_rate)}</td><td>${D.pct(s.back_rate)}</td>
+          <td>${D.fmt(s.avg)}</td><td>${D.fmt(s.max)}</td></tr>`).join("")}</tbody>
+      </table>
+      ${data.targets && data.targets.length > 1 ? `<h2>Targets</h2><table class="grid"><thead><tr><th>Target</th><th>Damage</th></tr></thead><tbody>${data.targets.map((t) => `<tr><td>${D.esc(t.name)}</td><td>${D.fmt(t.dmg)}</td></tr>`).join("")}</tbody></table>` : ""}`;
+  }
+
+  document.getElementById("bCopy").onclick = async () => {
+    if (!data) return;
+    const lines = [`**${data.name}**${data.class ? " (" + data.class + ")" : ""} — ${D.fmt(data.dmg)} dmg, ${D.fmt(data.dps)}/s`];
+    data.skills.slice(0, 12).forEach((s, i) => lines.push(`\`${String(i + 1).padStart(2)}.\` ${s.name} — ${D.fmt(s.dmg)} (${D.pct(s.share, 1)}) · ${s.hits} hits · crit ${D.pct(s.crit_rate)}`));
+    try { await D.call("copy_text", { text: lines.join("\n") }); D.toast("Copied"); } catch (e) { D.toast(String(e)); }
+  };
+
+  async function init() {
+    p = await D.params();
+    clearInterval(timer);
+    await load();
+    if (!p.file) timer = setInterval(load, 1000);
+  }
+  window.__reloadParams = init;
+  init();
+})();
+</script>
+</body>
+</html>
