@@ -17,6 +17,8 @@ pub struct Names {
     pub items: HashMap<u32, (String, Option<u32>)>,
     pub grades: HashMap<u32, String>,
     pub zones: HashMap<u32, String>,
+    /// NPC template ids that are bosses (fights against them survive pauses).
+    pub bosses: std::collections::HashSet<u32>,
 }
 
 impl Names {
@@ -60,6 +62,9 @@ impl Names {
                 }
                 _ => {}
             }
+        }
+        if let Some(a) = v.get("bosses").and_then(|a| a.as_arr()) {
+            n.bosses = a.iter().filter_map(|x| x.as_u64()).map(|x| x as u32).collect();
         }
         if let Some(o) = v.get("classes").and_then(|o| o.as_obj()) {
             for (k, x) in o {
@@ -238,6 +243,9 @@ pub struct EngineConfig {
     pub merge_summons: bool,
     /// End the fight right after the main target dies.
     pub end_on_target_death: bool,
+    /// Idle timeout while the main target is a living boss (phases,
+    /// untargetable windows, wipes-and-rez).
+    pub boss_idle_timeout: f64,
     /// Seconds to wait after the main target dies before ending the fight.
     pub death_grace: f64,
     pub history_size: usize,
@@ -245,7 +253,7 @@ pub struct EngineConfig {
 
 impl Default for EngineConfig {
     fn default() -> Self {
-        EngineConfig { idle_timeout: 8.0, min_fight_damage: 1, merge_summons: true, end_on_target_death: true, death_grace: 3.0, history_size: 50 }
+        EngineConfig { idle_timeout: 8.0, min_fight_damage: 1, merge_summons: true, end_on_target_death: true, boss_idle_timeout: 60.0, death_grace: 3.0, history_size: 50 }
     }
 }
 
@@ -543,7 +551,10 @@ impl Engine {
             }
         }
         let idle = match &self.current {
-            Some(f) if !f.finished => now - f.end > self.cfg.idle_timeout,
+            Some(f) if !f.finished => {
+                let limit = if self.boss_alive(f) { self.cfg.boss_idle_timeout } else { self.cfg.idle_timeout };
+                now - f.end > limit
+            }
             _ => false,
         };
         if idle {
@@ -551,6 +562,14 @@ impl Engine {
         } else {
             None
         }
+    }
+
+    /// True while the fight's main target is a known boss that is not dead.
+    fn boss_alive(&self, f: &Fight) -> bool {
+        let Some(t) = f.main_target() else { return false };
+        let Some(a) = self.actors.get(&t) else { return false };
+        let is_boss = a.npc_id.map_or(false, |n| self.names.bosses.contains(&n));
+        is_boss && !f.boss_killed && a.hp != Some(0)
     }
 
     /// Ends the current fight (also used by the "reset" hotkey).
@@ -894,6 +913,18 @@ mod tests {
 
     fn dmg(ts: f64, src: u64, tgt: u64, skill: u32, amount: u64, fl: u32) -> GameEvent {
         GameEvent::Damage { ts, src, tgt, skill, amount, flags: fl }
+    }
+
+    #[test]
+    fn boss_fights_survive_pauses() {
+        let mut e = Engine::new(EngineConfig::default(), Names::from_json(r#"{"bosses": ["777"]}"#).unwrap());
+        e.handle(&GameEvent::SelfId { id: 1, name: None });
+        e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(1000) });
+        e.handle(&dmg(0.0, 1, 50, 18000000, 10, 0));
+        assert!(e.tick(30.0).is_none(), "boss phase pause must not end the fight");
+        e.handle(&dmg(31.0, 1, 50, 18000000, 10, 0));
+        assert_eq!(e.current.as_ref().unwrap().total(), 20);
+        assert!(e.tick(95.0).is_some());
     }
 
     #[test]
