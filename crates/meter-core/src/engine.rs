@@ -390,6 +390,8 @@ pub struct Engine {
     pub self_server: Option<u32>,
     /// Your Odyle (base, bonus); only sent by the game when it changes.
     pub self_odyle: Option<(u64, u64)>,
+    /// Shugo Festival Reward Keys held.
+    pub self_keys: Option<u64>,
     /// Highest max HP seen per monster template. A monster that appears
     /// already hurt reports its current HP as "max"; the template's real
     /// maximum is the highest one seen.
@@ -417,6 +419,7 @@ impl Engine {
             self_cp: None,
             self_server: None,
             self_odyle: None,
+            self_keys: None,
             npc_max_hp: HashMap::new(),
         }
     }
@@ -767,6 +770,7 @@ impl Engine {
                     self.self_server = Some(*server);
                 }
             }
+            GameEvent::Keys { cur } => self.self_keys = Some(*cur),
             GameEvent::Odyle { cur, bonus } => {
                 let (c0, b0) = self.self_odyle.unwrap_or((0, 0));
                 let c = cur.unwrap_or(c0);

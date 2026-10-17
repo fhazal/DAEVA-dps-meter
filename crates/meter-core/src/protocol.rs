@@ -972,6 +972,10 @@ fn emit(e: &Emit, header: &Scope, scope: &Scope, ts: f64, out: &mut Vec<GameEven
                 (Some(id), Some(server)) if id != 0 && server != 0 => GameEvent::ActorServer { id, server: server as u32 },
                 _ => continue,
             },
+            "keys" => match num("cur") {
+                Some(cur) if cur < 10_000 => GameEvent::Keys { cur },
+                _ => continue,
+            },
             "odyle" => match (num("cur"), num("bonus")) {
                 (None, None) => continue,
                 (cur, bonus) => GameEvent::Odyle { cur, bonus },
@@ -1137,12 +1141,14 @@ mod odyle_tests {
         let hex = "14 0c 61 01 0c 01 87 93 03 a0 01 28 01 28 00 00 00 \
                    0f 0c 61 00 04 01 87 93 03 a0 01 03 \
                    0e 0c 61 00 04 0a 00 00 00 0e 02 \
-                   0e 0c 61 00 04 65 87 93 03 0e 02";
+                   0e 0c 61 00 04 65 87 93 03 0e 02 \
+                   0e 0c 61 00 04 01 00 00 00 15 02";
         let bytes: Vec<u8> = hex.split_whitespace().map(|h| u8::from_str_radix(h, 16).unwrap()).collect();
         let mut out = Vec::new();
         d.push(flow, true, &bytes, false, 1.0, &mut out);
         let ody: Vec<_> = out.iter().filter_map(|e| match e { GameEvent::Odyle { cur, bonus } => Some((*cur, *bonus)), _ => None }).collect();
         assert_eq!(ody, vec![(Some(160), Some(40)), (Some(160), None)]);
+        assert!(out.iter().any(|e| matches!(e, GameEvent::Keys { cur: 21 })), "{out:?}");
     }
 
     #[test]
@@ -1158,5 +1164,6 @@ mod odyle_tests {
         d.push(flow, true, &bytes, false, 1.0, &mut out);
         let ody: Vec<_> = out.iter().filter_map(|e| match e { GameEvent::Odyle { cur, bonus } => Some((*cur, *bonus)), _ => None }).collect();
         assert_eq!(ody, vec![(Some(175), Some(40))], "{out:?}");
+        assert!(out.iter().any(|e| matches!(e, GameEvent::Keys { cur: 21 })), "{out:?}");
     }
 }

@@ -1028,7 +1028,10 @@ impl Core {
             .set("anchor", self.toast_anchor)
             .set("error", self.events.error.clone())
             // Keys per event id, once the game's key counter is decoded.
-            .set("keys", Value::Null)
+            .set("keys", match self.pipeline.engine.self_keys {
+                Some(k) => Obj::new().set("shugo_festival", k).build(),
+                None => Value::Null,
+            })
             .set(
                 "next",
                 Value::Arr(if a.enabled {

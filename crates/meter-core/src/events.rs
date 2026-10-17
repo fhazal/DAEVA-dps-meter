@@ -74,6 +74,8 @@ pub enum GameEvent {
     ActorServer { id: u64, server: u32 },
     /// Your Odyle: base amount and the extra (+N) shown in brackets.
     Odyle { cur: Option<u64>, bonus: Option<u64> },
+    /// Shugo Festival Reward Keys you hold.
+    Keys { cur: u64 },
 }
 
 impl GameEvent {
@@ -91,6 +93,7 @@ impl GameEvent {
             GameEvent::SelfStats { .. } => "self_stats",
             GameEvent::ActorServer { .. } => "actor_server",
             GameEvent::Odyle { .. } => "odyle",
+            GameEvent::Keys { .. } => "keys",
         }
     }
 }

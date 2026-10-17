@@ -6,7 +6,7 @@
 // updates after a game patch never need a new build.
 {
   "name": "AION 2 (global)",
-  "version": "0.6.8",
+  "version": "0.6.9",
   "process_names": ["aion2"],
   // Server ports, if they turn out to be fixed. Auto-detection by process
   // already finds the server, so this can stay empty.
@@ -125,18 +125,29 @@
     // Account counter update. kind 1 + tag 51591 = Odyle: flag 4 carries the
     // base amount, flag 8 the bonus shown as "(+N)". The 840 cap is fixed.
     {"opcode": "0x610c", "name": "S_COUNTER_UPDATE", "dir": "server",
-     "fields": ["x:u8", "flags:u8", "kind:u8", "tag:varint",
+     // tag is 3 bytes (51591 = 87 93 03 is Odyle; 00 00 00 with kind 1 is
+     // the Shugo Festival Reward Key count).
+     "fields": ["x:u8", "flags:u8", "kind:u8", "t0:u8", "t1:u8", "t2:u8",
                 {"name": "cur", "type": "varint", "if": "flags&4"},
                 {"name": "bonus", "type": "varint", "if": "flags&8"}],
-     "emit": {"event": "odyle", "when": "kind==1&&tag==51591", "cur": "cur", "bonus": "bonus"}},
-    // Full counter list sent at login: entries are flags, kind, tag, values.
-    // Jump straight to the Odyle entry (kind 1, tag 51591).
+     "emit": [
+       {"event": "odyle", "when": "kind==1&&t0==135&&t1==147&&t2==3", "cur": "cur", "bonus": "bonus"},
+       {"event": "keys", "when": "kind==1&&t0==0&&t1==0&&t2==0&&flags&4", "cur": "cur"}
+     ]},
+    // Full counter list sent at login: a count, then entries of flags,
+    // kind, 3-byte tag, values. The first entry is the Shugo key count;
+    // then jump to the Odyle entry (kind 1, tag 87 93 03).
     {"opcode": "0x610b", "name": "S_COUNTER_LIST", "dir": "server",
-     "fields": [{"name": "at", "type": "seek", "pattern": "01 87 93 03", "back": 1},
-                "flags:u8", "kind:u8", "tag:varint",
+     "fields": ["n:u8", "kf:u8", "kk:u8", "k0:u8", "k1:u8", "k2:u8",
+                {"name": "keys", "type": "varint", "if": "kf&4"},
+                {"name": "at", "type": "seek", "pattern": "01 87 93 03", "back": 1},
+                "flags:u8", "kind:u8", "t0:u8", "t1:u8", "t2:u8",
                 {"name": "cur", "type": "varint", "if": "flags&4"},
                 {"name": "bonus", "type": "varint", "if": "flags&8"}],
-     "emit": {"event": "odyle", "when": "kind==1&&tag==51591", "cur": "cur", "bonus": "bonus"}},
+     "emit": [
+       {"event": "keys", "when": "kk==1&&k0==0&&k1==0&&k2==0&&kf&4", "cur": "keys"},
+       {"event": "odyle", "when": "kind==1&&t0==135&&t1==147&&t2==3", "cur": "cur", "bonus": "bonus"}
+     ]},
     // Stat update. kind 2 = HP (u32), kind 1 = MP.
     {"opcode": "0x8d00", "name": "S_STAT_UPDATE", "dir": "server",
      // (Kept free of "&&" so the file also loads in meter v0.1.0/0.1.1.)
