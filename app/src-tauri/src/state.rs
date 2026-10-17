@@ -131,6 +131,13 @@ impl Core {
         let (defs, names) = load_definitions(&paths, &mut status);
         let mut pipeline = Pipeline::new(Decoder::new(defs, Some(decompressor())), Engine::new(engine_cfg(&settings), names));
         pipeline.server_ports.extend(settings.manual_ports.iter().copied());
+        if !settings.demo {
+            if let Some((id, name, at)) = settings.last_self.clone() {
+                if now_unix() - at < 12.0 * 3600.0 {
+                    pipeline.engine.handle(&meter_core::events::GameEvent::SelfId { id, name });
+                }
+            }
+        }
         let sim = settings.demo.then(|| Simulator::new(now_unix() as u64));
         if settings.demo {
             pipeline.engine.names = Names::from_json(DEMO_NAMES).unwrap_or_default();
@@ -225,6 +232,17 @@ impl Core {
             self.fight_finished(f);
         }
         self.queue_loot();
+        if self.sim.is_none() {
+            let e = &self.pipeline.engine;
+            if let Some(id) = e.self_id {
+                let name = e.self_name.clone();
+                let changed = self.settings.last_self.as_ref().map_or(true, |(i, n, at)| *i != id || *n != name || now - at > 600.0);
+                if changed {
+                    self.settings.last_self = Some((id, name, now));
+                    self.settings_dirty = true;
+                }
+            }
+        }
         if let Some(r) = self.recorder.as_mut() {
             let _ = r.writer.flush();
         }

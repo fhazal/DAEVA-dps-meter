@@ -76,6 +76,10 @@ pub struct Settings {
     pub demo: bool,
     pub window: Option<(i32, i32, u32, u32)>,
     pub history_keep_days: u32,
+    /// Last known local player (entity id, name, unix time). Entity ids only
+    /// change on zone change/relog, which the game announces; this lets a
+    /// restarted meter recognise you straight away.
+    pub last_self: Option<(u64, Option<String>, f64)>,
 }
 
 impl Default for Settings {
@@ -103,6 +107,7 @@ impl Default for Settings {
             demo: false,
             window: None,
             history_keep_days: 30,
+            last_self: None,
         }
     }
 }

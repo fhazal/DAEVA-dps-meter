@@ -116,7 +116,7 @@
         : '<p class="muted">No healing in this fight.</p>';
     } else if (tab === "taken") {
       const rows = data.taken_from || [];
-      const def = data.taken_hits ? `<div class="summary"><div class="l1">${data.taken_hits} hits taken</div><div class="l2"><span>Parried <b>${pc(data.taken_parry_rate)}</b></span><span>Blocked <b>${pc(data.taken_block_rate)}</b></span><span>Perfect block <b>${pc(data.taken_perfect_block_rate)}</b></span></div></div>` : "";
+      const def = data.taken_hits ? `<div class="summary"><div class="l1">${data.taken_hits} hits taken</div><div class="l2"><span>Parried <b>${pc(data.taken_parry_rate)}</b></span><span>Blocked <b>${pc(data.taken_block_rate)}</b></span><span>Perfect parry/block <b>${pc(data.taken_perfect_block_rate)}</b></span></div></div>` : "";
       body = rows.length
         ? def + `<table class="grid"><thead><tr><th>Source</th><th>Damage</th><th>%</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${D.esc(r.name)}</td><td>${D.fmt(r.dmg)}</td><td>${pc(r.dmg / Math.max(1, data.taken))}</td></tr>`).join("")}</tbody></table>`
         : '<p class="muted">No damage taken in this fight.</p>';

@@ -6,7 +6,7 @@
 // updates after a game patch never need a new build.
 {
   "name": "AION 2 (global)",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "process_names": ["aion2"],
   // Server ports, if they turn out to be fixed. Auto-detection by process
   // already finds the server, so this can stay empty.
@@ -34,8 +34,9 @@
     //   x0&0x8     = double (~2x)                        (verified, marker "back double")
     //   x0&0x4     = perfect (small bonus)               (verified, marker "front perfect")
     //   x2         = direction: 2 = front, 1 = back      (verified, markers)
-    //   x0&0x1     = parried    (verified: marker "parry 551")
-    //   x0&0x20    = blocked, x0&0x40 = perfect block (markers, 1 sample each)
+    //   x0&0x2     = parried   (verified: 7 exact values, e.g. "Parry + 798")
+    //   x0&0x1     = blocked   (verified: "Block+309", "Block+3", "Block + 32")
+    //   x0&0x40    = perfect parry/block (markers); 0x10/0x20 not yet known
     //   seq        = cast id (several results share it)
     {"opcode": "0x3804", "name": "S_SKILL_RESULT", "dir": "server",
      "fields": [
@@ -52,7 +53,7 @@
         "skill": "skill", "amount": "dmg",
         "crit": "kind==3", "double": "x0&0x8", "perfect": "x0&0x4",
         "front": "x2==2", "back": "x2==1", "multi": "multi", "cast": "seq",
-        "parry": "x0&0x1", "block": "x0&0x20", "perfect_block": "x0&0x40"},
+        "parry": "x0&0x2", "block": "x0&0x1", "perfect_block": "x0&0x40"},
        // Player class skills have 8-digit ids (18xxxxxx); monster skills are
        // 7-digit. This tells players and mobs apart when neither has been
        // seen spawning. "skill+6777216>>24" is non-zero exactly when

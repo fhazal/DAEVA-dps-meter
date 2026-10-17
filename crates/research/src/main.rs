@@ -25,7 +25,7 @@ Commands:
   frames   <pcap> --defs D.json --op 0xNN [--limit 20]  Dump frames of one opcode
   near     <pcap> --defs D.json --markers M.json [--window 1.5]
                                           Opcodes seen right after each marker
-  decode   <pcap> --defs D.json [--names N.json]  Run the full meter offline
+  decode   <pcap> --defs D.json [--names N.json] [--self ID]  Run the full meter offline
   import-abyss <AbyssDPSMeter.exe> --out names.json [--merge existing.json]
                                           PERSONAL USE: build a local names file from
                                           your own copy of Abyss DPS Meter. Do not
@@ -484,6 +484,9 @@ fn cmd_decode(pkts: &[Packet], a: &Args) -> Result<(), String> {
     };
     let mut p = Pipeline::new(Decoder::new(defs, Some(decompressor())), Engine::new(EngineConfig::default(), names));
     p.strict = !p.server_ports.is_empty();
+    if let Some(id) = a.get("self").and_then(json::parse_number_str) {
+        p.engine.handle(&meter_core::events::GameEvent::SelfId { id: id as u64, name: None });
+    }
     let mut fights = Vec::new();
     for pk in pkts {
         fights.extend(p.push_frame(pk.linktype, &pk.data, pk.ts));
