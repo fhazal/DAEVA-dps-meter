@@ -6,7 +6,7 @@
 // updates after a game patch never need a new build.
 {
   "name": "AION 2 (global)",
-  "version": "0.2.0-alpha",
+  "version": "0.2.1-alpha",
   "process_names": ["aion2"],
   // Server ports, if they turn out to be fixed. Auto-detection by process
   // already finds the server, so this can stay empty.
@@ -63,10 +63,13 @@
      ]},
     // Stat update. kind 2 = HP (u32), kind 1 = MP.
     {"opcode": "0x8d00", "name": "S_STAT_UPDATE", "dir": "server",
-     "fields": ["id:varint", "kind:u8", "a:u8", "b:u8", "val:u32le"],
+     // (Kept free of "&&" so the file also loads in meter v0.1.0/0.1.1.)
+     "fields": ["id:varint", "kind:u8", "a:u8", "b:u8",
+                {"name": "hp", "type": "u32le", "if": "kind==2"},
+                {"name": "val", "type": "u32le", "if": "kind!=2"}],
      "emit": [
-       {"event": "hp", "when": "kind==2", "id": "id", "hp": "val"},
-       {"event": "death", "when": "kind==2&&val==0", "target": "id"}
+       {"event": "hp", "when": "kind==2", "id": "id", "hp": "hp"},
+       {"event": "death", "when": "hp==0", "target": "id"}
      ]}
   ]
 }
