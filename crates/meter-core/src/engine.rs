@@ -241,6 +241,8 @@ pub struct Fight {
     /// Names/classes frozen when the fight ends, so history stays readable
     /// after a zone change reuses entity ids.
     pub names: HashMap<u64, (String, Option<String>)>,
+    /// Players who fought one of your targets in this fight.
+    pub allies: std::collections::HashSet<u64>,
 }
 
 impl Fight {
@@ -270,6 +272,10 @@ pub struct EngineConfig {
     /// Idle timeout while the main target is a living boss (phases,
     /// untargetable windows, wipes-and-rez).
     pub boss_idle_timeout: f64,
+    /// Only count other players' damage on targets you have also hit, and
+    /// only let your own damage start or extend a fight (open-world farming
+    /// next to strangers stays a series of short fights, like Abyss).
+    pub only_my_targets: bool,
     /// Seconds to wait after the main target dies before ending the fight.
     pub death_grace: f64,
     pub history_size: usize,
@@ -277,7 +283,7 @@ pub struct EngineConfig {
 
 impl Default for EngineConfig {
     fn default() -> Self {
-        EngineConfig { idle_timeout: 8.0, min_fight_damage: 1, merge_summons: true, end_on_target_death: true, boss_idle_timeout: 60.0, death_grace: 3.0, history_size: 50 }
+        EngineConfig { idle_timeout: 8.0, min_fight_damage: 1, merge_summons: true, end_on_target_death: true, only_my_targets: true, boss_idle_timeout: 60.0, death_grace: 3.0, history_size: 50 }
     }
 }
 
@@ -441,13 +447,38 @@ impl Engine {
                     }
                     return finished;
                 }
-                self.pending_end = None;
+                // Scope: your damage, damage on targets you've hit, and all
+                // damage from players who joined you on one of your targets
+                // (your party in practice).
+                let mut extends = true;
+                if self.cfg.only_my_targets {
+                    if let Some(me) = self.self_id {
+                        let mine = attacker == me;
+                        let live = self.current.as_ref().filter(|f| !f.finished);
+                        let shared = live.map_or(false, |f| f.stats.get(&me).map_or(false, |s| s.by_target.contains_key(tgt)));
+                        let ally = live.map_or(false, |f| f.allies.contains(&attacker));
+                        if !mine && !shared && !ally {
+                            return finished;
+                        }
+                        extends = mine || shared;
+                        if shared && !mine {
+                            if let Some(f) = self.current.as_mut() {
+                                f.allies.insert(attacker);
+                            }
+                        }
+                    }
+                }
+                if extends {
+                    self.pending_end = None;
+                }
                 let fight = self.ensure_fight(*ts);
                 if fight.boss_killed && fight.targets.contains_key(tgt) == false {
                     // moved on to a new mob: the kill flag described the old one
                     fight.boss_killed = false;
                 }
-                fight.end = fight.end.max(*ts);
+                if extends {
+                    fight.end = fight.end.max(*ts);
+                }
                 *fight.targets.entry(*tgt).or_default() += amount;
                 let bucket = ((*ts - fight.start).max(0.0)) as usize;
                 let s = fight.stats.entry(attacker).or_insert_with(|| ActorStat { first: *ts, ..Default::default() });
@@ -616,6 +647,7 @@ impl Engine {
                 finished: false,
                 self_id: self.self_id,
                 names: HashMap::new(),
+                allies: Default::default(),
             });
         }
         self.current.as_mut().unwrap()
