@@ -60,7 +60,11 @@
 
   .shell { position: relative; }
   /* Border in your class colour (set from the snapshot). */
-  .shell { border: 1.5px solid var(--cls, rgba(255,255,255,0.07)); box-shadow: inset 0 0 14px -6px var(--cls, transparent); transition: border-color .4s, box-shadow .4s; }
+  /* Abyss-style hairline: 1px, mostly the dark frame with a hint of your
+     class colour (stronger at the top edge), no glow. */
+  .shell { border: 1px solid color-mix(in srgb, var(--cls, #ffffff) 30%, rgba(255,255,255,0.06));
+    border-top-color: color-mix(in srgb, var(--cls, #ffffff) 45%, rgba(255,255,255,0.08));
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35); transition: border-color .4s; }
   .alerts { position: absolute; left: 6px; right: 6px; top: 34px; z-index: 20; display: flex; flex-direction: column; gap: 4px; pointer-events: none; }
   .alert { pointer-events: auto; display: grid; grid-template-columns: 26px 1fr; align-items: center; gap: 2px 8px; padding: 7px 10px 7px 8px;
     background: rgba(24,22,19,0.96); border: 1px solid var(--accent); border-left: 4px solid var(--accent); border-radius: 8px;
@@ -239,7 +243,8 @@
     const hp = t.hp_pct != null ? `<div class="hp"><i style="width:${(t.hp_pct * 100).toFixed(1)}%"></i></div>` : "";
     const kill = f.boss_killed ? '<span class="kill">KILLED</span>' : (t.hp_pct != null ? `<span class="meta">${D.pct(t.hp_pct, 1)}</span>` : "");
     const nameit = t.named === false && t.npc_id ? `<span class="nameit" data-npc="${t.npc_id}" title="Looking it up on aion2.gaming.tools… or type the name yourself (saved for good)">✎ name it</span><span class="nameit" data-lk="${t.npc_id}" title="Open on aion2.gaming.tools">🔎</span>` : "";
-    const html = `<div class="row1">${D.npcIcon(t.npc_id, 24)}<div class="name">${D.esc(t.name)}${nameit}</div>${kill}<div class="meta"><b>${D.fmt(f.total)}</b> dmg</div></div>${hp}`;
+    const unknownTip = t.name === "Unknown monster" ? ` title="This monster was already nearby when the meter started, so the game never said which one it is. It gets its name after you change zone or it comes back into view."` : "";
+    const html = `<div class="row1">${D.npcIcon(t.npc_id, 24)}<div class="name"${unknownTip}>${D.esc(t.name)}${nameit}</div>${kill}<div class="meta"><b>${D.fmt(f.total)}</b> dmg</div></div>${hp}`;
     if (html !== lastTargetHtml) { $("target").innerHTML = html; lastTargetHtml = html; }
   }
   // Handled on press, on the container: the target bar redraws 4x a second,

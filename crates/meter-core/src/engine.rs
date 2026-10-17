@@ -829,7 +829,9 @@ impl Engine {
                 }
                 match a.kind {
                     ActorKind::Player => format!("Player #{id}"),
-                    ActorKind::Npc => format!("Mob #{id}"),
+                    // Spawned before the meter started (or before you arrived),
+                    // so the game never said which monster it is.
+                    ActorKind::Npc => "Unknown monster".to_string(),
                     ActorKind::Summon => format!("Summon #{id}"),
                     ActorKind::Unknown => format!("#{id}"),
                 }
@@ -1242,7 +1244,7 @@ mod tests {
         let rows = t.get("players").unwrap().as_arr().unwrap();
         assert_eq!(rows.len(), 1, "{}", t.to_string());
         assert_eq!(rows[0].str_or("name", ""), "You");
-        assert_eq!(t.get("target").unwrap().str_or("name", ""), "Mob #6618");
+        assert_eq!(t.get("target").unwrap().str_or("name", ""), "Unknown monster");
         // relog / zone change: new self id replaces the old one
         e.handle(&GameEvent::SelfId { id: 777, name: None });
         assert_eq!(e.self_id, Some(777));

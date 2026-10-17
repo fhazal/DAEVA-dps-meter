@@ -487,8 +487,22 @@ fn main() {
             if let Some(w) = app.get_webview_window("main") {
                 let s = shared.lock().settings.clone();
                 if let Some((x, y, width, height)) = s.window {
-                    let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
-                    let _ = w.set_size(tauri::PhysicalSize::new(width.max(200), height.max(100)));
+                    let (width, height) = (width.clamp(200, 4000), height.clamp(100, 3000));
+                    // Only restore a position that is (mostly) on a monitor;
+                    // otherwise keep the default spot so the meter is visible.
+                    let on_screen = w.available_monitors().map(|ms| {
+                        ms.iter().any(|m| {
+                            let (mx, my) = (m.position().x, m.position().y);
+                            let (mw, mh) = (m.size().width as i32, m.size().height as i32);
+                            x + 80 > mx && x < mx + mw - 80 && y >= my - 10 && y < my + mh - 40
+                        })
+                    });
+                    if on_screen.unwrap_or(false) {
+                        let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+                    } else {
+                        let _ = w.center();
+                    }
+                    let _ = w.set_size(tauri::PhysicalSize::new(width, height));
                 }
                 let _ = w.set_always_on_top(s.always_on_top);
                 let _ = w.set_ignore_cursor_events(s.click_through);
@@ -509,6 +523,11 @@ fn main() {
             let Some(shared) = window.app_handle().try_state::<Arc<Shared>>() else { return };
             match event {
                 tauri::WindowEvent::Moved(p) => {
+                    // Minimising parks the window at -32000,-32000 on Windows;
+                    // saving that made the meter reopen off-screen.
+                    if p.x <= -20000 || p.y <= -20000 || window.is_minimized().unwrap_or(false) {
+                        return;
+                    }
                     let mut c = shared.lock();
                     let (w, h) = c.settings.window.map(|x| (x.2, x.3)).unwrap_or((380, 320));
                     c.settings.window = Some((p.x, p.y, w, h));

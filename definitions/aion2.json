@@ -6,7 +6,7 @@
 // updates after a game patch never need a new build.
 {
   "name": "AION 2 (global)",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "process_names": ["aion2"],
   // Server ports, if they turn out to be fixed. Auto-detection by process
   // already finds the server, so this can stay empty.
@@ -73,24 +73,31 @@
     {"opcode": "0x364a", "name": "S_SELF_STATE", "dir": "server",
      "fields": ["id:varint"],
      "emit": {"event": "self", "id": "id"}},
-    // Entity spawn. b==32 (0x20): NPC/monster with template id, position, HP.
+    // Entity spawn. b is a flag set: bit 0x20 = NPC/monster with template id,
+    // position, HP (seen as 32, 44 and 48; 48 = 0x20|0x10 has different
+    // fields after the heading, so HP is only read for 32 and 44).
     // b==256 (0x100): player-owned object/summon, followed by the owner's name.
     {"opcode": "0x3641", "name": "S_SPAWN", "dir": "server",
      "fields": ["id:varint", "a:u8", "b:u16le",
-                {"name": "npc", "type": "u32le", "if": "b==32"},
-                {"name": "c", "type": "u8", "if": "b==32"},
-                {"name": "d", "type": "u8", "if": "b==32"},
-                {"name": "x", "type": "f32le", "if": "b==32"},
-                {"name": "y", "type": "f32le", "if": "b==32"},
-                {"name": "z", "type": "f32le", "if": "b==32"},
-                {"name": "heading", "type": "f32le", "if": "b==32"},
-                {"name": "unk", "type": "varint", "if": "b==32"},
-                {"name": "hp", "type": "varint", "if": "b==32"},
-                {"name": "max_hp", "type": "varint", "if": "b==32"},
+                {"name": "npc", "type": "u32le", "if": "b&32"},
+                {"name": "c", "type": "u8", "if": "b&32"},
+                {"name": "d", "type": "u8", "if": "b&32"},
+                {"name": "x", "type": "f32le", "if": "b&32"},
+                {"name": "y", "type": "f32le", "if": "b&32"},
+                {"name": "z", "type": "f32le", "if": "b&32"},
+                {"name": "heading", "type": "f32le", "if": "b&32"},
+                {"name": "unk", "type": "varint", "if": "b&32"},
+                {"name": "hp", "type": "varint", "if": "b&32"},
+                {"name": "max_hp", "type": "varint", "if": "b&32"},
                 {"name": "pname", "type": "str", "if": "b==256"}],
      "emit": [
+       // Every monster spawn names its template (fixes "Mob #12345").
+       {"event": "actor", "when": "b&32", "id": "id", "kind": "'npc'", "npc_id": "npc"},
+       // HP only where the layout is verified.
        {"event": "actor", "when": "b==32", "id": "id", "kind": "'npc'", "npc_id": "npc", "max_hp": "max_hp"},
+       {"event": "actor", "when": "b==44", "id": "id", "kind": "'npc'", "npc_id": "npc", "max_hp": "max_hp"},
        {"event": "hp", "when": "b==32", "id": "id", "hp": "hp", "max_hp": "max_hp"},
+       {"event": "hp", "when": "b==44", "id": "id", "hp": "hp", "max_hp": "max_hp"},
        // b==256 is an object/summon carrying its owner's name (e.g. Templar
        // Divine Aura); its damage is credited to that owner. Real players
        // arrive via 0x3645.
