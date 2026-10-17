@@ -276,6 +276,11 @@ pub struct ActorInfo {
     pub owner: Option<u64>,
     pub max_hp: Option<u64>,
     pub hp: Option<u64>,
+    /// Max HP came from the game (spawn) or a learned template value,
+    /// not estimated from health updates.
+    pub max_sure: bool,
+    /// Damage this actor has taken since the meter first saw it.
+    pub taken: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -309,6 +314,10 @@ pub struct Fight {
     pub names: HashMap<u64, (String, Option<String>)>,
     /// Players who fought one of your targets in this fight.
     pub allies: std::collections::HashSet<u64>,
+    /// The enemy you hit most recently: what the target card follows.
+    pub focus: Option<u64>,
+    /// First and last time each target was hit.
+    pub tspan: HashMap<u64, (f64, f64)>,
 }
 
 impl Fight {
@@ -419,6 +428,8 @@ impl Engine {
             owner: None,
             max_hp: None,
             hp: None,
+            max_sure: false,
+            taken: 0,
         })
     }
 
@@ -491,6 +502,10 @@ impl Engine {
                 }
                 let attacker = self.resolve_owner(*src);
                 self.learn_class(attacker, *skill);
+                {
+                    let t = self.actor(*tgt);
+                    t.taken = t.taken.saturating_add(*amount);
+                }
                 let key = if fl & flags::DOT != 0 { *skill | DOT_KEY } else { *skill };
                 // Friendly on friendly: the game reports heals in the same
                 // message as damage.
@@ -559,6 +574,11 @@ impl Engine {
                     fight.end = fight.end.max(*ts);
                 }
                 *fight.targets.entry(*tgt).or_default() += amount;
+                let span = fight.tspan.entry(*tgt).or_insert((*ts, *ts));
+                span.1 = span.1.max(*ts);
+                if fight.self_id.is_some() && fight.self_id == Some(attacker) {
+                    fight.focus = Some(*tgt);
+                }
                 let bucket = ((*ts - fight.start).max(0.0)) as usize;
                 let s = fight.stats.entry(attacker).or_insert_with(|| ActorStat { first: *ts, ..Default::default() });
                 s.last = *ts;
@@ -640,8 +660,9 @@ impl Engine {
                 }
                 if max_hp.is_some() {
                     a.max_hp = *max_hp;
+                    a.max_sure = true;
                 }
-                if let (Some(n), Some(m)) = (a.npc_id, a.max_hp) {
+                if let (Some(n), Some(m), true) = (a.npc_id, a.max_hp, a.max_sure) {
                     let best = self.npc_max_hp.entry(n).or_insert(0);
                     *best = (*best).max(m);
                     let best = *best;
@@ -676,19 +697,35 @@ impl Engine {
                 }
             }
             GameEvent::Hp { id, hp, max_hp, .. } => {
+                let learned = {
+                    let a = self.actors.get(id);
+                    a.and_then(|a| a.npc_id).and_then(|n| self.npc_max_hp.get(&n).copied())
+                };
                 let a = self.actor(*id);
                 a.hp = Some(*hp);
-                if max_hp.is_some() {
-                    a.max_hp = *max_hp;
-                } else if a.max_hp.map_or(true, |m| *hp > m) {
-                    // Spawned before the meter started: best guess is the
-                    // highest HP seen so far.
-                    a.max_hp = Some(*hp);
+                if let Some(m) = max_hp {
+                    // A spawn of an already-hurt monster reports its health
+                    // then; the type's highest value seen is the real maximum.
+                    a.max_hp = Some((*m).max(learned.unwrap_or(0)));
+                    a.max_sure = true;
+                } else if !a.max_sure {
+                    if let Some(l) = learned {
+                        // This monster type's real maximum, seen at a spawn.
+                        a.max_hp = Some(l);
+                        a.max_sure = true;
+                    } else {
+                        // Never seen at full health: its maximum is at least
+                        // the health now plus the damage it has taken since
+                        // we started watching it.
+                        // (Only your own and nearby damage is visible, so this
+                        // can only under-estimate: keep the highest.)
+                        let est = hp.saturating_add(a.taken);
+                        a.max_hp = Some(a.max_hp.map_or(est, |m| m.max(est)));
+                    }
                 }
-                if let Some(best) = a.npc_id.and_then(|n| self.npc_max_hp.get(&n).copied()) {
-                    let a = self.actor(*id);
-                    if a.max_hp.map_or(true, |m| best > m) {
-                        a.max_hp = Some(best);
+                if let Some(m) = a.max_hp {
+                    if *hp > m {
+                        a.max_hp = Some(*hp);
                     }
                 }
             }
@@ -757,6 +794,8 @@ impl Engine {
                 self_id: self.self_id,
                 names: HashMap::new(),
                 allies: Default::default(),
+                focus: None,
+                tspan: Default::default(),
             });
         }
         self.current.as_mut().unwrap()
@@ -997,7 +1036,9 @@ impl Engine {
                     .build()
             })
             .collect();
-        let main = target.or_else(|| f.main_target());
+        // The card follows the enemy you hit last; the biggest target only
+        // when you haven't hit anything yourself (spectating a fight).
+        let main = target.or(f.focus).or_else(|| f.main_target());
         let target_v = main.map(|t| {
             let a = self.actors.get(&t);
             let hp_pct = a.and_then(|a| match (a.hp, a.max_hp) {
@@ -1011,6 +1052,7 @@ impl Engine {
                 .set("npc_id", npc_id)
                 .set("named", npc_id.map_or(true, |n| self.names.npcs.contains_key(&n)))
                 .set("dmg_taken", *f.targets.get(&t).unwrap_or(&0))
+                .set("secs", f.tspan.get(&t).map(|(a, b)| (b - a).max(1.0)))
                 .set("hp_pct", hp_pct)
                 .set("max_hp", a.and_then(|a| a.max_hp))
                 .set("hp", a.and_then(|a| a.hp))
@@ -1356,7 +1398,7 @@ mod naming_tests {
         assert!(n.skill_named(17010230 | DOT_KEY));
         assert_eq!(n.skill(17020000), "Skill 17020000");
         let mut e = Engine::new(EngineConfig::default(), n);
-        let mut f = Fight { id: 1, start: 0.0, end: 1.0, started_unix: 0.0, stats: Default::default(), targets: Default::default(), deaths: vec![], loot: vec![], zone: None, boss_killed: false, finished: true, self_id: None, names: Default::default(), allies: Default::default() };
+        let mut f = Fight { id: 1, start: 0.0, end: 1.0, started_unix: 0.0, stats: Default::default(), targets: Default::default(), deaths: vec![], loot: vec![], zone: None, boss_killed: false, finished: true, self_id: None, names: Default::default(), allies: Default::default(), focus: None, tspan: Default::default() };
         f.names.insert(9, ("NPC 2400002".into(), None));
         e.history.push_back(f);
         e.rename_npc(2400002, "Black Claw Manduri Fighter");

@@ -6,7 +6,7 @@
 // updates after a game patch never need a new build.
 {
   "name": "AION 2 (global)",
-  "version": "0.6.7",
+  "version": "0.6.8",
   "process_names": ["aion2"],
   // Server ports, if they turn out to be fixed. Auto-detection by process
   // already finds the server, so this can stay empty.
@@ -96,10 +96,10 @@
        // Max HP only where the layout is verified. The spawn's own "hp" field
        // is not current HP (e.g. 196 of 270000), so a new monster starts full;
        // 0x8d00 updates take over from the first hit.
-       {"event": "actor", "when": "b==32", "id": "id", "kind": "'npc'", "npc_id": "npc", "max_hp": "max_hp"},
-       {"event": "actor", "when": "b==44", "id": "id", "kind": "'npc'", "npc_id": "npc", "max_hp": "max_hp"},
-       {"event": "hp", "when": "b==32", "id": "id", "hp": "max_hp", "max_hp": "max_hp"},
-       {"event": "hp", "when": "b==44", "id": "id", "hp": "max_hp", "max_hp": "max_hp"},
+       {"event": "actor", "when": "b==32&&max_hp>1", "id": "id", "kind": "'npc'", "npc_id": "npc", "max_hp": "max_hp"},
+       {"event": "actor", "when": "b==44&&max_hp>1", "id": "id", "kind": "'npc'", "npc_id": "npc", "max_hp": "max_hp"},
+       {"event": "hp", "when": "b==32&&max_hp>1", "id": "id", "hp": "max_hp", "max_hp": "max_hp"},
+       {"event": "hp", "when": "b==44&&max_hp>1", "id": "id", "hp": "max_hp", "max_hp": "max_hp"},
        // b==256 is an object/summon carrying its owner's name (e.g. Templar
        // Divine Aura); its damage is credited to that owner. Real players
        // arrive via 0x3645.

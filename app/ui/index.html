@@ -265,7 +265,8 @@
     $("target").hidden = false;
     // Health bar = the target's HP left (from the game's HP updates).
     // A dead target shows KILLED instead of an empty bar and "0.0%".
-    const dead = f.boss_killed || (t.hp_pct != null && t.hp_pct <= 0.0005);
+    const dead = t.hp_pct != null ? t.hp_pct <= 0.0005 : !!f.boss_killed;
+    const secs = t.secs || f.duration || 1; // time on this target
     const pctv = t.hp_pct == null ? null : Math.min(1, Math.max(0, t.hp_pct));
     const hpNow = t.hp != null && t.max_hp ? Math.min(t.hp, t.max_hp) : null;
     // Always "HP / max · %" top right; a dead target reads 0 and 0%.
@@ -275,14 +276,14 @@
     const kill = showPct != null ? `<span class="meta" title="Health left">${hpText}<span class="pc">${D.pct(showPct, showPct > 0 && showPct < 0.1 ? 1 : 0)}</span></span>` : "";
     // Kill-time estimate: HP left ÷ the group's damage rate on this target.
     const onTarget = t.dmg_taken || f.total || 0;
-    const rate = onTarget / Math.max(1, f.duration || 1);
+    const rate = onTarget / Math.max(1, secs);
     const killIn = !dead && f.live && hpNow != null && rate > 0 ? D.dur(hpNow / rate) : null;
     // Bottom right: the monster's rank (Common, Elite, Heroic...) from
     // aion2.gaming.tools; the fight time when the rank isn't known.
     const rank = t.rank ? String(t.rank) : "";
     const rkey = rank.toLowerCase().replace(/monster$/, "").replace(/^hero(ic)?$/, "heroic").replace(/^normal$/, "common").replace(/[^a-z]/g, "");
-    const right = rank ? `<span class="rank">${D.esc(rank)}</span>` : `Fight <b>${D.dur(f.duration)}</b>`;
-    const bot = `<div class="tc-bot"><span>${dead ? `Killed in <b class="good">${D.dur(f.duration)}</b>` : killIn ? `Kill in <b class="good">${killIn}</b>` : `Damage <b>${D.fmt(onTarget)}</b>`}</span><span>${right}</span></div>`;
+    const right = rank ? `<span class="rank">${D.esc(rank)}</span>` : `Fight <b>${D.dur(secs)}</b>`;
+    const bot = `<div class="tc-bot"><span>${dead ? `Killed in <b class="good">${D.dur(secs)}</b>` : killIn ? `Kill in <b class="good">${killIn}</b>` : `Damage <b>${D.fmt(onTarget)}</b>`}</span><span>${right}</span></div>`;
     const nameit = t.named === false && t.npc_id ? `<span class="nameit" data-npc="${t.npc_id}" title="Looking it up on aion2.gaming.tools… or type the name yourself (saved for good)">✎ name it</span><span class="nameit" data-lk="${t.npc_id}" title="Open on aion2.gaming.tools">🔎</span>` : "";
     const unknownTip = t.name === "Unknown monster" ? ` title="This monster was already nearby when the meter started, so the game never said which one it is. It gets its name after you change zone or it comes back into view."` : "";
     const portrait = D.npcIcon(t.npc_id, 24) || '<span class="tc-ic"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.5C4.5 1.5 2 4 2 7c0 1.9 1 3.3 2.3 4.1V13c0 .6.4 1 1 1h.7v-1.5h1V14h2v-1.5h1V14h.7c.6 0 1-.4 1-1v-1.9C13 10.3 14 8.9 14 7c0-3-2.5-5.5-6-5.5zM5.6 9.2a1.3 1.3 0 1 1 0-2.6 1.3 1.3 0 0 1 0 2.6zm4.8 0a1.3 1.3 0 1 1 0-2.6 1.3 1.3 0 0 1 0 2.6z"/></svg></span>';

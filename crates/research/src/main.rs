@@ -490,6 +490,9 @@ fn cmd_decode(pkts: &[Packet], a: &Args) -> Result<(), String> {
     // definitions/names reload does), to test recovery mid-stream.
     let swap_at = a.get("swap-at").and_then(json::parse_number_str).map(|n| n as usize);
     let reset_reasm = a.get("reset-reasm").is_some();
+    let trace = a.get("trace").is_some();
+    let mut last_trace = 0.0f64;
+    let mut last_line = String::new();
     for (i, pk) in pkts.iter().enumerate() {
         if Some(i) == swap_at {
             let before = p.decoder.frames_total;
@@ -500,6 +503,19 @@ fn cmd_decode(pkts: &[Packet], a: &Args) -> Result<(), String> {
             println!("swapped decoder after {i} packets ({before} frames so far)");
         }
         fights.extend(p.push_frame(pk.linktype, &pk.data, pk.ts));
+        if trace && pk.ts - last_trace >= 0.5 {
+            last_trace = pk.ts;
+            if let Some(f) = p.engine.display_fight() {
+                let t = p.engine.fight_table(f, None);
+                if let Some(tg) = t.get("target") {
+                    let line = format!("{} {} hp={} max={}", tg.get("name").map(|v| v.to_string()).unwrap_or_default(), tg.get("id").map(|v| v.to_string()).unwrap_or_default(), tg.get("hp").map(|v| v.to_string()).unwrap_or_default(), tg.get("max_hp").map(|v| v.to_string()).unwrap_or_default());
+                    if line != last_line {
+                        println!("t={:.1} {line}", pk.ts - pkts[0].ts);
+                        last_line = line;
+                    }
+                }
+            }
+        }
     }
     if let Some(f) = p.engine.finish() {
         fights.push(f);
