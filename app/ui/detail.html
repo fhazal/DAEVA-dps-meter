@@ -150,7 +150,7 @@
             <td>${pc(s.crit_rate)}</td><td>${pc(s.back_rate)}</td><td>${pc(s.front_rate)}</td><td>${pc(s.double_rate)}</td>
             <td>${D.fmt(s.max)}</td><td>${D.fmt(s.avg)}</td><td>${pc(s.parry_rate)}</td></tr>`).join("")}</tbody>
         </table>
-        <div class="note">Crit, Back, Front, Perfect, Double and multi-hits are confirmed. Rates are per damage result, like Abyss.</div>`;
+        <div class="note">Crit, Back, Front, Perfect, Double and multi-hits are confirmed. Rates are per damage result.</div>`;
     }
     if (editing) return;
     c.innerHTML = head + body;
