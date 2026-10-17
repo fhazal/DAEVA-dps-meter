@@ -260,7 +260,15 @@ impl Core {
 
     pub fn reload_definitions(&mut self) {
         let (defs, names) = load_definitions(&self.paths, &mut self.status);
+        // A fresh decoder must not be fed the middle of a stream as if it
+        // were a frame boundary: restart reassembly so every flow resyncs,
+        // and restart the health counters (they count from zero again).
+        self.pipeline.reasm.reset();
         self.pipeline.decoder = Decoder::new(defs, Some(decompressor()));
+        self.health_frames = 0;
+        self.health_decoded = 0;
+        self.health_resyncs = 0;
+        self.stall_frames = 0;
         self.pipeline.decoder.keep_recent = if self.recorder.is_some() { 400 } else { 200 };
         self.pipeline.server_ports = self.pipeline.decoder.defs.ports.iter().copied().chain(self.settings.manual_ports.iter().copied()).collect();
         if !self.settings.demo {
@@ -1178,6 +1186,7 @@ fn load_definitions(paths: &Paths, status: &mut Status) -> (Arc<Definitions>, Na
     if let Ok(site) = std::fs::read_to_string(paths.data.join("gaming-tools-names.json")).map_err(|e| e.to_string()).and_then(|s| Names::from_json(&s)) {
         names.npcs.extend(site.npcs);
         names.skills.extend(site.skills);
+        names.ranks.extend(site.ranks);
     }
     let mine = paths.data.join("my-names.json");
     if mine.exists() {

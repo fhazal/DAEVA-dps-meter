@@ -480,19 +480,31 @@ fn cmd_decode(pkts: &[Packet], a: &Args) -> Result<(), String> {
         Some(p) => Names::from_json(&std::fs::read_to_string(p).map_err(|e| e.to_string())?)?,
         None => Names::default(),
     };
-    let mut p = Pipeline::new(Decoder::new(defs, Some(decompressor())), Engine::new(EngineConfig::default(), names));
+    let mut p = Pipeline::new(Decoder::new(defs.clone(), Some(decompressor())), Engine::new(EngineConfig::default(), names));
     p.strict = !p.server_ports.is_empty();
     if let Some(id) = a.get("self").and_then(json::parse_number_str) {
         p.engine.handle(&meter_core::events::GameEvent::SelfId { id: id as u64, name: None });
     }
     let mut fights = Vec::new();
-    for pk in pkts {
+    // --swap-at N: replace the decoder after N packets (what a live
+    // definitions/names reload does), to test recovery mid-stream.
+    let swap_at = a.get("swap-at").and_then(json::parse_number_str).map(|n| n as usize);
+    let reset_reasm = a.get("reset-reasm").is_some();
+    for (i, pk) in pkts.iter().enumerate() {
+        if Some(i) == swap_at {
+            let before = p.decoder.frames_total;
+            if reset_reasm {
+                p.reasm.reset();
+            }
+            p.decoder = Decoder::new(defs.clone(), Some(decompressor()));
+            println!("swapped decoder after {i} packets ({before} frames so far)");
+        }
         fights.extend(p.push_frame(pk.linktype, &pk.data, pk.ts));
     }
     if let Some(f) = p.engine.finish() {
         fights.push(f);
     }
-    println!("{} packets, {} game packets, {} events, {} fights\n", p.packets, p.game_packets, p.engine.events_seen, fights.len());
+    println!("{} packets, {} game packets, {} frames, {} resyncs, {} events, {} fights\n", p.packets, p.game_packets, p.decoder.frames_total, p.decoder.resyncs(), p.engine.events_seen, fights.len());
     for f in &fights {
         println!("{}", p.engine.summary_text(f, 12));
     }

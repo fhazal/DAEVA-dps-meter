@@ -378,6 +378,10 @@ pub struct Engine {
     pub self_server: Option<u32>,
     /// Your Odyle (base, bonus); only sent by the game when it changes.
     pub self_odyle: Option<(u64, u64)>,
+    /// Highest max HP seen per monster template. A monster that appears
+    /// already hurt reports its current HP as "max"; the template's real
+    /// maximum is the highest one seen.
+    pub npc_max_hp: HashMap<u32, u64>,
 }
 
 impl Engine {
@@ -401,6 +405,7 @@ impl Engine {
             self_cp: None,
             self_server: None,
             self_odyle: None,
+            npc_max_hp: HashMap::new(),
         }
     }
 
@@ -636,6 +641,16 @@ impl Engine {
                 if max_hp.is_some() {
                     a.max_hp = *max_hp;
                 }
+                if let (Some(n), Some(m)) = (a.npc_id, a.max_hp) {
+                    let best = self.npc_max_hp.entry(n).or_insert(0);
+                    *best = (*best).max(m);
+                    let best = *best;
+                    let a = self.actor(*id);
+                    if best > m {
+                        // Seen at full health before: use the real maximum.
+                        a.max_hp = Some(best);
+                    }
+                }
             }
             GameEvent::SelfId { id, name } => {
                 // Entity ids change on every zone change / relog, so the
@@ -669,6 +684,12 @@ impl Engine {
                     // Spawned before the meter started: best guess is the
                     // highest HP seen so far.
                     a.max_hp = Some(*hp);
+                }
+                if let Some(best) = a.npc_id.and_then(|n| self.npc_max_hp.get(&n).copied()) {
+                    let a = self.actor(*id);
+                    if a.max_hp.map_or(true, |m| best > m) {
+                        a.max_hp = Some(best);
+                    }
                 }
             }
             GameEvent::Zone { ts, zone_id } => {
@@ -1343,4 +1364,15 @@ mod naming_tests {
         let b = Names::from_json(r#"{"berserk": {"2400050": 480}}"#).unwrap();
         assert_eq!(b.berserk.get(&2400050), Some(&480));
     }
+    #[test]
+    fn learns_template_max_hp() {
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.handle(&GameEvent::Actor { id: 1, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(2400249), owner: None, max_hp: Some(119_700) });
+        // Same monster type, appears already hurt: spawn says 72,792.
+        e.handle(&GameEvent::Actor { id: 2, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(2400249), owner: None, max_hp: Some(72_792) });
+        e.handle(&GameEvent::Hp { ts: 1.0, id: 2, hp: 72_792, max_hp: Some(72_792) });
+        let a = e.actors.get(&2).unwrap();
+        assert_eq!((a.hp, a.max_hp), (Some(72_792), Some(119_700)));
+    }
+
 }
