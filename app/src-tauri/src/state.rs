@@ -664,7 +664,11 @@ impl Core {
         } else {
             Default::default()
         };
-        serde_json::json!({"base": meter_core::gamingtools::IMAGES, "on": self.settings.game_art, "icons": icons}).to_string()
+        // Icons come from your Daeva server's copy, never straight from the
+        // gaming.tools CDN (their condition: download, don't hotlink).
+        let base = format!("{}/img", self.settings.names_mirror.trim().trim_end_matches('/'));
+        let on = self.settings.game_art && base.starts_with("https://");
+        serde_json::json!({"base": base, "on": on, "icons": icons}).to_string()
     }
 
     pub fn names_view(&self) -> Value {

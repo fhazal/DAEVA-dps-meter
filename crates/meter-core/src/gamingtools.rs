@@ -149,8 +149,8 @@ pub fn devalue(src: &str) -> Result<crate::json::Value, String> {
     Ok(go(arr, 0, 0))
 }
 
-/// Where gaming.tools serves its images; `iconPath` values are relative to it.
-pub const IMAGES: &str = "https://cdn-hosted.gaming.tools/aion2";
+// Images are never loaded from gaming.tools directly: the Daeva server
+// downloads them once and serves them (their condition: no hotlinking).
 
 /// One entry of a gaming.tools data file.
 #[derive(Debug, Clone, PartialEq)]
