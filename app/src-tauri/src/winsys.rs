@@ -256,18 +256,25 @@ pub fn cursor_pos() -> Option<(i32, i32)> {
     None
 }
 
-/// Plays the Windows notification sound without blocking.
+/// Plays an in-memory WAV without blocking. The bytes are kept alive in a
+/// static until the next sound replaces them (PlaySound reads them while
+/// playing).
 #[cfg(windows)]
-pub fn chime() {
-    use windows_sys::Win32::Media::Audio::{PlaySoundW, SND_ALIAS, SND_ASYNC, SND_NODEFAULT};
-    let alias: Vec<u16> = "SystemNotification\0".encode_utf16().collect();
+pub fn play_wav(wav: Vec<u8>) {
+    use std::sync::Mutex;
+    use windows_sys::Win32::Media::Audio::{PlaySoundW, SND_ASYNC, SND_MEMORY, SND_NODEFAULT};
+    static CURRENT: Mutex<Vec<u8>> = Mutex::new(Vec::new());
+    let mut cur = CURRENT.lock().unwrap_or_else(|e| e.into_inner());
     unsafe {
-        PlaySoundW(alias.as_ptr(), std::ptr::null_mut(), SND_ALIAS | SND_ASYNC | SND_NODEFAULT);
+        // Stop whatever is playing before its buffer is replaced.
+        PlaySoundW(std::ptr::null(), std::ptr::null_mut(), 0);
+        *cur = wav;
+        PlaySoundW(cur.as_ptr() as *const u16, std::ptr::null_mut(), SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
     }
 }
 
 #[cfg(not(windows))]
-pub fn chime() {}
+pub fn play_wav(_wav: Vec<u8>) {}
 
 /// Opens a web page in the default browser.
 #[cfg(windows)]

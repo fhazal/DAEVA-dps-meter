@@ -30,7 +30,7 @@
   .target input.nm { width: 100%; font: inherit; font-weight: 600; padding: 2px 6px; }
 
   .rows { padding: 4px 4px 6px; }
-  .row { position: relative; display: grid; grid-template-columns: 18px 1fr auto; align-items: center; gap: 6px; height: 26px; padding: 0 8px 0 6px; border-radius: 6px; cursor: pointer; overflow: hidden; }
+  .row { position: relative; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; height: 26px; padding: 0 8px 0 10px; border-radius: 6px; cursor: pointer; overflow: hidden; }
   .row + .row { margin-top: 2px; }
   .row:hover { background: rgba(255,255,255,0.05); }
   .row .fill { position: absolute; left: 0; top: 0; bottom: 0; opacity: 0.22; border-radius: 6px; transition: width .3s ease; }
@@ -69,10 +69,22 @@
   .alert .t { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .alert .b { color: var(--muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   @keyframes slidein { from { opacity: 0; transform: translateY(-8px); } }
-  .nextev { flex: none; display: flex; gap: 12px; padding: 3px 10px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; font-variant-numeric: tabular-nums; }
-  .nextev b { color: var(--text); font-weight: 600; }
-  .nextev .live b { color: var(--good); }
-  .nextev .soon b { color: var(--warn); }
+  .foot .srv { color: var(--muted); font-weight: 600; letter-spacing: .02em; display: inline-flex; align-items: center; gap: 6px; }
+  .foot .srv-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--good); box-shadow: 0 0 6px rgba(111,207,142,0.7); }
+  .nextev { flex: none; display: flex; gap: 6px; padding: 5px 8px; border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; font-variant-numeric: tabular-nums; }
+  .ev { position: relative; display: inline-flex; align-items: center; gap: 6px; min-width: 0; padding: 3px 9px 4px 7px; border-radius: 999px;
+    background: rgba(255,255,255,0.045); border: 1px solid var(--line); font-size: 11px; overflow: hidden; }
+  .ev .e { font-size: 12px; line-height: 1; }
+  .ev .n { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+  .ev .t { color: var(--text); font-weight: 650; }
+  .ev.soon { border-color: rgba(231,180,76,0.45); background: rgba(231,180,76,0.07); }
+  .ev.soon .t { color: var(--warn); }
+  .ev.live { border-color: rgba(111,207,142,0.45); background: rgba(111,207,142,0.08); }
+  .ev.live .t { color: var(--good); }
+  .ev.live .e { position: relative; }
+  .ev .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--good); box-shadow: 0 0 0 0 rgba(111,207,142,0.6); animation: evpulse 1.8s infinite; flex: none; }
+  @keyframes evpulse { 0% { box-shadow: 0 0 0 0 rgba(111,207,142,0.55); } 70% { box-shadow: 0 0 0 6px rgba(111,207,142,0); } 100% { box-shadow: 0 0 0 0 rgba(111,207,142,0); } }
+  .ev .bar { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--good); opacity: 0.8; transition: width 1s linear; }
 </style>
 </head>
 <body>
@@ -173,13 +185,14 @@
       renderTarget(f);
       renderRows(f, m);
     }
-    const footL = snap.research ? `● REC ${D.dur(snap.research.elapsed)}` : text;
-    const self = s.self ? `${D.esc(s.self)}` : "";
+    // Left: your server while capturing (status messages otherwise); right: ping.
+    const footL = snap.research ? `● REC ${D.dur(snap.research.elapsed)}` : state === "live" || (state === "wait" && s.servers && s.servers.length) ? (s.server || text) : text;
+    const isSrv = !snap.research && !!s.server && footL === s.server;
     const pc = s.ping_ms == null ? "" : s.ping_ms < 80 ? "good" : s.ping_ms < 150 ? "warn" : "bad";
     const bars = s.ping_ms == null ? 0 : s.ping_ms < 80 ? 4 : s.ping_ms < 150 ? 3 : s.ping_ms < 250 ? 2 : 1;
     const sig = [1, 2, 3, 4].map((i) => `<i style="height:${i * 2 + 1}px" class="${i <= bars ? "on" : ""}"></i>`).join("");
     const ping = `<b class="ping ${pc}" title="Latency to the game server (measured passively)"><span class="sig">${sig}</span>${s.ping_ms == null ? "-- ms" : Math.round(s.ping_ms) + " ms"}</b>`;
-    $("foot").innerHTML = `<span>${D.esc(footL)}</span><span>${self}${s.uploads_pending ? " · ↑" + s.uploads_pending : ""} · ${ping}</span>`;
+    $("foot").innerHTML = `<span class="${isSrv ? "srv" : ""}" title="${D.esc(text)}">${isSrv ? '<i class="srv-dot"></i>' : ""}${D.esc(footL)}</span><span>${s.uploads_pending ? "↑" + s.uploads_pending + " · " : ""}${ping}</span>`;
     $("foot").title = "Daeva Meter " + (s.version || "");
     renderAlerts(snap.alerts);
     if (s.warning) {
@@ -207,10 +220,12 @@
       next.hidden = false;
       next.innerHTML = a.next.map((o) => {
         const live = o.active;
-        const t = live ? `live · ${countdown(o.ends - now)} left` : countdown(o.starts - now);
+        const t = live ? `${countdown(o.ends - now)} left` : countdown(o.starts - now);
         const cls = live ? "live" : o.starts - now < 600 ? "soon" : "";
         const at = new Date(o.starts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-        return `<span class="${cls}" title="${D.esc(o.name)} · ${at}${o.note ? " · " + D.esc(o.note) : ""}">${D.esc(o.emoji)} ${D.esc(o.short)} <b>${t}</b></span>`;
+        const left = live ? Math.max(0, Math.min(1, (o.ends - now) / Math.max(1, o.ends - o.starts))) : 0;
+        const tip = `${o.name} · ${live ? "running now, ends " + new Date(o.ends * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "starts " + at}${o.note ? " · " + o.note : ""}`;
+        return `<span class="ev ${cls}" title="${D.esc(tip)}">${live ? '<i class="dot"></i>' : ""}<span class="e">${D.esc(o.emoji)}</span><span class="n">${D.esc(o.short)}</span><span class="t">${t}</span>${live ? `<i class="bar" style="width:${(left * 100).toFixed(1)}%"></i>` : ""}</span>`;
       }).join("");
       next.title = a.error ? "Event feed: " + a.error + " (showing last known times)" : "";
     } else {
@@ -276,8 +291,7 @@
       return `<div class="row${p.is_self ? " self" : ""}" data-id="${p.id}" title="${D.esc(tip)}">
         <i class="fill" style="width:${((v / top) * 100).toFixed(1)}%;background:${color}"></i>
         <i class="edge" style="background:${color}"></i>
-        <span class="rank">${i + 1}</span>
-        <span class="who">${D.classIcon(p.class, 15)}<span class="nm">${D.esc(displayName(p, i))}</span>${p.class ? `<span class="cls">${D.esc(p.class)}</span>` : ""}</span>
+        <span class="who">${D.classIcon(p.class, 16)}<span class="nm">${D.esc(displayName(p, i))}</span></span>
         <span class="val">${main}${heal}${sub}</span>
       </div>`;
     }).join("");

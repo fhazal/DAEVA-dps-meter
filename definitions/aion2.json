@@ -6,7 +6,7 @@
 // updates after a game patch never need a new build.
 {
   "name": "AION 2 (global)",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "process_names": ["aion2"],
   // Server ports, if they turn out to be fixed. Auto-detection by process
   // already finds the server, so this can stay empty.
@@ -64,7 +64,11 @@
     // Effect/debuff applied: carries the caster's name and legion.
     {"opcode": "0x8d04", "name": "S_EFFECT_CASTER_INFO", "dir": "server",
      "fields": ["tgt:varint", "skill:u32le", "src:varint", "server:u16le", "name:str", "legion:str"],
-     "emit": {"event": "actor", "id": "src", "name": "name", "kind": "'player'"}},
+     "emit": [
+       {"event": "actor", "id": "src", "name": "name", "kind": "'player'"},
+       // The caster's game server (world) number; your own one names your server.
+       {"event": "actor_server", "id": "src", "server": "server"}
+     ]},
     // Only ever sent about the local player.
     {"opcode": "0x364a", "name": "S_SELF_STATE", "dir": "server",
      "fields": ["id:varint"],

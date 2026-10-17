@@ -60,12 +60,16 @@
       ${F("", chk("alerts.enabled", "Show event alerts"))}
       ${F("Warn before start (min)", num("alerts.lead_minutes", 0, 120), "0 = only when the event starts.")}
       ${F("", `<div class="row-btns">${chk("alerts.at_start", "Also when it starts")}${chk("alerts.sound", "Play a sound")}${chk("alerts.show_next", "Show next events under the meter")}</div>`)}
+      ${F("Sound volume", `<span class="inline"><input type="range" data-k="alerts.volume" min="0" max="100" step="5" style="flex:1"><span class="num muted" data-vol></span></span>`, "A short chime: two notes for ‘starting soon’, three rising notes when it starts.")}
       ${F("Banner stays (s)", num("alerts.banner_secs", 3, 120))}
       ${F("Show alerts", sel("alerts.position", [["above_meter", "Above the meter"], ["below_meter", "Below the meter"], ["screen_top_right", "Top right, beside the minimap"], ["screen_top_center", "Top centre of the screen"], ["screen_top_left", "Top left of the screen"]]), "Alerts never cover the meter and clicks pass through them.")}
       ${F("Nudge (x, y px)", `<span class="inline">${num("alerts.offset_x", -3000, 3000)}${num("alerts.offset_y", -3000, 3000)}</span>`, "Fine-tune the spot, e.g. x -40 moves alerts 40 px left.")}
       ${F("Alert me for", `<div class="row-btns" id="evList"><span class="muted">Loading events…</span></div>`, "Hourly events (Shugo Festival, Dimensional Invasion) are off by default.")}
       ${F("Schedule feed", txt("alerts.feed_url"), `<span id="evStatus"></span>`)}
       ${F("", `<button class="btn" id="bTestAlert">Show a test alert</button>`)}
+    </div>
+    <h2>Server</h2><div class="f">
+      ${F("Server name", txt("server_name", "detected automatically"), "Shown at the bottom of the meter. Leave empty: the meter reads your server from the game (Beritra is built in).")}
     </div>
     <h2>Fights</h2><div class="f">
       ${F("End fight after idle (s)", num("idle_timeout", 2, 120, 1))}
@@ -127,6 +131,11 @@
     });
     updateRanges();
   }
+  function updateVol() {
+    const v = document.querySelector('[data-k="alerts.volume"]');
+    const o = document.querySelector("[data-vol]");
+    if (v && o) o.textContent = Math.round(Number(v.value)) + "%";
+  }
   function updateRanges() {
     document.querySelectorAll("[data-v]").forEach((el) => {
       const inp = document.querySelector(`[data-k="${el.dataset.v}"]`);
@@ -175,7 +184,8 @@
     D.applyTheme({ accent: s.accent, opacity: 0.97 });
     build();
     fill();
-    document.querySelectorAll("input[type=range]").forEach((r) => (r.oninput = updateRanges));
+    document.querySelectorAll("input[type=range]").forEach((r) => (r.oninput = () => { if (r.dataset.k === "alerts.volume") updateVol(); else updateRanges(); }));
+    updateVol();
     loadEvents();
     document.getElementById("bTestAlert").onclick = async () => { await D.call("test_alert"); D.toast("Test alert sent — save first if you changed the position"); };
     document.getElementById("bRestart").onclick = async () => { await D.call("restart_capture"); D.toast("Capture restarted"); };

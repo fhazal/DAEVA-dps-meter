@@ -70,6 +70,8 @@ pub enum GameEvent {
     Buff { ts: f64, src: u64, tgt: u64, buff_id: u32, applied: bool, duration_ms: Option<u64> },
     /// Stats about the local player (combat power, ...).
     SelfStats { cp: Option<u64> },
+    /// The game server (world) an actor belongs to.
+    ActorServer { id: u64, server: u32 },
 }
 
 impl GameEvent {
@@ -85,6 +87,7 @@ impl GameEvent {
             GameEvent::Loot { .. } => "loot",
             GameEvent::Buff { .. } => "buff",
             GameEvent::SelfStats { .. } => "self_stats",
+            GameEvent::ActorServer { .. } => "actor_server",
         }
     }
 }

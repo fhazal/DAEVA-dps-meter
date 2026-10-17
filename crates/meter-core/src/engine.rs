@@ -21,6 +21,8 @@ pub struct Names {
     pub items: HashMap<u32, (String, Option<u32>)>,
     pub grades: HashMap<u32, String>,
     pub zones: HashMap<u32, String>,
+    /// Game server (world) number -> name, e.g. Beritra.
+    pub servers: HashMap<u32, String>,
     /// NPC template ids that are bosses (fights against them survive pauses).
     pub bosses: std::collections::HashSet<u32>,
 }
@@ -49,6 +51,11 @@ impl Names {
         for (id, x) in ids("zones") {
             if let Some(s) = x.as_str() {
                 n.zones.insert(id, s.to_string());
+            }
+        }
+        for (id, x) in ids("servers") {
+            if let Some(s) = x.as_str() {
+                n.servers.insert(id, s.to_string());
             }
         }
         for (id, x) in ids("grades") {
@@ -122,12 +129,24 @@ impl Names {
         self.skills.extend(other.skills);
         self.npcs.extend(other.npcs);
         self.zones.extend(other.zones);
+        self.servers.extend(other.servers);
         self.items.extend(other.items);
         self.bosses.extend(other.bosses);
         for (k, v) in other.classes {
             self.classes.entry(k).or_insert(v);
         }
     }
+    /// Name of a game server (world). Built-in ones are seen in real
+    /// captures; names.json "servers" can add or override.
+    pub fn server(&self, id: u32) -> String {
+        const KNOWN: &[(u32, &str)] = &[(2508, "Beritra")];
+        self.servers
+            .get(&id)
+            .cloned()
+            .or_else(|| KNOWN.iter().find(|(k, _)| *k == id).map(|(_, n)| n.to_string()))
+            .unwrap_or_else(|| format!("Server {id}"))
+    }
+
     pub fn class(&self, c: &str) -> String {
         self.classes.get(c).cloned().unwrap_or_else(|| c.to_string())
     }
@@ -339,6 +358,8 @@ pub struct Engine {
     /// damage continues (chain-pulling packs stays one fight).
     pending_end: Option<f64>,
     pub self_cp: Option<u64>,
+    /// Your game server number (from effect packets you cause).
+    pub self_server: Option<u32>,
 }
 
 impl Engine {
@@ -360,6 +381,7 @@ impl Engine {
             loot_seen: 0,
             pending_end: None,
             self_cp: None,
+            self_server: None,
         }
     }
 
@@ -652,6 +674,11 @@ impl Engine {
                 }
             }
             GameEvent::Buff { .. } => {}
+            GameEvent::ActorServer { id, server } => {
+                if Some(*id) == self.self_id {
+                    self.self_server = Some(*server);
+                }
+            }
             GameEvent::SelfStats { cp } => {
                 // Combat power is in the tens of thousands; ignore anything
                 // implausible from look-alike messages in some zones.

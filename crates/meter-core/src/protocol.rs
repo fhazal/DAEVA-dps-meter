@@ -926,6 +926,10 @@ fn emit(e: &Emit, header: &Scope, scope: &Scope, ts: f64, out: &mut Vec<GameEven
             },
             "self" => GameEvent::SelfId { id: num("id").unwrap_or(0), name: txt("name") },
             "self_stats" => GameEvent::SelfStats { cp: num("cp") },
+            "actor_server" => match (num("id"), num("server")) {
+                (Some(id), Some(server)) if id != 0 && server != 0 => GameEvent::ActorServer { id, server: server as u32 },
+                _ => continue,
+            },
             "hp" => GameEvent::Hp { ts, id: num("id").unwrap_or(0), hp: num("hp").unwrap_or(0), max_hp: num("max_hp") },
             "zone" => GameEvent::Zone { ts, zone_id: num("zone").unwrap_or(0) as u32 },
             "loot" => GameEvent::Loot {

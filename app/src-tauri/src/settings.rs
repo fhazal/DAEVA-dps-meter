@@ -58,6 +58,8 @@ pub struct Alerts {
     pub lead_minutes: f64,
     pub at_start: bool,
     pub sound: bool,
+    /// Chime volume, 0-100.
+    pub volume: f64,
     /// Show the next event under the meter.
     pub show_next: bool,
     /// Event ids that never raise an alert.
@@ -80,6 +82,7 @@ impl Default for Alerts {
             lead_minutes: 5.0,
             at_start: true,
             sound: true,
+            volume: 70.0,
             show_next: true,
             muted: vec!["shugo_festival".into(), "dimensional_invasion".into()],
             banner_secs: 12.0,
@@ -121,6 +124,8 @@ pub struct Settings {
     pub alerts: Alerts,
     /// Fetch names of unknown monsters/skills from aion2.gaming.tools.
     pub lookup_names: bool,
+    /// Server name shown on the meter; empty = detect from the game.
+    pub server_name: String,
     /// Daeva server mirror of the gaming.tools name files (tried first).
     pub names_mirror: String,
     /// Show class emblems, skill icons and monster portraits from
@@ -133,6 +138,8 @@ pub struct Settings {
     /// change on zone change/relog, which the game announces; this lets a
     /// restarted meter recognise you straight away.
     pub last_self: Option<(u64, Option<String>, f64)>,
+    /// Last detected game server number, so the name shows straight away.
+    pub last_server: Option<u32>,
 }
 
 impl Default for Settings {
@@ -159,12 +166,14 @@ impl Default for Settings {
             share: Share::default(),
             alerts: Alerts::default(),
             lookup_names: true,
+            server_name: String::new(),
             names_mirror: "https://aion2.bajubesi.org/api/gt".into(),
             game_art: true,
             demo: false,
             window: None,
             history_keep_days: 30,
             last_self: None,
+            last_server: None,
         }
     }
 }

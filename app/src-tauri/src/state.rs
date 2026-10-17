@@ -344,13 +344,19 @@ impl Core {
         if self.settings.alerts.enabled && !self.events.occurrences.is_empty() {
             let fresh = self.events.notifier.poll(now, &self.events.occurrences);
             if !fresh.is_empty() && self.settings.alerts.sound {
-                winsys::chime();
+                let kind = if fresh.iter().any(|a| a.kind == "start") { "start" } else { "soon" };
+                winsys::play_wav(meter_core::chime::chime_wav(kind, (self.settings.alerts.volume / 100.0) as f32));
             }
             for a in fresh {
                 self.events.push(a);
             }
         }
         if self.sim.is_none() {
+            let e = &self.pipeline.engine;
+            if e.self_server.is_some() && e.self_server != self.settings.last_server {
+                self.settings.last_server = e.self_server;
+                self.settings_dirty = true;
+            }
             let e = &self.pipeline.engine;
             if let Some(id) = e.self_id {
                 let name = e.self_name.clone();
@@ -952,6 +958,14 @@ impl Core {
             .set("save_error", st.last_save_error.clone())
             .set("self", e.self_id.map(|id| e.actor_name(id)))
             .set("self_cp", e.self_cp)
+            .set("server", {
+                let manual = self.settings.server_name.trim();
+                if !manual.is_empty() {
+                    Some(manual.to_string())
+                } else {
+                    e.self_server.or(self.settings.last_server).map(|id| e.names.server(id))
+                }
+            })
             .set("uploads_pending", self.uploads.len())
             .set("version", env!("CARGO_PKG_VERSION"))
             .set("warning", self.warning.clone())
@@ -1027,7 +1041,7 @@ impl Core {
             raised: now,
         });
         if self.settings.alerts.sound {
-            winsys::chime();
+            winsys::play_wav(meter_core::chime::chime_wav("soon", (self.settings.alerts.volume / 100.0) as f32));
         }
     }
 

@@ -3,6 +3,7 @@
 //! capture frames -> [`net`] -> [`tcp::Reassembler`] -> [`protocol::Decoder`]
 //! -> [`events::GameEvent`] -> [`engine::Engine`] -> JSON for the overlay.
 
+pub mod chime;
 pub mod engine;
 pub mod gamingtools;
 pub mod events;

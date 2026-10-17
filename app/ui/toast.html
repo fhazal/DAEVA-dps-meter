@@ -9,16 +9,28 @@
   /* Click-through window that only ever shows event banners. */
   .stack { position: fixed; inset: 0; padding: 2px; display: flex; flex-direction: column; gap: 5px; }
   .stack.bottom { justify-content: flex-end; }
-  .alert { display: grid; grid-template-columns: 30px 1fr; align-items: center; gap: 1px 9px; padding: 8px 12px 8px 9px;
-    background: rgba(20,19,17,0.95); border: 1px solid var(--accent); border-left: 4px solid var(--accent); border-radius: 9px;
-    box-shadow: 0 6px 18px rgba(0,0,0,0.5); animation: inn .28s ease-out; transition: opacity .45s, transform .45s; }
-  .alert.start { border-color: var(--good); }
-  .alert.out { opacity: 0; transform: translateY(-6px); }
-  .bottom .alert.out { transform: translateY(6px); }
-  .alert .em { grid-row: span 2; font-size: 22px; line-height: 1; text-align: center; }
-  .alert .t { font-weight: 700; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .alert { --k: var(--accent); --k2: rgba(217,164,65,0.22);
+    position: relative; display: grid; grid-template-columns: 40px 1fr auto; align-items: center; gap: 0 11px;
+    padding: 9px 12px 11px 9px; border-radius: 12px; overflow: hidden;
+    background: linear-gradient(120deg, rgba(34,30,24,0.97), rgba(17,17,20,0.97) 60%);
+    border: 1px solid rgba(255,255,255,0.09); box-shadow: 0 10px 28px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.05);
+    animation: inn .35s cubic-bezier(.2,.9,.3,1.2); transition: opacity .45s, transform .45s; }
+  .alert.start { --k: var(--good); --k2: rgba(111,207,142,0.22); background: linear-gradient(120deg, rgba(22,34,27,0.97), rgba(17,17,20,0.97) 60%); }
+  .alert::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--k); box-shadow: 0 0 12px var(--k); }
+  .alert.out { opacity: 0; transform: translateY(-6px) scale(.98); }
+  .bottom .alert.out { transform: translateY(6px) scale(.98); }
+  .alert .ic { grid-row: span 2; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-size: 21px;
+    background: radial-gradient(circle at 35% 30%, var(--k2), rgba(255,255,255,0.03) 70%); border: 1px solid var(--k2); }
+  .alert.start .ic { animation: ring 1.6s ease-out 2; }
+  .alert .t { font-weight: 700; font-size: 13.5px; letter-spacing: .01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .alert .b { color: var(--muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  @keyframes inn { from { opacity: 0; transform: translateY(-8px); } }
+  .alert .tag { grid-row: span 2; align-self: start; font-size: 9.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--k); border: 1px solid var(--k2); background: rgba(0,0,0,0.25); padding: 2px 6px; border-radius: 999px; }
+  .alert .life { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: rgba(255,255,255,0.05); }
+  .alert .life i { display: block; height: 100%; width: 100%; background: var(--k); opacity: .75; transform-origin: left; animation: drain linear forwards; }
+  @keyframes inn { from { opacity: 0; transform: translateY(-10px) scale(.97); } }
+  @keyframes drain { to { transform: scaleX(0); } }
+  @keyframes ring { 0% { box-shadow: 0 0 0 0 var(--k2); } 100% { box-shadow: 0 0 0 12px rgba(0,0,0,0); } }
 </style>
 </head>
 <body>
@@ -39,7 +51,10 @@
           shown.add(al.key);
           const el = document.createElement("div");
           el.className = "alert " + al.kind;
-          el.innerHTML = `<span class="em">${D.esc(al.emoji || "🔔")}</span><span class="t">${D.esc(al.title)}</span><span class="b">${D.esc(al.body)}</span>`;
+          const secs = Math.max(3, a.banner_secs || 12);
+          const at = new Date(al.starts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+          const tag = al.kind === "start" ? "Now" : at;
+          el.innerHTML = `<span class="ic">${D.esc(al.emoji || "🔔")}</span><span class="t">${D.esc(al.title)}</span><span class="tag">${D.esc(tag)}</span><span class="b">${D.esc(al.body)}</span><span class="life"><i style="animation-duration:${secs}s"></i></span>`;
           if (a.anchor === "top") box.prepend(el); else box.appendChild(el);
           while (box.children.length > 3) (a.anchor === "top" ? box.lastElementChild : box.firstElementChild).remove();
           setTimeout(() => { el.classList.add("out"); setTimeout(() => el.remove(), 450); }, Math.max(3, a.banner_secs || 12) * 1000);
