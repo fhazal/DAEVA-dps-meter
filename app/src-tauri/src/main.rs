@@ -466,7 +466,7 @@ fn main() {
             // user chose (Settings → Event alerts → Show alerts).
             match WebviewWindowBuilder::new(app.handle(), "toast", WebviewUrl::App("toast.html".into()))
                 .title("Daeva Meter — Alerts")
-                .inner_size(360.0, 200.0)
+                .inner_size(360.0, 280.0)
                 .decorations(false)
                 .transparent(true)
                 .always_on_top(true)

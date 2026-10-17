@@ -1027,6 +1027,8 @@ impl Core {
             .set("position", a.position.as_str())
             .set("anchor", self.toast_anchor)
             .set("error", self.events.error.clone())
+            // Keys per event id, once the game's key counter is decoded.
+            .set("keys", Value::Null)
             .set(
                 "next",
                 Value::Arr(if a.enabled {
