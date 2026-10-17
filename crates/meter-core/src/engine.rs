@@ -281,6 +281,9 @@ pub struct ActorInfo {
     pub max_sure: bool,
     /// Damage this actor has taken since the meter first saw it.
     pub taken: u64,
+    /// `taken` when its health last went up (heal, reset): damage since
+    /// then is what the current health reflects.
+    pub taken_base: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -430,6 +433,7 @@ impl Engine {
             hp: None,
             max_sure: false,
             taken: 0,
+            taken_base: 0,
         })
     }
 
@@ -702,6 +706,10 @@ impl Engine {
                     a.and_then(|a| a.npc_id).and_then(|n| self.npc_max_hp.get(&n).copied())
                 };
                 let a = self.actor(*id);
+                if a.hp.map_or(true, |old| *hp > old) {
+                    // Healed or reset (training dummies refill at 1 HP).
+                    a.taken_base = a.taken;
+                }
                 a.hp = Some(*hp);
                 if let Some(m) = max_hp {
                     // A spawn of an already-hurt monster reports its health
@@ -713,13 +721,16 @@ impl Engine {
                         // This monster type's real maximum, seen at a spawn.
                         a.max_hp = Some(l);
                         a.max_sure = true;
+                    } else if *hp <= 1 && a.max_hp.is_none() {
+                        // "1 HP" is a floor (dummies, invulnerable phases):
+                        // no basis for a maximum yet.
                     } else {
                         // Never seen at full health: its maximum is at least
                         // the health now plus the damage it has taken since
                         // we started watching it.
                         // (Only your own and nearby damage is visible, so this
                         // can only under-estimate: keep the highest.)
-                        let est = hp.saturating_add(a.taken);
+                        let est = hp.saturating_add(a.taken - a.taken_base);
                         a.max_hp = Some(a.max_hp.map_or(est, |m| m.max(est)));
                     }
                 }
