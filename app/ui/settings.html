@@ -104,6 +104,7 @@
       <button class="btn" data-folder="data">Open data folder</button>
       <button class="btn" data-folder="definitions">Definitions folder</button>
       <button class="btn" id="bReload">Reload definitions</button>
+      <button class="btn" id="bNames">Monster &amp; skill names</button>
     </div>
     <p class="muted" style="font-size:11.5px"><b>Report a problem</b> saves the last 3 minutes of game traffic plus what the meter showed as one zip on your Desktop (also Ctrl+Shift+P, even in game). Send that file when something looks wrong.</p>
     <p class="muted" style="font-size:11.5px">Drop an updated <span class="mono">aion2.json</span> or <span class="mono">names.json</span> in the definitions folder to override the bundled copy after a game patch.</p>`;
@@ -181,6 +182,7 @@
       const r = JSON.parse(await D.call("reload_definitions"));
       D.toast(r.error ? "Error: " + r.error : "Loaded " + r.defs);
     };
+    document.getElementById("bNames").onclick = () => D.call("open_window", { kind: "names" });
     document.querySelectorAll("[data-folder]").forEach((b) => (b.onclick = () => D.call("open_folder", { which: b.dataset.folder })));
   }
 

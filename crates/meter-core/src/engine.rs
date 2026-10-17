@@ -90,12 +90,43 @@ impl Names {
         }
         // exact id, then the same skill at its base rank (last digits zeroed),
         // then coarser ids
-        for cand in [id, id / 10 * 10, id / 100 * 100, id / 10, id / 100, id / 1000, id / 10000] {
-            if let Some(s) = self.skills.get(&cand) {
-                return s.clone();
-            }
+        self.known_skill(id).unwrap_or_else(|| format!("Skill {id}"))
+    }
+
+    fn known_skill(&self, id: u32) -> Option<String> {
+        // Player skills are CCSSxxxx: class, skill, then variant digits, so
+        // the CCSS0000 entry names every variant.
+        let base = if Self::is_player_skill(id) { id / 10000 * 10000 } else { id };
+        [id, id / 10 * 10, id / 100 * 100, base, id / 10, id / 100, id / 1000, id / 10000]
+            .into_iter()
+            .find_map(|c| self.skills.get(&c).cloned())
+    }
+
+    pub fn is_player_skill(id: u32) -> bool {
+        (10_000_000..20_000_000).contains(&id)
+    }
+
+    /// True when `skill()` would return a real name.
+    pub fn skill_named(&self, id: u32) -> bool {
+        id & DOT_KEY != 0 && self.skill_named(id & !DOT_KEY) || id == 0 || self.known_skill(id).is_some()
+    }
+
+    /// The id a user-given name is stored under (covers all variants).
+    pub fn skill_name_key(id: u32) -> u32 {
+        let id = id & !DOT_KEY;
+        if Self::is_player_skill(id) { id / 10000 * 10000 } else { id }
+    }
+
+    /// Adds (and overrides with) every name in `other`.
+    pub fn merge(&mut self, other: Names) {
+        self.skills.extend(other.skills);
+        self.npcs.extend(other.npcs);
+        self.zones.extend(other.zones);
+        self.items.extend(other.items);
+        self.bosses.extend(other.bosses);
+        for (k, v) in other.classes {
+            self.classes.entry(k).or_insert(v);
         }
-        format!("Skill {id}")
     }
     pub fn class(&self, c: &str) -> String {
         self.classes.get(c).cloned().unwrap_or_else(|| c.to_string())
@@ -811,6 +842,45 @@ impl Engine {
     }
 
     /// The fight the overlay should show: the live one, else the last one.
+    /// Names a monster template; fights already frozen with the number
+    /// pick the name up too.
+    pub fn rename_npc(&mut self, template: u32, name: &str) {
+        let old = format!("NPC {template}");
+        self.names.npcs.insert(template, name.to_string());
+        for f in self.history.iter_mut().chain(self.current.iter_mut()) {
+            for (n, _) in f.names.values_mut() {
+                if *n == old {
+                    *n = name.to_string();
+                }
+            }
+        }
+    }
+
+    /// Monster templates and player skills currently on screen with no name.
+    pub fn unnamed(&self) -> (Vec<(u32, Option<u64>)>, Vec<(u32, Option<String>)>) {
+        let mut npcs: HashMap<u32, Option<u64>> = HashMap::new();
+        for a in self.actors.values() {
+            if let Some(n) = a.npc_id {
+                if !self.names.npcs.contains_key(&n) {
+                    let e = npcs.entry(n).or_insert(None);
+                    *e = (*e).max(a.max_hp);
+                }
+            }
+        }
+        let mut skills: HashMap<u32, Option<String>> = HashMap::new();
+        for f in self.history.iter().chain(self.current.iter()) {
+            for (actor, st) in &f.stats {
+                for &id in st.skills.keys().chain(st.heal_skills.keys()) {
+                    let id = id & !DOT_KEY;
+                    if Names::is_player_skill(id) && !self.names.skill_named(id) {
+                        skills.entry(Names::skill_name_key(id)).or_insert_with(|| self.fclass(f, *actor));
+                    }
+                }
+            }
+        }
+        (npcs.into_iter().collect(), skills.into_iter().collect())
+    }
+
     pub fn display_fight(&self) -> Option<&Fight> {
         self.current.as_ref().or_else(|| self.history.back())
     }
@@ -857,9 +927,12 @@ impl Engine {
                 (Some(h), Some(m)) if m > 0 => Some(h as f64 / m as f64),
                 _ => None,
             });
+            let npc_id = a.and_then(|a| a.npc_id);
             Obj::new()
                 .set("id", t)
                 .set("name", self.fname(f, t))
+                .set("npc_id", npc_id)
+                .set("named", npc_id.map_or(true, |n| self.names.npcs.contains_key(&n)))
                 .set("dmg_taken", *f.targets.get(&t).unwrap_or(&0))
                 .set("hp_pct", hp_pct)
                 .set("max_hp", a.and_then(|a| a.max_hp))
@@ -904,6 +977,7 @@ impl Engine {
                 Obj::new()
                     .set("id", **id)
                     .set("name", self.names.skill(**id))
+                    .set("named", self.names.skill_named(**id))
                     .set("dmg", k.dmg)
                     .set("dps", k.dmg as f64 / dur)
                     .set("share", rate(k.dmg, total))
@@ -975,6 +1049,7 @@ impl Engine {
                                 Obj::new()
                                     .set("id", **id)
                                     .set("name", self.names.skill(**id))
+                                    .set("named", self.names.skill_named(**id))
                                     .set("amount", k.dmg)
                                     .set("share", rate(k.dmg, s.heal))
                                     .set("casts", k.casts)
@@ -1184,5 +1259,27 @@ mod tests {
         assert!(txt.contains("Training Dummy"), "{txt}");
         let rec = e.fight_record(&f).to_string();
         assert!(json::parse(&rec).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod naming_tests {
+    use super::*;
+
+    #[test]
+    fn user_names_cover_skill_variants() {
+        let mut n = Names::default();
+        assert!(!n.skill_named(17010230));
+        n.skills.insert(Names::skill_name_key(17010230 | DOT_KEY), "Earth's Retribution".into());
+        assert_eq!(Names::skill_name_key(17010230), 17010000);
+        assert_eq!(n.skill(17011450), "Earth's Retribution");
+        assert!(n.skill_named(17010230 | DOT_KEY));
+        assert_eq!(n.skill(17020000), "Skill 17020000");
+        let mut e = Engine::new(EngineConfig::default(), n);
+        let mut f = Fight { id: 1, start: 0.0, end: 1.0, started_unix: 0.0, stats: Default::default(), targets: Default::default(), deaths: vec![], loot: vec![], zone: None, boss_killed: false, finished: true, self_id: None, names: Default::default(), allies: Default::default() };
+        f.names.insert(9, ("NPC 2400002".into(), None));
+        e.history.push_back(f);
+        e.rename_npc(2400002, "Black Claw Manduri Fighter");
+        assert_eq!(e.history[0].names[&9].0, "Black Claw Manduri Fighter");
     }
 }

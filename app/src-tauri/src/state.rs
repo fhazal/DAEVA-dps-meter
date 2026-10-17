@@ -98,6 +98,18 @@ pub struct Core {
     health_resyncs: u64,
     pub warning: Option<String>,
     pub events: EventFeed,
+    /// Monsters and skills seen without a name, waiting for you to name them.
+    pub wanted: Wanted,
+}
+
+#[derive(Default)]
+pub struct Wanted {
+    /// template -> (max hp, zone name, first seen, last seen)
+    pub npcs: std::collections::BTreeMap<u32, (Option<u64>, Option<String>, f64, f64)>,
+    /// skill key -> (class, last seen)
+    pub skills: std::collections::BTreeMap<u32, (Option<String>, f64)>,
+    dirty: bool,
+    scanned_at: f64,
 }
 
 /// In-game event alerts, fed by the Daeva schedule feed.
@@ -211,7 +223,9 @@ impl Core {
             health_resyncs: 0,
             warning: None,
             events: EventFeed::new(&Default::default()),
+            wanted: Wanted::default(),
         };
+        c.load_wanted();
         c.events = EventFeed::new(&c.settings.alerts);
         c.pipeline.decoder.keep_recent = 200;
         c.prune_history();
@@ -326,12 +340,185 @@ impl Core {
                 }
             }
         }
+        if self.sim.is_none() && now - self.wanted.scanned_at > 2.0 {
+            self.scan_wanted(now);
+        }
         if let Some(r) = self.recorder.as_mut() {
             let _ = r.writer.flush();
         }
         if self.settings_dirty && self.last_settings_save.elapsed() > Duration::from_secs(2) {
             self.save_settings();
         }
+    }
+
+    // ------------------------------------------------------------ naming
+
+    fn my_names_path(&self) -> PathBuf {
+        self.paths.data.join("my-names.json")
+    }
+    fn wanted_path(&self) -> PathBuf {
+        self.paths.data.join("unnamed.json")
+    }
+
+    fn load_wanted(&mut self) {
+        let Ok(src) = std::fs::read_to_string(self.wanted_path()) else { return };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&src) else { return };
+        let n = &self.pipeline.engine.names;
+        if let Some(o) = v.get("npcs").and_then(|x| x.as_object()) {
+            for (k, x) in o {
+                let Ok(id) = k.parse::<u32>() else { continue };
+                if n.npcs.contains_key(&id) {
+                    continue;
+                }
+                self.wanted.npcs.insert(
+                    id,
+                    (x["max_hp"].as_u64(), x["zone"].as_str().map(String::from), x["first"].as_f64().unwrap_or(0.0), x["last"].as_f64().unwrap_or(0.0)),
+                );
+            }
+        }
+        if let Some(o) = v.get("skills").and_then(|x| x.as_object()) {
+            for (k, x) in o {
+                let Ok(id) = k.parse::<u32>() else { continue };
+                if n.skill_named(id) {
+                    continue;
+                }
+                self.wanted.skills.insert(id, (x["class"].as_str().map(String::from), x["last"].as_f64().unwrap_or(0.0)));
+            }
+        }
+    }
+
+    fn save_wanted(&mut self) {
+        self.wanted.dirty = false;
+        let npcs: serde_json::Map<String, serde_json::Value> = self
+            .wanted
+            .npcs
+            .iter()
+            .map(|(id, (hp, zone, first, last))| (id.to_string(), serde_json::json!({"max_hp": hp, "zone": zone, "first": first, "last": last})))
+            .collect();
+        let skills: serde_json::Map<String, serde_json::Value> =
+            self.wanted.skills.iter().map(|(id, (class, last))| (id.to_string(), serde_json::json!({"class": class, "last": last}))).collect();
+        let body = serde_json::to_string_pretty(&serde_json::json!({"npcs": npcs, "skills": skills})).unwrap_or_default();
+        let _ = std::fs::write(self.wanted_path(), body);
+    }
+
+    fn scan_wanted(&mut self, now: f64) {
+        self.wanted.scanned_at = now;
+        let e = &self.pipeline.engine;
+        let (npcs, skills) = e.unnamed();
+        let zone = e.zone.map(|z| e.names.zones.get(&z).cloned().unwrap_or_else(|| format!("Zone {z}")));
+        for (id, hp) in npcs {
+            let w = self.wanted.npcs.entry(id).or_insert_with(|| {
+                self.wanted.dirty = true;
+                (None, zone.clone(), now, now)
+            });
+            if hp > w.0 {
+                w.0 = hp;
+                self.wanted.dirty = true;
+            }
+            w.3 = now;
+        }
+        for (id, class) in skills {
+            let w = self.wanted.skills.entry(id).or_insert_with(|| {
+                self.wanted.dirty = true;
+                (class.clone(), now)
+            });
+            w.1 = now;
+        }
+        if self.wanted.dirty {
+            self.save_wanted();
+        }
+    }
+
+    /// Names a monster (kind "npc") or skill (kind "skill"). An empty name
+    /// removes your entry again. Saved in my-names.json in the data folder,
+    /// which survives updates and overrides names.json.
+    pub fn set_name(&mut self, kind: &str, id: u32, name: &str) -> Result<String, String> {
+        if self.sim.is_some() {
+            return Err("Turn demo mode off first".into());
+        }
+        let name: String = name.trim().chars().filter(|c| !c.is_control()).collect();
+        if name.chars().count() > 60 {
+            return Err("Name is too long (60 characters max)".into());
+        }
+        let (section, key) = match kind {
+            "npc" => ("npcs", id),
+            "skill" => ("skills", Names::skill_name_key(id)),
+            _ => return Err("unknown kind".into()),
+        };
+        let path = self.my_names_path();
+        let mut doc: serde_json::Value = std::fs::read_to_string(&path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_else(|| serde_json::json!({}));
+        if !doc.is_object() {
+            doc = serde_json::json!({});
+        }
+        doc["about"] = serde_json::json!("Names you gave in Daeva Meter. Overrides names.json. Keep this file: it is your own monster and skill database.");
+        if !doc[section].is_object() {
+            doc[section] = serde_json::json!({});
+        }
+        let map = doc[section].as_object_mut().unwrap();
+        if name.is_empty() {
+            map.remove(&key.to_string());
+        } else {
+            map.insert(key.to_string(), serde_json::json!(name));
+        }
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, serde_json::to_string_pretty(&doc).unwrap_or_default()).map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+        if name.is_empty() {
+            // Reload so the names.json entry (if any) comes back.
+            self.reload_definitions();
+            return Ok(String::new());
+        }
+        let e = &mut self.pipeline.engine;
+        match kind {
+            "npc" => {
+                e.rename_npc(key, &name);
+                self.wanted.npcs.remove(&key);
+            }
+            _ => {
+                e.names.skills.insert(key, name.clone());
+                self.wanted.skills.remove(&key);
+            }
+        }
+        self.save_wanted();
+        Ok(name)
+    }
+
+    pub fn names_view(&self) -> Value {
+        let mut npcs: Vec<_> = self.wanted.npcs.iter().collect();
+        npcs.sort_by(|a, b| b.1 .3.total_cmp(&a.1 .3));
+        let mut skills: Vec<_> = self.wanted.skills.iter().collect();
+        skills.sort_by(|a, b| b.1 .1.total_cmp(&a.1 .1));
+        let mine: Option<serde_json::Value> = std::fs::read_to_string(self.my_names_path()).ok().and_then(|s| serde_json::from_str(&s).ok());
+        let count = |k: &str| mine.as_ref().and_then(|m| m[k].as_object().map(|o| o.len())).unwrap_or(0);
+        let named: Vec<Value> = mine
+            .as_ref()
+            .map(|m| {
+                let mut out = Vec::new();
+                for (sec, kind) in [("npcs", "npc"), ("skills", "skill")] {
+                    if let Some(o) = m[sec].as_object() {
+                        for (k, v) in o {
+                            out.push(Obj::new().set("kind", kind).set("id", k.parse::<u64>().unwrap_or(0)).set("name", v.as_str().unwrap_or("")).build());
+                        }
+                    }
+                }
+                out
+            })
+            .unwrap_or_default();
+        Obj::new()
+            .set(
+                "npcs",
+                Value::Arr(
+                    npcs.into_iter()
+                        .map(|(id, (hp, zone, first, last))| Obj::new().set("id", *id as u64).set("max_hp", *hp).set("zone", zone.clone()).set("first", *first).set("last", *last).build())
+                        .collect(),
+                ),
+            )
+            .set("skills", Value::Arr(skills.into_iter().map(|(id, (class, last))| Obj::new().set("id", *id as u64).set("class", class.clone()).set("last", *last).build()).collect()))
+            .set("mine_npcs", count("npcs"))
+            .set("mine_skills", count("skills"))
+            .set("named", Value::Arr(named))
+            .set("file", self.my_names_path().display().to_string())
+            .build()
     }
 
     pub fn save_settings(&mut self) {
@@ -680,7 +867,7 @@ impl Core {
             .iter()
             .take(300)
             .filter_map(|(p, _)| {
-                let src = std::fs::read_to_string(p).ok()?;
+                let src = fix_names(&std::fs::read_to_string(p).ok()?, &self.pipeline.engine.names);
                 let v = json::parse(&src).ok()?;
                 let top = v.get("players").and_then(|a| a.as_arr()).and_then(|a| a.first()).map(|r| r.str_or("name", "?").to_string());
                 Some(
@@ -729,6 +916,14 @@ fn load_definitions(paths: &Paths, status: &mut Status) -> (Arc<Definitions>, Na
         },
         None => Names::default(),
     };
+    let mut names = names;
+    let mine = paths.data.join("my-names.json");
+    if mine.exists() {
+        match std::fs::read_to_string(&mine).map_err(|e| e.to_string()).and_then(|s| Names::from_json(&s)) {
+            Ok(m) => names.merge(m),
+            Err(e) => status.names_error = Some(format!("{}: {e}", mine.display())),
+        }
+    }
     (Arc::new(defs), names)
 }
 
@@ -997,9 +1192,41 @@ fn capture_loop(np: Arc<Npcap>, dev: String, label: String, bpf: String, tx: Syn
     }
 }
 
-pub fn read_saved_fight(dir: &Path, file: &str) -> Result<String, String> {
+pub fn read_saved_fight(dir: &Path, file: &str, names: &Names) -> Result<String, String> {
     if file.contains('/') || file.contains('\\') || file.contains("..") {
         return Err("bad file name".into());
     }
-    std::fs::read_to_string(dir.join(file)).map_err(|e| e.to_string())
+    std::fs::read_to_string(dir.join(file)).map(|s| fix_names(&s, names)).map_err(|e| e.to_string())
+}
+
+/// Replaces "NPC 123" / "Skill 456" strings in a saved fight with names
+/// given since it was saved.
+pub fn fix_names(src: &str, names: &Names) -> String {
+    let mut out = String::with_capacity(src.len());
+    let mut rest = src;
+    while let Some(q) = rest.find('"') {
+        out.push_str(&rest[..q + 1]);
+        rest = &rest[q + 1..];
+        let (prefix, is_npc) = if rest.starts_with("NPC ") {
+            ("NPC ", true)
+        } else if rest.starts_with("Skill ") {
+            ("Skill ", false)
+        } else {
+            continue;
+        };
+        let digits = rest[prefix.len()..].bytes().take_while(|b| b.is_ascii_digit()).count();
+        let after = &rest[prefix.len() + digits..];
+        let dot = after.starts_with(" (DOT)\"");
+        if digits == 0 || !(after.starts_with('"') || dot) {
+            continue;
+        }
+        let Ok(id) = rest[prefix.len()..prefix.len() + digits].parse::<u32>() else { continue };
+        let name = if is_npc { names.npcs.get(&id).cloned() } else { names.skill_named(id).then(|| names.skill(id)) };
+        if let Some(n) = name {
+            out.push_str(&n.replace('\\', "\\\\").replace('"', "\\\""));
+            rest = &rest[prefix.len() + digits..];
+        }
+    }
+    out.push_str(rest);
+    out
 }

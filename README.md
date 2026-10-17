@@ -66,11 +66,23 @@ npx @tauri-apps/cli@2 dev              # run with hot reload
 npx @tauri-apps/cli@2 build            # installer -> app/src-tauri/target/release/bundle/nsis/
 ```
 
+## Naming monsters and skills
+
+The game sends monster template numbers, never names (the client reads names from its own files). So the meter builds its own name list, typed in once by a player:
+
+- An unnamed target shows **✎ name it** on the overlay. Type the name from the in-game target frame and press Enter.
+- Unnamed skills show **✎** in the Details window.
+- **Settings → Monster & skill names** lists everything met without a name (with max HP, zone and when it was seen) and everything already named.
+
+Names are saved in `my-names.json` in the data folder. They take effect at once, fix older fights, survive updates, and override `names.json`. One skill name covers every rank and variant of that skill. This file is the start of the community's own database.
+
 ## Where things live on a player's PC
 
 `%APPDATA%\org.bajubesi.daevameter\`
 
 - `settings.json`
+- `my-names.json`: monster and skill names you gave (your own database; keep it)
+- `unnamed.json`: monsters and skills met without a name, waiting to be named
 - `history\fight-*.json`: one file per finished fight (the same format the bot receives)
 - `research\capture-*.pcap` and `*.markers.json`
 - `definitions\`: put an updated `aion2.json` or `names.json` here to override the bundled copy

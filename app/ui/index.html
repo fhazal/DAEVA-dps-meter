@@ -25,6 +25,9 @@
   .hp { height: 4px; border-radius: 2px; background: rgba(255,255,255,0.08); margin-top: 6px; overflow: hidden; }
   .hp i { display: block; height: 100%; background: linear-gradient(90deg, #c94b45, #e5675f); transition: width .25s; }
   .kill { color: var(--good); font-size: 11px; font-weight: 600; }
+  .nameit { color: var(--accent); cursor: pointer; font-size: 11px; font-weight: 600; margin-left: 6px; white-space: nowrap; }
+  .nameit:hover { text-decoration: underline; }
+  .target input.nm { width: 100%; font: inherit; font-weight: 600; padding: 2px 6px; }
 
   .rows { padding: 4px 4px 6px; }
   .row { position: relative; display: grid; grid-template-columns: 18px 1fr auto; align-items: center; gap: 6px; height: 26px; padding: 0 8px 0 6px; border-radius: 6px; cursor: pointer; overflow: hidden; }
@@ -229,13 +232,34 @@
     }
   }
 
+  let editing = null; // template being named; pauses target redraws
   function renderTarget(f) {
     const t = f.target;
+    if (editing) return;
     if (!ui.show_target || !t) { $("target").hidden = true; return; }
     $("target").hidden = false;
     const hp = t.hp_pct != null ? `<div class="hp"><i style="width:${(t.hp_pct * 100).toFixed(1)}%"></i></div>` : "";
     const kill = f.boss_killed ? '<span class="kill">KILLED</span>' : (t.hp_pct != null ? `<span class="meta">${D.pct(t.hp_pct, 1)}</span>` : "");
-    $("target").innerHTML = `<div class="row1"><div class="name">${D.esc(t.name)}</div>${kill}<div class="meta"><b>${D.fmt(f.total)}</b> dmg</div></div>${hp}`;
+    const nameit = t.named === false && t.npc_id ? `<span class="nameit" data-npc="${t.npc_id}" title="Give this monster its name (saved for good)">✎ name it</span>` : "";
+    $("target").innerHTML = `<div class="row1"><div class="name">${D.esc(t.name)}${nameit}</div>${kill}<div class="meta"><b>${D.fmt(f.total)}</b> dmg</div></div>${hp}`;
+    const b = $("target").querySelector(".nameit");
+    if (b) b.onclick = (ev) => { ev.stopPropagation(); startNaming(Number(b.dataset.npc)); };
+  }
+
+  function startNaming(npc) {
+    editing = npc;
+    const box = $("target").querySelector(".name");
+    box.innerHTML = `<input class="nm" maxlength="60" placeholder="Name on the target frame, then Enter">`;
+    const i = box.querySelector("input");
+    i.focus();
+    const done = () => { editing = null; render(lastSnap); };
+    i.onkeydown = async (ev) => {
+      if (ev.key === "Escape") return done();
+      if (ev.key !== "Enter" || !i.value.trim()) return;
+      try { const n = await D.call("set_name", { kind: "npc", id: npc, name: i.value }); D.toast("Saved: " + n); } catch (e) { D.toast(String(e)); }
+      done();
+    };
+    i.onblur = () => setTimeout(() => { if (editing === npc && document.activeElement !== i) done(); }, 150);
   }
 
   function renderRows(f, m) {

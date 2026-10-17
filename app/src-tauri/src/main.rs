@@ -43,7 +43,7 @@ fn get_history(st: St<'_>) -> String {
 fn get_fight_record(st: St<'_>, fight_id: Option<u64>, file: Option<String>) -> Result<String, String> {
     let c = st.lock();
     if let Some(file) = file {
-        return state::read_saved_fight(&c.paths.history, &file);
+        return state::read_saved_fight(&c.paths.history, &file, &c.pipeline.engine.names);
     }
     let e = &c.pipeline.engine;
     let f = match fight_id {
@@ -97,6 +97,16 @@ fn clear_session(st: St<'_>) {
 #[tauri::command]
 fn get_events(st: St<'_>) -> String {
     st.lock().events_view().to_string()
+}
+
+#[tauri::command]
+fn set_name(st: St<'_>, kind: String, id: u32, name: String) -> Result<String, String> {
+    st.lock().set_name(&kind, id, &name)
+}
+
+#[tauri::command]
+fn get_names(st: St<'_>) -> String {
+    st.lock().names_view().to_string()
 }
 
 #[tauri::command]
@@ -261,6 +271,7 @@ async fn open_window(app: AppHandle, kind: String, params: Option<String>) -> Re
         "history" => ("Daeva Meter — History", 640.0, 560.0),
         "settings" => ("Daeva Meter — Settings", 560.0, 680.0),
         "research" => ("Daeva Meter — Research", 900.0, 700.0),
+        "names" => ("Daeva Meter — Names", 620.0, 640.0),
         _ => return Err(format!("unknown window {kind}")),
     };
     if let Some(s) = app.try_state::<Arc<Shared>>() {
@@ -438,6 +449,8 @@ fn main() {
             open_window,
             get_events,
             test_alert,
+            set_name,
+            get_names,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Daeva Meter");
