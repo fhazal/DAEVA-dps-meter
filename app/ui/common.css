@@ -161,3 +161,4 @@ table.grid tr.click:hover td { background: rgba(255, 255, 255, 0.04); }
 .gt-ic.npc-ic { border-radius: 50%; border: 1px solid var(--line); background: rgba(0,0,0,0.35); }
 .gt-ic.sk-ic { margin-right: 6px; position: relative; }
 .gt-cls { vertical-align: middle; }
+.gt-ic.ev-ic { border-radius: 4px; object-fit: contain; background: transparent; vertical-align: -3px; }

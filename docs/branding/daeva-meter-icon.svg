@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1e2737"/>
+      <stop offset="1" stop-color="#121822"/>
+    </linearGradient>
+    <linearGradient id="silver" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f4f6fa"/>
+      <stop offset="1" stop-color="#bcc3d0"/>
+    </linearGradient>
+    <linearGradient id="shade" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#c3cad6"/>
+      <stop offset="1" stop-color="#8d96a8"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#3f7fe0"/>
+      <stop offset="1" stop-color="#7cc4ff"/>
+    </linearGradient>
+    <radialGradient id="glint" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.3" stop-color="#8fd0ff" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#7cc4ff" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="upper"><rect x="0" y="0" width="1024" height="512"/></clipPath>
+    <clipPath id="lower"><rect x="0" y="512" width="1024" height="512"/></clipPath>
+  </defs>
+  <rect x="48" y="48" width="928" height="928" rx="210" fill="url(#tile)"/>
+  <rect x="48" y="48" width="928" height="928" rx="210" fill="none" stroke="#ffffff" stroke-opacity="0.06" stroke-width="6"/>
+
+  <!-- stem -->
+  <rect x="214" y="210" width="138" height="604" fill="url(#silver)"/>
+  <!-- bowl: one folded strip; upper half lit, lower half in shade -->
+  <g fill="none" stroke-width="138" stroke-linejoin="miter" stroke-miterlimit="4">
+    <path d="M 386 279 H 560 L 760 512" stroke="url(#silver)" clip-path="url(#upper)"/>
+    <path d="M 760 512 L 560 745 H 386" stroke="url(#shade)" clip-path="url(#lower)"/>
+  </g>
+  <!-- crease where the strip folds back -->
+  <polygon points="684,512 846,512 836,526 694,526" fill="#ffffff" opacity="0.22"/>
+  <!-- Daeva-blue ends where the strip tucks in -->
+  <rect x="386" y="210" width="44" height="138" fill="url(#blue)"/>
+  <rect x="386" y="676" width="44" height="138" fill="url(#blue)"/>
+  <rect x="214" y="210" width="138" height="40" fill="url(#blue)"/>
+  <!-- crystal glint at the point -->
+  <circle cx="846" cy="512" r="78" fill="url(#glint)"/>
+  <polygon points="846,462 864,512 846,562 828,512" fill="#ffffff"/>
+</svg>

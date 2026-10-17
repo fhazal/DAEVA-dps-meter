@@ -94,7 +94,15 @@
     const color = D.classColor(data.class, data.name);
     const targets = data.targets || [];
     const opts = [`<option value="">All targets · ${D.fmt(data.fight_dmg ?? data.dmg)}</option>`]
-      .concat(targets.map((t) => `<option value="${t.id}" ${String(t.id) === String(target) ? "selected" : ""}>${D.esc(t.name)} · ${D.fmt(t.dmg)}</option>`)).join("");
+      .concat((() => {
+        // Several targets can share a name (e.g. "Unknown monster"): number them.
+        const seen = {}, total = {};
+        targets.forEach((t) => (total[t.name] = (total[t.name] || 0) + 1));
+        return targets.map((t) => {
+          const n = total[t.name] > 1 ? ` ${(seen[t.name] = (seen[t.name] || 0) + 1)}` : "";
+          return `<option value="${t.id}" ${String(t.id) === String(target) ? "selected" : ""}>${D.esc(t.name)}${n} · ${D.fmt(t.dmg)}</option>`;
+        });
+      })()).join("");
     const head = `
       <div class="hdr">
         ${D.classIcon(data.class, 22)}

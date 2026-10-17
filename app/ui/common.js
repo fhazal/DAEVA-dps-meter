@@ -90,6 +90,26 @@
     const p = art.icons["s" + raw] || art.icons["s" + skillKey(id)];
     return p ? imgTag(p, size || 18, "sk-ic") : "";
   }
+  // Event artwork from gaming.tools' activities data (mirrored by the Daeva
+  // server). Events without a fitting picture keep their emoji.
+  const EVENT_ART = {
+    shugo_festival: "/images/ui/resource/texture/icon_fieldevent/thumbnail/ut_fieldevent_thumbnail_defence.webp",
+    dimensional_invasion: "/images/ui/resource/texture/icon/ut_marker_battlefield.webp",
+    artifact_siege: "/images/ui/resource/texture/icon/ut_marker_abyssartifact_neutral.webp",
+    watcher_kaira: "/images/ui/resource/texture/icon/ut_marker_monster_boss.webp",
+    executor_bosses: "/images/ui/resource/texture/icon/ut_marker_monster_boss.webp",
+    guardian_nahma: "/images/ui/resource/texture/icon/ut_marker_monster_boss.webp",
+    arena_of_tactics: "/images/ui/resource/texture/icon/ut_marker_dungeon.webp",
+    gartua: "/images/ui/resource/texture/portrait/portrait_256/ut_256_mob_gartua_01.webp",
+  };
+  function eventIcon(id, emoji, size) {
+    const px = size || 14;
+    const path = art.on && art.base ? EVENT_ART[id] : null;
+    const fallback = `<span class="ev-emoji">${esc(emoji || "🔔")}</span>`;
+    if (!path) return fallback;
+    // If the picture is missing on the server, swap back to the emoji.
+    return `<img class="gt-ic ev-ic" src="${esc(art.base + path)}" width="${px}" height="${px}" alt="" data-e="${esc(emoji || "🔔")}" onerror="this.outerHTML='<span class=&quot;ev-emoji&quot;>'+this.dataset.e+'</span>'">`;
+  }
   function npcIcon(tid, size) {
     if (!art.on || !tid) return "";
     const p = art.icons["n" + tid];
@@ -192,5 +212,5 @@
     });
   }
 
-  window.Daeva = { call, callJSON, fmt, pct, dur, when, esc, classColor, classIcon, skillIcon, npcIcon, loadArt, art, applyTheme, toast, icon, winAction, params, wireTitlebar };
+  window.Daeva = { call, callJSON, fmt, pct, dur, when, esc, classColor, classIcon, skillIcon, npcIcon, eventIcon, loadArt, art, applyTheme, toast, icon, winAction, params, wireTitlebar };
 })();
