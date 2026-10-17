@@ -45,15 +45,15 @@
 
   // Class colours (AION 2 classes plus a fallback hash for unknown ids).
   const CLASS_COLORS = {
-    gladiator: "#e0794a",
-    templar: "#e3b23c",
-    assassin: "#b96fe0",
-    ranger: "#7bc25a",
-    sorcerer: "#4f9fe8",
-    elementalist: "#8a7cf0",
-    spiritmaster: "#8a7cf0",
-    cleric: "#f0e3b0",
-    chanter: "#3fc7b4",
+    gladiator: "#C46B36",    // Burnished Bronze
+    templar: "#4387D6",      // Guardian Blue
+    assassin: "#A86CE0",     // Shadow Violet
+    ranger: "#49A879",       // Forest Green
+    sorcerer: "#E56A3D",     // Arcane Ember
+    elementalist: "#43B7C7", // Spirit Cyan (Spiritmaster)
+    spiritmaster: "#43B7C7",
+    cleric: "#E6C65A",       // Holy Gold
+    chanter: "#D985B5",      // Mystic Rose
   };
   // Original line-art class glyphs (16x16, stroke = currentColor).
   const CLASS_ICONS = {

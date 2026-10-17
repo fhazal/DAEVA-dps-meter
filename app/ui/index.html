@@ -59,6 +59,8 @@
   .sig i.on { opacity: 1; }
 
   .shell { position: relative; }
+  /* Border in your class colour (set from the snapshot). */
+  .shell { border: 1.5px solid var(--cls, rgba(255,255,255,0.07)); box-shadow: inset 0 0 14px -6px var(--cls, transparent); transition: border-color .4s, box-shadow .4s; }
   .alerts { position: absolute; left: 6px; right: 6px; top: 34px; z-index: 20; display: flex; flex-direction: column; gap: 4px; pointer-events: none; }
   .alert { pointer-events: auto; display: grid; grid-template-columns: 26px 1fr; align-items: center; gap: 2px 8px; padding: 7px 10px 7px 8px;
     background: rgba(24,22,19,0.96); border: 1px solid var(--accent); border-left: 4px solid var(--accent); border-radius: 8px;
@@ -71,20 +73,10 @@
   @keyframes slidein { from { opacity: 0; transform: translateY(-8px); } }
   .foot .srv { color: var(--muted); font-weight: 600; letter-spacing: .02em; display: inline-flex; align-items: center; gap: 6px; }
   .foot .srv-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--good); box-shadow: 0 0 6px rgba(111,207,142,0.7); }
-  .nextev { flex: none; display: flex; gap: 6px; padding: 5px 8px; border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; font-variant-numeric: tabular-nums; }
-  .ev { position: relative; display: inline-flex; align-items: center; gap: 6px; min-width: 0; padding: 3px 9px 4px 7px; border-radius: 999px;
-    background: rgba(255,255,255,0.045); border: 1px solid var(--line); font-size: 11px; overflow: hidden; }
-  .ev .e { font-size: 12px; line-height: 1; }
-  .ev .n { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
-  .ev .t { color: var(--text); font-weight: 650; }
-  .ev.soon { border-color: rgba(231,180,76,0.45); background: rgba(231,180,76,0.07); }
-  .ev.soon .t { color: var(--warn); }
-  .ev.live { border-color: rgba(111,207,142,0.45); background: rgba(111,207,142,0.08); }
-  .ev.live .t { color: var(--good); }
-  .ev.live .e { position: relative; }
-  .ev .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--good); box-shadow: 0 0 0 0 rgba(111,207,142,0.6); animation: evpulse 1.8s infinite; flex: none; }
-  @keyframes evpulse { 0% { box-shadow: 0 0 0 0 rgba(111,207,142,0.55); } 70% { box-shadow: 0 0 0 6px rgba(111,207,142,0); } 100% { box-shadow: 0 0 0 0 rgba(111,207,142,0); } }
-  .ev .bar { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--good); opacity: 0.8; transition: width 1s linear; }
+  .nextev { flex: none; display: flex; gap: 12px; padding: 3px 10px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; font-variant-numeric: tabular-nums; }
+  .nextev b { color: var(--text); font-weight: 600; }
+  .nextev .live b { color: var(--good); }
+  .nextev .soon b { color: var(--warn); }
 </style>
 </head>
 <body>
@@ -157,6 +149,7 @@
     return ["wait", "Connected — no game traffic yet"];
   }
 
+  function f0(snap) { return snap.fight && snap.fight.players && snap.fight.players.find((p) => p.is_self); }
   function render(snap) {
     if (!snap) return;
     lastSnap = snap;
@@ -167,6 +160,10 @@
     $("bLock").classList.toggle("on", !!ui.click_through);
 
     const s = snap.status;
+    // Window border follows your class colour (remembered between sessions).
+    let myClass = s.self_class || (f0(snap) || {}).class;
+    try { if (myClass) localStorage.setItem("daeva.selfClass", myClass); else myClass = localStorage.getItem("daeva.selfClass"); } catch {}
+    document.querySelector(".shell").style.setProperty("--cls", myClass ? D.classColor(myClass) : "");
     let [state, text] = statusLine(s);
     if (snap.research) { state = "rec"; text = `Recording · ${snap.research.packets} pkts · ${snap.research.markers} markers`; }
     $("dot").className = "state-dot " + state;
@@ -220,12 +217,10 @@
       next.hidden = false;
       next.innerHTML = a.next.map((o) => {
         const live = o.active;
-        const t = live ? `${countdown(o.ends - now)} left` : countdown(o.starts - now);
+        const t = live ? `live · ${countdown(o.ends - now)} left` : countdown(o.starts - now);
         const cls = live ? "live" : o.starts - now < 600 ? "soon" : "";
         const at = new Date(o.starts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-        const left = live ? Math.max(0, Math.min(1, (o.ends - now) / Math.max(1, o.ends - o.starts))) : 0;
-        const tip = `${o.name} · ${live ? "running now, ends " + new Date(o.ends * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "starts " + at}${o.note ? " · " + o.note : ""}`;
-        return `<span class="ev ${cls}" title="${D.esc(tip)}">${live ? '<i class="dot"></i>' : ""}<span class="e">${D.esc(o.emoji)}</span><span class="n">${D.esc(o.short)}</span><span class="t">${t}</span>${live ? `<i class="bar" style="width:${(left * 100).toFixed(1)}%"></i>` : ""}</span>`;
+        return `<span class="${cls}" title="${D.esc(o.name)} · ${at}${o.note ? " · " + D.esc(o.note) : ""}">${D.esc(o.emoji)} ${D.esc(o.short)} <b>${t}</b></span>`;
       }).join("");
       next.title = a.error ? "Event feed: " + a.error + " (showing last known times)" : "";
     } else {
