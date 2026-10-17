@@ -213,6 +213,8 @@
     } catch (e) { D.toast("Could not save: " + e); }
   };
 
+  // Reopening a hidden Settings window reloads the saved values.
+  window.__reloadParams = () => init().catch((e) => (document.getElementById("form").textContent = String(e)));
   init().catch((e) => (document.getElementById("form").textContent = String(e)));
 })();
 </script>

@@ -105,7 +105,7 @@
   window.__reloadParams = refresh;
   D.callJSON("get_snapshot", {}).then((s) => D.applyTheme(s.ui)).catch(() => {});
   refresh();
-  setInterval(() => { if (tab === "session") refresh(); }, 5000);
+  setInterval(() => { if (tab === "session" && !document.hidden) refresh(); }, 5000);
 })();
 </script>
 </body>

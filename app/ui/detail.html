@@ -203,7 +203,7 @@
     clearInterval(timer);
     await D.loadArt();
     await load();
-    if (!p.file) timer = setInterval(load, 1000);
+    if (!p.file) timer = setInterval(() => { if (!document.hidden) load(); }, 1000); // hidden window: don't poll
   }
   window.__reloadParams = init;
   init();

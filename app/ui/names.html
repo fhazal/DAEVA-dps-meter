@@ -119,7 +119,7 @@
   window.__reloadParams = refresh;
   D.callJSON("get_snapshot", {}).then((s) => D.applyTheme(s.ui)).catch(() => {});
   refresh();
-  setInterval(refresh, 4000);
+  setInterval(() => { if (!document.hidden) refresh(); }, 4000);
 })();
 </script>
 </body>

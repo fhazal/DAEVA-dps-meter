@@ -279,7 +279,11 @@ fn win_action(app: AppHandle, window: WebviewWindow, action: String) -> Result<(
                 app.exit(0);
                 Ok(())
             } else {
-                window.close().map_err(|e| e.to_string())
+                // Side windows are hidden, not destroyed: re-creating a window
+                // under the same label while the old one is still being torn
+                // down left the new one without IPC ("failed to acquire webview
+                // reference") and with a dead close button.
+                window.hide().map_err(|e| e.to_string())
             }
         }
         "minimize" => window.minimize().map_err(|e| e.to_string()),
@@ -493,6 +497,13 @@ fn main() {
         })
         .on_window_event(|window, event| {
             if window.label() != "main" {
+                // Alt+F4 / taskbar close on a side window: hide it instead.
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    if window.label() != "toast" {
+                        api.prevent_close();
+                        let _ = window.hide();
+                    }
+                }
                 return;
             }
             let Some(shared) = window.app_handle().try_state::<Arc<Shared>>() else { return };
@@ -514,6 +525,9 @@ fn main() {
                 }
                 tauri::WindowEvent::CloseRequested { .. } => {
                     shared.lock().save_settings();
+                    // Closing the meter quits everything (alert window and
+                    // hidden side windows included).
+                    window.app_handle().exit(0);
                 }
                 _ => {}
             }
