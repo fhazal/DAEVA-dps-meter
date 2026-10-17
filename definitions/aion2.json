@@ -6,18 +6,20 @@
 // updates after a game patch never need a new build.
 {
   "name": "AION 2 (global)",
-  "version": "0.0.0-undecoded",
+  "version": "0.0.1-framing",
   "process_names": ["aion2"],
   // Server ports, if they turn out to be fixed. Auto-detection by process
   // already finds the server, so this can stay empty.
   "ports": [],
   "framing": {
-    // Placeholder guess. Replace with the output of `daeva-research framing`.
-    "header": ["length:u16le", "opcode:u16le"],
+    // Observed 2026-10-17 (Shulak cave capture): each server message is
+    // <varint length><u16le opcode><body>, where the frame is (length - 3)
+    // bytes long. e.g. "0e 00 36 aa 21 fd 47 a1 01 00 00" = 0x0e-3 = 11 bytes.
+    "header": ["length:varint", "opcode:u16le"],
     "length_counts": "frame",
-    "length_adjust": 0,
-    "max_frame": 262144
-    // "compressed_if": "flags&0x80", "compression": "zlib"
+    "length_adjust": -3,
+    "min_frame": 3,
+    "max_frame": 1048576
   },
   "messages": [
     // Example of the shape a decoded damage packet will take:

@@ -201,3 +201,22 @@ mod shipped_files {
         crate::engine::Names::from_json(&n).unwrap();
     }
 }
+
+#[cfg(test)]
+mod aion2_framing {
+    /// Bytes copied from a real capture (server -> client).
+    #[test]
+    fn splits_real_sample() {
+        let d = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
+        let defs = crate::protocol::Definitions::from_json(&d).unwrap();
+        let hex = "0e 00 36 aa 21 fd 47 a1 01 00 00 1e 04 38 d1 5d 00 00 d1 5d bb 8e 15 01 eb 02 17 c1 6b 6c 01 00 00 00 e6 56 01 00 \
+                   1e 04 38 d1 5d 00 00 d1 5d 95 19 15 01 ec 02 3f fe 3d 6c 01 00 00 00 e6 56 01 00 0e 00 36 46 97 fa 47 a1 01 00 00 \
+                   11 1d 37 b3 04 2f 03 45 b6 05 c7 de c7 de";
+        let bytes: Vec<u8> = hex.split_whitespace().map(|h| u8::from_str_radix(h, 16).unwrap()).collect();
+        let mut fr = crate::protocol::Framer::new();
+        let mut out = Vec::new();
+        fr.push(&defs.framing, &|_| true, &bytes, false, &mut out);
+        let ops: Vec<u64> = out.iter().map(|f| f.opcode).collect();
+        assert_eq!(ops, vec![0x3600, 0x3804, 0x3804, 0x3600, 0x371d]);
+    }
+}
