@@ -102,8 +102,8 @@ pub struct Settings {
     pub rows: usize,
     pub show_heal: bool,
     pub show_target: bool,
-    /// Whose rows the overlay lists: "all" (everyone fighting your targets)
-    /// or "me" (only you). "party" comes once party membership is decoded.
+    /// Whose rows the overlay lists: "all" (everyone fighting your targets),
+    /// "party" (you and your group, from the game's party list) or "me".
     pub show_players: String,
     /// "dps" | "dmg" | "share"
     pub primary_metric: String,

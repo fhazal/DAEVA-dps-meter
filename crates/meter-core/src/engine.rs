@@ -392,6 +392,8 @@ pub struct Engine {
     pub self_odyle: Option<(u64, u64)>,
     /// Shugo Festival Reward Keys held.
     pub self_keys: Option<u64>,
+    /// Your group members' names (from the game's party list).
+    pub party: std::collections::HashSet<String>,
     /// Highest max HP seen per monster template. A monster that appears
     /// already hurt reports its current HP as "max"; the template's real
     /// maximum is the highest one seen.
@@ -420,6 +422,7 @@ impl Engine {
             self_server: None,
             self_odyle: None,
             self_keys: None,
+            party: Default::default(),
             npc_max_hp: HashMap::new(),
         }
     }
@@ -776,6 +779,7 @@ impl Engine {
                 }
             }
             GameEvent::Keys { cur } => self.self_keys = Some(*cur),
+            GameEvent::Party { names } => self.party = names.iter().cloned().collect(),
             GameEvent::Odyle { cur, bonus } => {
                 let (c0, b0) = self.self_odyle.unwrap_or((0, 0));
                 let c = cur.unwrap_or(c0);
@@ -1042,6 +1046,7 @@ impl Engine {
                     .set("name", self.fname(f, **id))
                     .set("class", self.fclass(f, **id))
                     .set("is_self", Some(**id) == f.self_id)
+                    .set("in_party", Some(**id) == f.self_id || self.party.contains(&self.fname(f, **id)))
                     .set("dmg", d)
                     .set("dps", d as f64 / dur)
                     .set("share", if total > 0 { d as f64 / total as f64 } else { 0.0 })

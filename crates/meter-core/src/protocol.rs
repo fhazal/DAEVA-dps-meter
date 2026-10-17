@@ -28,6 +28,10 @@ pub enum FType {
     Skip(usize),
     /// Jump to the next occurrence of a byte pattern (minus `back` bytes).
     Seek { pattern: Vec<u8>, back: usize },
+    /// Group member names from a party list: entries start with the byte
+    /// `marker`, an index, a u32 id, u16 0, u16 server, then a u8-length
+    /// UTF-8 name. Reads to the end; names are joined with newlines.
+    MemberNames { marker: u8 },
     Bytes(LenSpec),
     StrVarint,
     StrU16Utf16,
@@ -338,6 +342,7 @@ fn parse_ftype(v: &Value, ctx: &str) -> Result<FType, String> {
         "varint" => FType::Varint,
         "svarint" | "zigzag" => FType::Svarint,
         "skip" => FType::Skip(v.u64_or("len", 0) as usize),
+        "member_names" => FType::MemberNames { marker: v.u64_or("marker", 0x1e) as u8 },
         "seek" => {
             let pattern: Vec<u8> = v
                 .str_or("pattern", "")
@@ -514,6 +519,27 @@ fn read_fields(r: &mut Reader<'_>, defs: &[FieldDef], parents: &[&Scope], out: &
             FType::Skip(n) => {
                 r.skip(*n)?;
                 continue;
+            }
+            FType::MemberNames { marker } => {
+                let b = r.rest();
+                let mut names: Vec<String> = Vec::new();
+                let mut i = 0;
+                while i + 12 <= b.len() {
+                    let idx = b[i + 1];
+                    let len = b[i + 10] as usize;
+                    if b[i] == *marker && (1..=16).contains(&idx) && b[i + 6] == 0 && b[i + 7] == 0 && (2..=48).contains(&len) && i + 11 + len <= b.len() {
+                        if let Ok(n) = std::str::from_utf8(&b[i + 11..i + 11 + len]) {
+                            if !n.chars().any(|c| c.is_control()) && !names.iter().any(|x| x == n) {
+                                names.push(n.to_string());
+                                i += 11 + len;
+                                continue;
+                            }
+                        }
+                    }
+                    i += 1;
+                }
+                r.pos = r.buf.len();
+                FVal::S(names.join("\n"))
             }
             FType::Seek { pattern, back } => {
                 let rest = r.rest();
@@ -972,6 +998,7 @@ fn emit(e: &Emit, header: &Scope, scope: &Scope, ts: f64, out: &mut Vec<GameEven
                 (Some(id), Some(server)) if id != 0 && server != 0 => GameEvent::ActorServer { id, server: server as u32 },
                 _ => continue,
             },
+            "party" => GameEvent::Party { names: txt("members").map(|s| s.split('\n').map(String::from).collect()).unwrap_or_default() },
             "keys" => match num("cur") {
                 Some(cur) if cur < 10_000 => GameEvent::Keys { cur },
                 _ => continue,
@@ -1165,5 +1192,26 @@ mod odyle_tests {
         let ody: Vec<_> = out.iter().filter_map(|e| match e { GameEvent::Odyle { cur, bonus } => Some((*cur, *bonus)), _ => None }).collect();
         assert_eq!(ody, vec![(Some(175), Some(40))], "{out:?}");
         assert!(out.iter().any(|e| matches!(e, GameEvent::Keys { cur: 21 })), "{out:?}");
+    }
+}
+
+#[cfg(test)]
+mod party_tests {
+    use super::*;
+    use crate::net::Endpoint;
+    use std::net::Ipv4Addr;
+
+    /// A real 0x9702 group list (Bakarma run).
+    #[test]
+    fn party_names_from_real_frame() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
+        let mut d = Decoder::new(Arc::new(Definitions::from_json(&src).unwrap()), None);
+        let flow = FlowKey { src: Endpoint { ip: Ipv4Addr::new(9, 9, 9, 9), port: 13328 }, dst: Endpoint { ip: Ipv4Addr::new(10, 0, 0, 2), port: 5000 } };
+        let hex = "b7 02 02 97 63 17 10 00 06 31 20 42 6f 73 73 05 e0 27 09 00 00 03 bc 7b 03 00 00 00 e1 05 ff 02 02 05 1e 01 bc 7b 03 00 00 00 e1 05 08 4c 6f 6c 6c 69 70 6f 70 22 00 00 00 2d 00 00 00 41 03 00 00 e1 05 9a 11 04 8a a4 00 00 00 00 00 00 00 1a 00 00 00 00 00 00 00 01 01 1e 02 4f c8 02 00 00 00 e1 05 07 55 76 57 68 69 74 65 0e 00 00 00 2d 00 00 00 4d 04 00 00 e1 05 9a 11 04 cd b4 00 00 00 00 00 00 00 a9 00 00 00 00 00 00 00 01 02 1e 03 d7 a5 02 00 00 00 c8 09 07 58 65 79 6c 79 6e 65 18 00 00 00 2d 00 00 00 09 09 00 00 c8 09 9a 11 04 a5 a6 01 00 00 00 00 00 00 9a 00 00 00 00 00 00 00 01 02 1e 04 ae e4 03 00 00 00 cc 09 09 44 65 77 69 48 69 6a 61 75 24 00 00 00 2d 00 00 00 72 04 00 00 07 cc 09 9a 11 04 d0 df 00 00 00 00 00 00 00 20 00 00 00 00 00 00 00 01 03 1e 05 37 65 00 00 00 00 e5 05 06 6d 61 6b 6f 74 69 0e 00 00 00 2d 00 00 00 3b 08 00 00 e5 05 9a 11 04 06 a0 01 00 00 00 00 00 00 b4 00 00 00 00 00 00 00 01 01 00 09";
+        let bytes: Vec<u8> = hex.split_whitespace().map(|h| u8::from_str_radix(h, 16).unwrap()).collect();
+        let mut out = Vec::new();
+        d.push(flow, true, &bytes, false, 1.0, &mut out);
+        let names = out.iter().find_map(|e| match e { GameEvent::Party { names } => Some(names.clone()), _ => None }).expect("party event");
+        assert_eq!(names, vec!["Lollipop", "UvWhite", "Xeylyne", "DewiHijau", "makoti"]);
     }
 }

@@ -6,7 +6,7 @@
 // updates after a game patch never need a new build.
 {
   "name": "AION 2 (global)",
-  "version": "0.6.10",
+  "version": "0.6.11",
   "process_names": ["aion2"],
   // Server ports, if they turn out to be fixed. Auto-detection by process
   // already finds the server, so this can stay empty.
@@ -154,6 +154,11 @@
        {"event": "keys", "when": "kk==1&&k0==0&&k1==0&&k2==0&&kf&4", "cur": "keys"},
        {"event": "odyle", "when": "kind==1&&t0==135&&t1==147&&t2==3", "cur": "cur", "bonus": "bonus"}
      ]},
+    // Group (party) list, resent every few seconds: member entries with an
+    // account id, server and name. Used for "Me and my party".
+    {"opcode": "0x9702", "name": "S_PARTY_LIST", "dir": "server",
+     "fields": [{"name": "members", "type": "member_names", "marker": 30}],
+     "emit": {"event": "party", "when": "1", "members": "members"}},
     // Stat update. kind 2 = HP (u32), kind 1 = MP.
     {"opcode": "0x8d00", "name": "S_STAT_UPDATE", "dir": "server",
      // (Kept free of "&&" so the file also loads in meter v0.1.0/0.1.1.)

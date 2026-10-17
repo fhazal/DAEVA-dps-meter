@@ -76,6 +76,8 @@ pub enum GameEvent {
     Odyle { cur: Option<u64>, bonus: Option<u64> },
     /// Shugo Festival Reward Keys you hold.
     Keys { cur: u64 },
+    /// Names of your group (party) members, you included.
+    Party { names: Vec<String> },
 }
 
 impl GameEvent {
@@ -94,6 +96,7 @@ impl GameEvent {
             GameEvent::ActorServer { .. } => "actor_server",
             GameEvent::Odyle { .. } => "odyle",
             GameEvent::Keys { .. } => "keys",
+            GameEvent::Party { .. } => "party",
         }
     }
 }
