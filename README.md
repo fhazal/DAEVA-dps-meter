@@ -74,7 +74,7 @@ The game sends monster template numbers, never names (the client reads names fro
 - Unnamed skills show **✎** in the Details window.
 - **Settings → Monster & skill names** lists everything met without a name (with max HP, zone and when it was seen) and everything already named.
 
-Unknown monsters and skills are first looked up automatically on the [AION 2 Global Database](https://aion2.gaming.tools) (aion2.gaming.tools), whose ids match the game's, with the kind permission of its team: one page per unknown id, at most one request every 3 seconds, cached in `gaming-tools-names.json`. The 🔎 buttons open the matching page. It can be turned off in Settings.
+Unknown monsters and skills are first looked up automatically on the [AION 2 Global Database](https://aion2.gaming.tools) (aion2.gaming.tools), whose ids match the game's, with the kind permission of its team. The meter downloads their published `npcs.d.json` and `skills.d.json` (devalue format) at most once a day with conditional requests, keeps a copy in `gaming-tools\`, and writes the names to `gaming-tools-names.json`. If those files can't be read it falls back to one page per unknown id, at most one request every 3 seconds. The 🔎 buttons open the matching page. It can be turned off in Settings.
 
 Names you type are saved in `my-names.json` in the data folder. They take effect at once, fix older fights, survive updates, and override `names.json`. One skill name covers every rank and variant of that skill. This file is the start of the community's own database.
 
@@ -84,7 +84,7 @@ Names you type are saved in `my-names.json` in the data folder. They take effect
 
 - `settings.json`
 - `my-names.json`: monster and skill names you gave (your own database; keep it)
-- `gaming-tools-names.json`: names fetched from aion2.gaming.tools (cache)
+- `gaming-tools\` and `gaming-tools-names.json`: name data from aion2.gaming.tools (refreshed daily)
 - `unnamed.json`: monsters and skills met without a name, waiting to be named
 - `history\fight-*.json`: one file per finished fight (the same format the bot receives)
 - `research\capture-*.pcap` and `*.markers.json`

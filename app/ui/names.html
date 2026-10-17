@@ -52,7 +52,7 @@
   let tab = "npcs";
   let data = { npcs: [], skills: [], named: [] };
   const INTRO = {
-    npcs: "Monsters met without a name, most recent first. The meter looks each one up on aion2.gaming.tools by itself; anything it can't find, type the name from the target frame and press Enter. Your name always wins and fixes old fights too.",
+    npcs: "Monsters met without a name, most recent first. Names come from aion2.gaming.tools automatically (updated daily); for anything not there yet, type the name from the target frame and press Enter. Your name always wins and fixes old fights too.",
     skills: "Player skills seen without a name. One name covers every rank and variant of that skill, DoT included.",
     mine: "Everything you have named. This is your own database, saved as my-names.json in the data folder. Clear a name and press Enter to remove it.",
   };
@@ -98,7 +98,7 @@
         : '<p class="muted">Nothing named yet.</p>';
     }
     el.querySelectorAll("[data-lk]").forEach((b) => (b.onclick = () => D.call("open_lookup", { kind: b.dataset.lk, id: Number(b.dataset.lid) }).catch((e) => D.toast(String(e)))));
-    document.getElementById("credit").innerHTML = `Monster and skill names from the <a id="gt">AION 2 Global Database (aion2.gaming.tools)</a>, used with the kind permission of its team${data.site_count ? ` · ${data.site_count} names fetched so far` : ""}.${data.lookup_on === false ? " Automatic look-ups are off in Settings." : ""}`;
+    document.getElementById("credit").innerHTML = `Monster and skill names from the <a id="gt">AION 2 Global Database (aion2.gaming.tools)</a>, used with the kind permission of its team${data.site_bulk ? ` · ${data.site_bulk.npcs.toLocaleString()} monsters and ${data.site_bulk.skills.toLocaleString()} skills, updated ${D.when(data.site_bulk.at)}` : data.site_count ? ` · ${data.site_count} names fetched so far` : ""}.${data.lookup_status ? ` <span class="st">${D.esc(data.lookup_status)}</span>` : ""}${data.lookup_on === false ? " Automatic look-ups are off in Settings." : ""}`;
     document.getElementById("gt").onclick = () => D.call("open_lookup", { kind: "site", id: 0 });
     el.querySelectorAll("input[data-kind]").forEach((i) => {
       i.onkeydown = async (ev) => {

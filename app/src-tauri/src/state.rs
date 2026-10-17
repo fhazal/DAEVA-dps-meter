@@ -105,6 +105,8 @@ pub struct Core {
     /// Keys gaming.tools has no page for.
     pub lookup_missing: HashSet<String>,
     pub lookup_status: Option<String>,
+    /// gaming.tools bulk data loaded: (npc names, skill names, fetched at).
+    pub site_bulk: Option<(usize, usize, f64)>,
 }
 
 #[derive(Default)]
@@ -232,6 +234,7 @@ impl Core {
             lookup_retry: HashMap::new(),
             lookup_missing: HashSet::new(),
             lookup_status: None,
+            site_bulk: None,
         };
         c.load_wanted();
         c.load_site_missing();
@@ -389,7 +392,8 @@ impl Core {
 
     /// Next unnamed monster/skill to look up on gaming.tools, if any.
     pub fn next_lookup(&self) -> Option<(String, String, &'static str)> {
-        if !self.settings.lookup_names || self.sim.is_some() {
+        // The daily bulk download covers everything the site knows.
+        if !self.settings.lookup_names || self.sim.is_some() || self.site_bulk.is_some() {
             return None;
         }
         let now = now_unix();
@@ -450,6 +454,35 @@ impl Core {
                 self.lookup_status = Some(e);
             }
         }
+    }
+
+    /// Stores names from the gaming.tools data files and applies them.
+    pub fn apply_site_bulk(&mut self, npcs: Vec<(u32, String)>, skills: Vec<(u32, String)>, fetched_at: f64) {
+        let counts = (npcs.len(), skills.len());
+        self.update_site_file(|doc| {
+            doc["npcs"] = serde_json::Value::Object(npcs.iter().map(|(id, n)| (id.to_string(), serde_json::json!(n))).collect());
+            doc["skills"] = serde_json::Value::Object(skills.iter().map(|(id, n)| (id.to_string(), serde_json::json!(n))).collect());
+            doc["missing"] = serde_json::json!({});
+            doc["fetched_at"] = serde_json::json!(fetched_at);
+        });
+        self.site_bulk = Some((counts.0, counts.1, fetched_at));
+        self.lookup_missing.clear();
+        self.lookup_retry.clear();
+        self.lookup_status = None;
+        if self.sim.is_some() {
+            return;
+        }
+        self.reload_definitions();
+        // Fights already frozen with numbers pick up the new names too.
+        let e = &mut self.pipeline.engine;
+        let named: Vec<(u32, String)> = self.wanted.npcs.keys().filter_map(|id| e.names.npcs.get(id).map(|n| (*id, n.clone()))).collect();
+        for (id, n) in named {
+            e.rename_npc(id, &n);
+            self.wanted.npcs.remove(&id);
+        }
+        let names = &e.names;
+        self.wanted.skills.retain(|id, _| !names.skill_named(*id));
+        self.save_wanted();
     }
 
     fn update_site_file(&self, f: impl FnOnce(&mut serde_json::Value)) {
@@ -655,6 +688,7 @@ impl Core {
                 ),
             )
             .set("lookup_on", self.settings.lookup_names)
+            .set("site_bulk", self.site_bulk.map(|(n, s, at)| Obj::new().set("npcs", n).set("skills", s).set("at", at).build()))
             .set("lookup_status", self.lookup_status.clone())
             .set("site_count", {
                 let site: Option<serde_json::Value> = std::fs::read_to_string(self.site_names_path()).ok().and_then(|s| serde_json::from_str(&s).ok());
@@ -1063,14 +1097,11 @@ fn load_definitions(paths: &Paths, status: &mut Status) -> (Arc<Definitions>, Na
         None => Names::default(),
     };
     let mut names = names;
-    // gaming.tools names fill gaps; your own names (my-names.json) win.
+    // gaming.tools names (used with permission) take precedence over the
+    // bundled names.json; your own names (my-names.json) win over both.
     if let Ok(site) = std::fs::read_to_string(paths.data.join("gaming-tools-names.json")).map_err(|e| e.to_string()).and_then(|s| Names::from_json(&s)) {
-        for (k, v) in site.npcs {
-            names.npcs.entry(k).or_insert(v);
-        }
-        for (k, v) in site.skills {
-            names.skills.entry(k).or_insert(v);
-        }
+        names.npcs.extend(site.npcs);
+        names.skills.extend(site.skills);
     }
     let mine = paths.data.join("my-names.json");
     if mine.exists() {
@@ -1138,6 +1169,10 @@ pub fn start_threads(shared: Arc<Shared>) {
     {
         let s = shared.clone();
         std::thread::Builder::new().name("name-lookup".into()).spawn(move || name_lookup(s)).ok();
+    }
+    {
+        let s = shared.clone();
+        std::thread::Builder::new().name("site-sync".into()).spawn(move || site_sync(s)).ok();
     }
     {
         let s = shared.clone();
@@ -1216,6 +1251,90 @@ fn event_feed(shared: Arc<Shared>) {
             }
         }
         std::thread::sleep(Duration::from_millis(500));
+    }
+}
+
+/// Downloads the gaming.tools NPC and skill data files at most once a day
+/// (conditional requests, so an unchanged file costs almost nothing) and
+/// keeps a copy so the meter works offline.
+fn site_sync(shared: Arc<Shared>) {
+    use meter_core::gamingtools::{names_from_data, NPCS_DATA, SKILLS_DATA};
+    let agent = ureq::AgentBuilder::new()
+        .timeout(Duration::from_secs(60))
+        .user_agent(concat!("DaevaMeter/", env!("CARGO_PKG_VERSION"), " (+https://aion2.bajubesi.org)"))
+        .build();
+    let dir = shared.lock().paths.data.join("gaming-tools");
+    let _ = std::fs::create_dir_all(&dir);
+    let meta_path = dir.join("meta.json");
+    let mut first = true;
+    loop {
+        if !first {
+            std::thread::sleep(Duration::from_secs(60));
+        }
+        let enabled = shared.lock().settings.lookup_names;
+        if !enabled {
+            first = false;
+            continue;
+        }
+        let mut meta: serde_json::Value = std::fs::read_to_string(&meta_path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_else(|| serde_json::json!({}));
+        if !meta.is_object() {
+            meta = serde_json::json!({});
+        }
+        let now = now_unix();
+        let checked = meta["checked_at"].as_f64().unwrap_or(0.0);
+        let retry_at = meta["retry_at"].as_f64().unwrap_or(0.0);
+        let due = now - checked > 24.0 * 3600.0 && now >= retry_at;
+        // Use the saved copy straight away on start; fetch only when due.
+        let mut err = None;
+        if due {
+            for (url, file) in [(NPCS_DATA, "npcs.d.json"), (SKILLS_DATA, "skills.d.json")] {
+                let mut req = agent.get(url);
+                if let Some(tag) = meta["etag"][file].as_str() {
+                    if dir.join(file).exists() {
+                        req = req.set("If-None-Match", tag);
+                    }
+                }
+                match req.call() {
+                    Ok(r) if r.status() == 304 => {}
+                    Ok(r) => {
+                        let tag = r.header("ETag").map(String::from);
+                        match r.into_string() {
+                            Ok(body) if names_from_data(&body).is_ok() => {
+                                let _ = std::fs::write(dir.join(file), body);
+                                if !meta["etag"].is_object() {
+                                    meta["etag"] = serde_json::json!({});
+                                }
+                                meta["etag"][file] = serde_json::json!(tag);
+                            }
+                            Ok(_) => err = Some(format!("gaming.tools {file} could not be read")),
+                            Err(e) => err = Some(format!("gaming.tools download failed: {e}")),
+                        }
+                    }
+                    Err(ureq::Error::Status(304, _)) => {}
+                    Err(e) => err = Some(format!("gaming.tools unreachable: {e}")),
+                }
+            }
+            if err.is_none() {
+                meta["checked_at"] = serde_json::json!(now);
+                meta["retry_at"] = serde_json::json!(0);
+            } else {
+                meta["retry_at"] = serde_json::json!(now + 1800.0);
+            }
+            let _ = std::fs::write(&meta_path, serde_json::to_string_pretty(&meta).unwrap_or_default());
+        }
+        if due || first {
+            let read = |f: &str| std::fs::read_to_string(dir.join(f)).ok().and_then(|s| names_from_data(&s).ok());
+            let (npcs, skills) = (read("npcs.d.json"), read("skills.d.json"));
+            let mut c = shared.lock();
+            if npcs.is_some() || skills.is_some() {
+                let at = meta["checked_at"].as_f64().unwrap_or(now);
+                c.apply_site_bulk(npcs.unwrap_or_default(), skills.unwrap_or_default(), at);
+            }
+            if err.is_some() {
+                c.lookup_status = err;
+            }
+        }
+        first = false;
     }
 }
 

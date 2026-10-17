@@ -111,3 +111,74 @@ mod tests {
         assert_eq!(npc_url(2400002), "https://aion2.gaming.tools/npcs/2400002");
     }
 }
+
+pub const NPCS_DATA: &str = "https://cdn-hosted.gaming.tools/aion2/data/en/npcs.d.json";
+pub const SKILLS_DATA: &str = "https://cdn-hosted.gaming.tools/aion2/data/en/skills.d.json";
+
+/// Expands a `devalue` payload (a flat JSON array where container members
+/// are indices into that array) into a normal JSON value.
+pub fn devalue(src: &str) -> Result<crate::json::Value, String> {
+    use crate::json::Value;
+    let v = crate::json::parse(src).map_err(|e| format!("bad devalue JSON: {e:?}"))?;
+    let arr = v.as_arr().ok_or("devalue root is not an array")?;
+    if arr.is_empty() {
+        return Err("empty devalue payload".into());
+    }
+    fn go(arr: &[Value], i: i64, depth: u32) -> Value {
+        if i < 0 || i as usize >= arr.len() || depth > 64 {
+            return Value::Null; // -1 undefined, -2 hole, -3 NaN... all treated as null
+        }
+        match &arr[i as usize] {
+            Value::Arr(items) => {
+                // ["Date", ...] style tagged values carry a string first.
+                if let Some(Value::Str(_)) = items.first() {
+                    return Value::Null;
+                }
+                Value::Arr(items.iter().map(|x| x.as_f64().map_or(Value::Null, |j| go(arr, j as i64, depth + 1))).collect())
+            }
+            Value::Obj(o) => {
+                let mut out = crate::json::Obj::new();
+                for (k, x) in o {
+                    out.put(k, x.as_f64().map_or(Value::Null, |j| go(arr, j as i64, depth + 1)));
+                }
+                out.build()
+            }
+            other => other.clone(),
+        }
+    }
+    Ok(go(arr, 0, 0))
+}
+
+/// `(id, name)` pairs from a gaming.tools `*.d.json` data file.
+pub fn names_from_data(src: &str) -> Result<Vec<(u32, String)>, String> {
+    let root = devalue(src)?;
+    let list = root.as_arr().ok_or("data root is not a list")?;
+    let mut out = Vec::new();
+    for r in list {
+        let id = r.get("id").and_then(|x| x.as_str().and_then(|s| s.parse::<u32>().ok()).or_else(|| x.as_u64().map(|n| n as u32)));
+        let name = r.get("name").and_then(|x| x.as_str()).map(|s| s.trim().to_string());
+        if let (Some(id), Some(name)) = (id, name) {
+            if !name.is_empty() {
+                out.push((id, name));
+            }
+        }
+    }
+    if out.is_empty() {
+        return Err("no names in data file".into());
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+mod devalue_tests {
+    use super::*;
+
+    #[test]
+    fn npc_file_shape() {
+        let src = r#"[[1,14],{"entityType":2,"categories":3,"aliases":6,"minimumLevel":8,"maximumLevel":9,"level":10,"mainCategoryId":11,"name":7,"iconPath":12,"id":13},"npc",[4,5],"npcs/monster/intellect","npcs/citizen",[7,7,7,7],"Draconute Ranger",17,70,0,"npcs","/images/custom/npcs.2000002.webp","2000002",{"name":15,"id":16,"x":-1},"Earth's Retribution","17010000"]"#;
+        let n = names_from_data(src).unwrap();
+        assert_eq!(n, vec![(2000002, "Draconute Ranger".to_string()), (17010000, "Earth's Retribution".to_string())]);
+        let v = devalue(src).unwrap();
+        assert_eq!(v.as_arr().unwrap()[0].get("aliases").unwrap().as_arr().unwrap().len(), 4);
+    }
+}
