@@ -685,7 +685,9 @@ impl Engine {
                 // latest self message always wins (definitions must only map
                 // this event from messages that are about the local player).
                 if self.self_id != Some(*id) {
-                    self.self_name = None;
+                    // Keep your name across zone changes (only the entity id
+                    // changes); a different character's name replaces it as
+                    // soon as the game sends it.
                     if self.self_id.is_some() {
                         // Zone change / relog: every entity id is reassigned.
                         finished = self.finish();
@@ -697,10 +699,13 @@ impl Engine {
                 if name.is_some() {
                     self.self_name = name.clone();
                 }
+                let keep = self.self_name.clone();
                 let a = self.actor(*id);
                 a.kind = ActorKind::Player;
                 if name.is_some() {
                     a.name = name.clone();
+                } else if a.name.is_none() {
+                    a.name = keep;
                 }
             }
             GameEvent::Hp { id, hp, max_hp, .. } => {
@@ -924,7 +929,9 @@ impl Engine {
                     return n.clone();
                 }
                 if let Some(nid) = a.npc_id {
-                    return self.names.npcs.get(&nid).cloned().unwrap_or_else(|| format!("NPC {nid}"));
+                    // "???" is how the game data marks unnamed objects.
+                    let known = self.names.npcs.get(&nid).filter(|n| n.trim() != "???").cloned();
+                    return known.unwrap_or_else(|| if a.kind == ActorKind::Summon { "Summon".to_string() } else { format!("NPC {nid}") });
                 }
                 if Some(id) == self.self_id {
                     return "You".into();

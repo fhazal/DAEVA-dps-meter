@@ -6,7 +6,7 @@
 // updates after a game patch never need a new build.
 {
   "name": "AION 2 (global)",
-  "version": "0.6.9",
+  "version": "0.6.10",
   "process_names": ["aion2"],
   // Server ports, if they turn out to be fixed. Auto-detection by process
   // already finds the server, so this can stay empty.
@@ -79,7 +79,8 @@
     // b==256 (0x100): player-owned object/summon, followed by the owner's name.
     {"opcode": "0x3641", "name": "S_SPAWN", "dir": "server",
      "fields": ["id:varint", "a:u8", "b:u16le",
-                {"name": "npc", "type": "u32le", "if": "b&32"},
+                {"name": "npc", "type": "u32le", "if": "b&48"},
+                {"name": "npc0", "type": "u32le", "if": "b==0"},
                 {"name": "c", "type": "u8", "if": "b&32"},
                 {"name": "d", "type": "u8", "if": "b&32"},
                 {"name": "x", "type": "f32le", "if": "b&32"},
@@ -93,6 +94,11 @@
      "emit": [
        // Every monster spawn names its template (fixes "Mob #12345").
        {"event": "actor", "when": "b&32", "id": "id", "kind": "'npc'", "npc_id": "npc"},
+       // b==16: a player's spirit/pet/object (templates 292xxxx, e.g. an
+       // Elementalist spirit). Name it from its template, not "Player #12345".
+       {"event": "actor", "when": "b==16", "id": "id", "kind": "'summon'", "npc_id": "npc"},
+       // b==0 (a=95): skill objects such as Sorcerer summons, same idea.
+       {"event": "actor", "when": "b==0&&npc0>2000000&&npc0<3000000", "id": "id", "kind": "'summon'", "npc_id": "npc0"},
        // Max HP only where the layout is verified. The spawn's own "hp" field
        // is not current HP (e.g. 196 of 270000), so a new monster starts full;
        // 0x8d00 updates take over from the first hit.
