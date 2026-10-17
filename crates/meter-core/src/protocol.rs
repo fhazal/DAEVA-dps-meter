@@ -119,6 +119,8 @@ fn lookup<'a>(scopes: &[&'a Scope], name: &str) -> Option<&'a FVal> {
 pub struct Expr {
     base: ExprBase,
     ops: Vec<(Op, u64)>,
+    /// `a&&b&&c`: all parts must be non-zero.
+    all: Vec<Expr>,
 }
 
 #[derive(Debug, Clone)]
@@ -143,8 +145,12 @@ enum Op {
 impl Expr {
     pub fn parse(src: &str) -> Result<Expr, String> {
         let s = src.trim();
+        if s.contains("&&") {
+            let all = s.split("&&").map(Expr::parse).collect::<Result<Vec<_>, _>>()?;
+            return Ok(Expr { base: ExprBase::Num(0), ops: vec![], all });
+        }
         if s.len() >= 2 && s.starts_with('\'') && s.ends_with('\'') {
-            return Ok(Expr { base: ExprBase::Str(s[1..s.len() - 1].to_string()), ops: vec![] });
+            return Ok(Expr { base: ExprBase::Str(s[1..s.len() - 1].to_string()), ops: vec![], all: vec![] });
         }
         let ops_at = |t: &str| -> Option<usize> {
             ["&", ">>", "<<", "==", "!=", "+", "-", "*"].iter().filter_map(|o| t.find(o)).min()
@@ -188,10 +194,13 @@ impl Expr {
             ops.push((op, num as u64));
             rest = &rest[end..];
         }
-        Ok(Expr { base, ops })
+        Ok(Expr { base, ops, all: vec![] })
     }
 
     pub fn eval(&self, scopes: &[&Scope]) -> Option<FVal> {
+        if !self.all.is_empty() {
+            return Some(FVal::U(self.all.iter().all(|e| e.truthy(scopes)) as u64));
+        }
         let mut v = match &self.base {
             ExprBase::Num(n) => FVal::U(*n),
             ExprBase::Str(s) => return Some(FVal::S(s.clone())),
@@ -1018,5 +1027,7 @@ mod tests {
         assert_eq!(Expr::parse("a==4660").unwrap().eval_u64(&[&s]), Some(1));
         assert_eq!(Expr::parse("0x10").unwrap().eval_u64(&[&s]), Some(16));
         assert!(matches!(Expr::parse("'npc'").unwrap().eval(&[&s]), Some(FVal::S(_))));
+        assert_eq!(Expr::parse("a&0x4&&a==4660").unwrap().eval_u64(&[&s]), Some(1));
+        assert_eq!(Expr::parse("a&0x4 && a==1").unwrap().eval_u64(&[&s]), Some(0));
     }
 }

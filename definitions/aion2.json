@@ -6,7 +6,7 @@
 // updates after a game patch never need a new build.
 {
   "name": "AION 2 (global)",
-  "version": "0.1.0-alpha",
+  "version": "0.2.0-alpha",
   "process_names": ["aion2"],
   // Server ports, if they turn out to be fixed. Auto-detection by process
   // already finds the server, so this can stay empty.
@@ -25,10 +25,13 @@
   "messages": [
     // Bundle of LZ4-compressed frames: u32le decompressed size + LZ4 block.
     {"opcode": "0xffff", "name": "S_BUNDLE_LZ4", "dir": "any", "container": true, "decompress": true},
-    // Skill/attack result. One frame per hit. Layout worked out from the
-    // 2026-10-17 Shulak capture (no markers yet, so flag meanings are
-    // provisional): flags&0x4 = carries damage, flags&0x2 = 3-byte block,
-    // flags&0x20 = extra list of varints (procs/split hits?).
+    // Skill/attack result, one frame per hit (decoded 2026-10-17 from
+    // Shulak / Cave Drana captures).
+    //   flags&0x4  = carries damage      flags&0x2 = 3-byte x0/x1/x2 block
+    //   flags&0x20 = trailing varint list (not counted)
+    //   kind==3    = critical hit (~1.75x)
+    //   x0&0x8     = ~2x hit (provisionally "perfect"), x0&0x4 = small bonus
+    //                (provisionally "back attack") - names need confirming.
     {"opcode": "0x3804", "name": "S_SKILL_RESULT", "dir": "server",
      "fields": [
        "tgt:varint", "flags:u16le", "src:varint", "skill:u32le", "seq:u8", "kind:u8",
@@ -39,23 +42,31 @@
        {"name": "dmg", "type": "varint", "if": "flags&0x4"}
      ],
      "emit": {"event": "damage", "when": "flags&0x4", "src": "src", "tgt": "tgt",
-              "skill": "skill", "amount": "dmg"}},
+              "skill": "skill", "amount": "dmg",
+              "crit": "kind==3", "perfect": "x0&0x8", "back": "x0&0x4"}},
     // Effect/debuff applied: carries the caster's name and legion.
     {"opcode": "0x8d04", "name": "S_EFFECT_CASTER_INFO", "dir": "server",
      "fields": ["tgt:varint", "skill:u32le", "src:varint", "server:u16le", "name:str", "legion:str"],
      "emit": {"event": "actor", "id": "src", "name": "name", "kind": "'player'"}},
-    // Frequent self status update (HP/MP?) - used to identify the local player.
-    {"opcode": "0x8d00", "name": "S_SELF_STATUS", "dir": "server",
+    // Only ever sent about the local player.
+    {"opcode": "0x364a", "name": "S_SELF_STATE", "dir": "server",
      "fields": ["id:varint"],
      "emit": {"event": "self", "id": "id"}},
-    // Example of the shape a decoded damage packet will take:
-    // {
-    //   "opcode": "0x0000", "name": "S_ATTACK_RESULT", "dir": "server",
-    //   "fields": ["src:varint", "tgt:varint", "skill:u32", "count:u8",
-    //     {"name": "hits", "type": "repeat", "count": "count",
-    //      "fields": ["dmg:varint", "flags:u16le"]}],
-    //   "emit": {"event": "damage", "each": "hits", "src": "src", "tgt": "tgt",
-    //            "skill": "skill", "amount": "dmg", "crit": "flags&0x1", "back": "flags&0x4"}
-    // }
+    // NPC/monster spawn: template id, position, HP.
+    {"opcode": "0x3641", "name": "S_NPC_SPAWN", "dir": "server",
+     "fields": ["id:varint", "a:u8", "b:u16le", "npc:u32le", "c:u8", "d:u8",
+                "x:f32le", "y:f32le", "z:f32le", "heading:f32le",
+                "unk:varint", "hp:varint", "max_hp:varint"],
+     "emit": [
+       {"event": "actor", "id": "id", "kind": "'npc'", "npc_id": "npc", "max_hp": "max_hp"},
+       {"event": "hp", "id": "id", "hp": "hp", "max_hp": "max_hp"}
+     ]},
+    // Stat update. kind 2 = HP (u32), kind 1 = MP.
+    {"opcode": "0x8d00", "name": "S_STAT_UPDATE", "dir": "server",
+     "fields": ["id:varint", "kind:u8", "a:u8", "b:u8", "val:u32le"],
+     "emit": [
+       {"event": "hp", "when": "kind==2", "id": "id", "hp": "val"},
+       {"event": "death", "when": "kind==2&&val==0", "target": "id"}
+     ]}
   ]
 }

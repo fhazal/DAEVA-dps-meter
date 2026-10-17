@@ -184,12 +184,14 @@ pub struct EngineConfig {
     pub merge_summons: bool,
     /// End the fight right after the main target dies.
     pub end_on_target_death: bool,
+    /// Seconds to wait after the main target dies before ending the fight.
+    pub death_grace: f64,
     pub history_size: usize,
 }
 
 impl Default for EngineConfig {
     fn default() -> Self {
-        EngineConfig { idle_timeout: 8.0, min_fight_damage: 1, merge_summons: true, end_on_target_death: true, history_size: 50 }
+        EngineConfig { idle_timeout: 8.0, min_fight_damage: 1, merge_summons: true, end_on_target_death: true, death_grace: 3.0, history_size: 50 }
     }
 }
 
@@ -210,6 +212,9 @@ pub struct Engine {
     pub events_seen: u64,
     /// Total loot events ever seen (loot_log is capped).
     pub loot_seen: u64,
+    /// Set when the main target dies: the fight ends at this time unless
+    /// damage continues (chain-pulling packs stays one fight).
+    pending_end: Option<f64>,
 }
 
 impl Engine {
@@ -229,6 +234,7 @@ impl Engine {
             unix_offset: 0.0,
             events_seen: 0,
             loot_seen: 0,
+            pending_end: None,
         }
     }
 
@@ -286,7 +292,12 @@ impl Engine {
                     }
                     return finished;
                 }
+                self.pending_end = None;
                 let fight = self.ensure_fight(*ts);
+                if fight.boss_killed && fight.targets.contains_key(tgt) == false {
+                    // moved on to a new mob: the kill flag described the old one
+                    fight.boss_killed = false;
+                }
                 fight.end = fight.end.max(*ts);
                 *fight.targets.entry(*tgt).or_default() += amount;
                 let bucket = ((*ts - fight.start).max(0.0)) as usize;
@@ -355,7 +366,7 @@ impl Engine {
                         f.boss_killed = true;
                         f.end = f.end.max(*ts);
                     }
-                    finished = self.finish();
+                    self.pending_end = Some(*ts + self.cfg.death_grace);
                 }
             }
             GameEvent::Actor { id, name, class, kind, npc_id, owner, max_hp } => {
@@ -403,6 +414,10 @@ impl Engine {
                 a.hp = Some(*hp);
                 if max_hp.is_some() {
                     a.max_hp = *max_hp;
+                } else if a.max_hp.map_or(true, |m| *hp > m) {
+                    // Spawned before the meter started: best guess is the
+                    // highest HP seen so far.
+                    a.max_hp = Some(*hp);
                 }
             }
             GameEvent::Zone { ts, zone_id } => {
@@ -454,6 +469,12 @@ impl Engine {
 
     /// Call periodically with the current capture time.
     pub fn tick(&mut self, now: f64) -> Option<Fight> {
+        if let Some(t) = self.pending_end {
+            if now >= t {
+                self.pending_end = None;
+                return self.finish();
+            }
+        }
         let idle = match &self.current {
             Some(f) if !f.finished => now - f.end > self.cfg.idle_timeout,
             _ => false,
@@ -796,7 +817,8 @@ mod tests {
         e.handle(&dmg(30.0, 1, 900, 110, 10, 0));
         assert_eq!(e.current.as_ref().unwrap().id, 2);
         // target death ends it immediately
-        let f = e.handle(&GameEvent::Death { ts: 31.0, target: 900, killer: Some(1) }).unwrap();
+        assert!(e.handle(&GameEvent::Death { ts: 31.0, target: 900, killer: Some(1) }).is_none());
+        let f = e.tick(34.5).expect("ends after the death grace period");
         assert!(f.boss_killed);
         let txt = e.summary_text(&f, 5);
         assert!(txt.contains("Training Dummy"), "{txt}");
