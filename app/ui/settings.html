@@ -61,6 +61,8 @@
       ${F("Warn before start (min)", num("alerts.lead_minutes", 0, 120), "0 = only when the event starts.")}
       ${F("", `<div class="row-btns">${chk("alerts.at_start", "Also when it starts")}${chk("alerts.sound", "Play a sound")}${chk("alerts.show_next", "Show next events under the meter")}</div>`)}
       ${F("Banner stays (s)", num("alerts.banner_secs", 3, 120))}
+      ${F("Show alerts", sel("alerts.position", [["above_meter", "Above the meter"], ["below_meter", "Below the meter"], ["screen_top_right", "Top right, beside the minimap"], ["screen_top_center", "Top centre of the screen"], ["screen_top_left", "Top left of the screen"]]), "Alerts never cover the meter and clicks pass through them.")}
+      ${F("Nudge (x, y px)", `<span class="inline">${num("alerts.offset_x", -3000, 3000)}${num("alerts.offset_y", -3000, 3000)}</span>`, "Fine-tune the spot, e.g. x -40 moves alerts 40 px left.")}
       ${F("Alert me for", `<div class="row-btns" id="evList"><span class="muted">Loading events…</span></div>`, "Hourly events (Shugo Festival, Dimensional Invasion) are off by default.")}
       ${F("Schedule feed", txt("alerts.feed_url"), `<span id="evStatus"></span>`)}
       ${F("", `<button class="btn" id="bTestAlert">Show a test alert</button>`)}
@@ -105,6 +107,7 @@
       <button class="btn" data-folder="definitions">Definitions folder</button>
       <button class="btn" id="bReload">Reload definitions</button>
       <button class="btn" id="bNames">Monster &amp; skill names</button>
+      <button class="btn" id="bRefreshNames">Update names now</button>
     </div>
     <div class="f" style="margin-top:8px">${F("Names", `<div class="row-btns">${chk("lookup_names", "Get monster and skill names from aion2.gaming.tools")}${chk("game_art", "Show game icons (classes, skills, monsters)")}</div>`, "Downloads their monster and skill lists at most once a day and keeps a copy for offline use. Names you type yourself always win. Game icons are NCSOFT's, shown via gaming.tools. With thanks to the AION 2 Global Database team.")}</div>
     <p class="muted" style="font-size:11.5px"><b>Report a problem</b> saves the last 3 minutes of game traffic plus what the meter showed as one zip on your Desktop (also Ctrl+Shift+P, even in game). Send that file when something looks wrong.</p>
@@ -174,7 +177,7 @@
     fill();
     document.querySelectorAll("input[type=range]").forEach((r) => (r.oninput = updateRanges));
     loadEvents();
-    document.getElementById("bTestAlert").onclick = async () => { await D.call("test_alert"); D.toast("Test alert sent to the overlay"); };
+    document.getElementById("bTestAlert").onclick = async () => { await D.call("test_alert"); D.toast("Test alert sent — save first if you changed the position"); };
     document.getElementById("bRestart").onclick = async () => { await D.call("restart_capture"); D.toast("Capture restarted"); };
     document.getElementById("bReport").onclick = async () => {
       try { const p = await D.call("report_problem", { note: "settings" }); D.toast("Saved " + p.split(/[\\/]/).pop()); } catch (e) { D.toast(String(e)); }
@@ -183,6 +186,7 @@
       const r = JSON.parse(await D.call("reload_definitions"));
       D.toast(r.error ? "Error: " + r.error : "Loaded " + r.defs);
     };
+    document.getElementById("bRefreshNames").onclick = async () => { await D.call("refresh_names"); D.toast("Downloading names… check Monster & skill names in a moment"); };
     document.getElementById("bNames").onclick = () => D.call("open_window", { kind: "names" });
     document.querySelectorAll("[data-folder]").forEach((b) => (b.onclick = () => D.call("open_folder", { which: b.dataset.folder })));
   }

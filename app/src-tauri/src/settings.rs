@@ -64,6 +64,12 @@ pub struct Alerts {
     pub muted: Vec<String>,
     /// How long a banner stays up, seconds.
     pub banner_secs: f64,
+    /// Where banners appear: "above_meter", "below_meter", "screen_top_center",
+    /// "screen_top_right" (left of the minimap), "screen_top_left".
+    pub position: String,
+    /// Nudge, in screen pixels at 100% scaling.
+    pub offset_x: f64,
+    pub offset_y: f64,
 }
 
 impl Default for Alerts {
@@ -77,6 +83,9 @@ impl Default for Alerts {
             show_next: true,
             muted: vec!["shugo_festival".into(), "dimensional_invasion".into()],
             banner_secs: 12.0,
+            position: "above_meter".into(),
+            offset_x: 0.0,
+            offset_y: 0.0,
         }
     }
 }
@@ -112,6 +121,8 @@ pub struct Settings {
     pub alerts: Alerts,
     /// Fetch names of unknown monsters/skills from aion2.gaming.tools.
     pub lookup_names: bool,
+    /// Daeva server mirror of the gaming.tools name files (tried first).
+    pub names_mirror: String,
     /// Show class emblems, skill icons and monster portraits from
     /// aion2.gaming.tools (falls back to the built-in icons).
     pub game_art: bool,
@@ -148,6 +159,7 @@ impl Default for Settings {
             share: Share::default(),
             alerts: Alerts::default(),
             lookup_names: true,
+            names_mirror: "https://aion2.bajubesi.org/api/gt".into(),
             game_art: true,
             demo: false,
             window: None,

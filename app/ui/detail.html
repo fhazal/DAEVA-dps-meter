@@ -154,28 +154,40 @@
     }
     if (editing) return;
     c.innerHTML = head + body;
-    c.querySelectorAll("td.sk [data-lk]").forEach((b) => (b.onclick = (ev) => { ev.stopPropagation(); D.call("open_lookup", { kind: "skill", id: Number(b.dataset.lk) }).catch((e) => D.toast(String(e))); }));
-    c.querySelectorAll("td.sk .nameit:not(.lk)").forEach((b) => (b.onclick = () => {
-      const td = b.closest("td");
-      editing = true;
-      td.querySelectorAll("span").forEach((x) => x.remove());
-      td.insertAdjacentHTML("beforeend", '<input maxlength="60" placeholder="Skill name, then Enter">');
-      const i = td.querySelector("input");
-      i.focus();
-      const done = () => { editing = false; render(); };
-      i.onkeydown = async (ev) => {
-        if (ev.key === "Escape") return done();
-        if (ev.key !== "Enter" || !i.value.trim()) return;
-        try { const n = await D.call("set_name", { kind: "skill", id: Number(td.dataset.skill), name: i.value }); D.toast("Saved: " + n); } catch (e) { D.toast(String(e)); }
-        done();
-        load();
-      };
-      i.onblur = () => setTimeout(() => { if (editing && document.activeElement !== i) done(); }, 150);
-    }));
-    c.querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => { if (!b.disabled) { tab = b.dataset.tab; render(); } }));
     const sel = document.getElementById("tsel");
     if (sel) sel.onchange = () => { target = sel.value ? Number(sel.value) : null; load(); };
   }
+
+  // One handler on the container, acting on press: the table redraws every
+  // second, which used to swallow clicks.
+  document.getElementById("c").addEventListener("pointerdown", (ev) => {
+    const tabBtn = ev.target.closest("[data-tab]");
+    if (tabBtn) { if (!tabBtn.disabled) { tab = tabBtn.dataset.tab; render(); } return; }
+    const lk = ev.target.closest("td.sk [data-lk]");
+    if (lk) {
+      ev.preventDefault();
+      D.call("open_lookup", { kind: "skill", id: Number(lk.dataset.lk) }).then(() => D.toast("Opened in your browser")).catch((e) => D.toast(String(e)));
+      return;
+    }
+    const b = ev.target.closest("td.sk .nameit");
+    if (!b) return;
+    ev.preventDefault();
+    const td = b.closest("td");
+    editing = true;
+    td.querySelectorAll("span").forEach((x) => x.remove());
+    td.insertAdjacentHTML("beforeend", '<input maxlength="60" placeholder="Skill name, then Enter">');
+    const i = td.querySelector("input");
+    setTimeout(() => i.focus(), 0);
+    const done = () => { editing = false; render(); };
+    i.onkeydown = async (e2) => {
+      if (e2.key === "Escape") return done();
+      if (e2.key !== "Enter" || !i.value.trim()) return;
+      try { const n = await D.call("set_name", { kind: "skill", id: Number(td.dataset.skill), name: i.value }); D.toast("Saved: " + n); } catch (e) { D.toast(String(e)); }
+      done();
+      load();
+    };
+    i.onblur = () => setTimeout(() => { if (editing && document.activeElement !== i) done(); }, 150);
+  });
 
   document.getElementById("bCopy").onclick = async () => {
     if (!data) return;

@@ -117,6 +117,16 @@ fn open_lookup(kind: String, id: u32) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn get_alerts(st: St<'_>) -> String {
+    st.lock().alerts_view(state::now_unix()).to_string()
+}
+
+#[tauri::command]
+fn refresh_names(st: St<'_>) {
+    st.lock().site_wake = true;
+}
+
+#[tauri::command]
 fn get_icons(st: St<'_>) -> String {
     st.lock().icons_view()
 }
@@ -361,6 +371,53 @@ fn start_hotkeys(app: &AppHandle, shared: &Arc<Shared>) {
 
 // ---------------------------------------------------------------- main
 
+/// Keeps the alert window next to the meter (or at the chosen screen spot).
+fn toast_positioner(handle: AppHandle, sh: Arc<Shared>) {
+    let mut last: Option<(i32, i32, u32)> = None;
+    loop {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        let (Some(t), Some(m)) = (handle.get_webview_window("toast"), handle.get_webview_window("main")) else { continue };
+        let (pos, ox, oy) = {
+            let c = sh.lock();
+            let a = &c.settings.alerts;
+            (a.position.clone(), a.offset_x, a.offset_y)
+        };
+        let (Ok(mp), Ok(ms), Ok(ts)) = (m.outer_position(), m.outer_size(), t.outer_size()) else { continue };
+        let scale = t.scale_factor().unwrap_or(1.0);
+        let px = |v: f64| (v * scale) as i32;
+        let mon = m.current_monitor().ok().flatten().or_else(|| m.primary_monitor().ok().flatten());
+        let (sx, sy, sw) = mon.map(|x| (x.position().x, x.position().y, x.size().width as i32)).unwrap_or((0, 0, 1920));
+        let on_meter = pos == "above_meter" || pos == "below_meter";
+        // Same width as the meter when attached to it, otherwise 360 px.
+        let width = if on_meter { ms.width.max(px(260.0) as u32) } else { px(360.0) as u32 };
+        let (tw, th) = (width as i32, ts.height as i32);
+        let gap = px(6.0);
+        let below = (mp.x, mp.y + ms.height as i32 + gap);
+        let (mut x, mut y, anchor) = match pos.as_str() {
+            "below_meter" => (below.0, below.1, "top"),
+            "screen_top_center" => (sx + (sw - tw) / 2, sy + px(60.0), "top"),
+            // AION 2's minimap sits top-right; stay just to its left.
+            "screen_top_right" => (sx + sw - tw - px(300.0), sy + px(16.0), "top"),
+            "screen_top_left" => (sx + px(16.0), sy + px(16.0), "top"),
+            _ => {
+                let above = mp.y - th - gap;
+                if above >= sy { (mp.x, above, "bottom") } else { (below.0, below.1, "top") }
+            }
+        };
+        x += px(ox);
+        y += px(oy);
+        sh.lock().toast_anchor = anchor;
+        if last != Some((x, y, width)) {
+            if ts.width != width {
+                let _ = t.set_size(tauri::PhysicalSize::new(width, ts.height));
+            }
+            if t.set_position(tauri::PhysicalPosition::new(x, y)).is_ok() {
+                last = Some((x, y, width));
+            }
+        }
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
@@ -399,6 +456,29 @@ fn main() {
                         }
                     }
                 });
+            }
+            // Event banners live in their own click-through window, so they
+            // never cover the meter; it follows the meter or sits where the
+            // user chose (Settings → Event alerts → Show alerts).
+            match WebviewWindowBuilder::new(app.handle(), "toast", WebviewUrl::App("toast.html".into()))
+                .title("Daeva Meter — Alerts")
+                .inner_size(360.0, 200.0)
+                .decorations(false)
+                .transparent(true)
+                .always_on_top(true)
+                .skip_taskbar(true)
+                .resizable(false)
+                .shadow(false)
+                .focused(false)
+                .build()
+            {
+                Ok(t) => {
+                    let _ = t.set_ignore_cursor_events(true);
+                    let handle = app.handle().clone();
+                    let sh = shared.clone();
+                    std::thread::spawn(move || toast_positioner(handle, sh));
+                }
+                Err(e) => eprintln!("alert window: {e}"),
             }
             if let Some(w) = app.get_webview_window("main") {
                 let s = shared.lock().settings.clone();
@@ -470,6 +550,8 @@ fn main() {
             get_names,
             open_lookup,
             get_icons,
+            refresh_names,
+            get_alerts,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Daeva Meter");

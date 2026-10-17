@@ -96,7 +96,6 @@
   <div class="scroll"><div class="rows" id="rows"></div></div>
   <div class="nextev" id="nextev" hidden></div>
   <div class="foot" id="foot"></div>
-  <div class="alerts" id="alerts"></div>
 </div>
 <script src="common.js"></script>
 <script>
@@ -201,7 +200,6 @@
     return h ? `${h}h ${String(m).padStart(2, "0")}m` : m >= 10 ? `${m}m` : `${m}:${String(s).padStart(2, "0")}`;
   }
   function renderAlerts(a) {
-    const box = $("alerts");
     const next = $("nextev");
     if (!a || !a.enabled) { next.hidden = true; return; }
     const now = Date.now() / 1000;
@@ -218,21 +216,11 @@
     } else {
       next.hidden = true;
     }
-    for (const al of a.recent || []) {
-      if (shown.has(al.key)) continue;
-      shown.add(al.key);
-      const el = document.createElement("div");
-      el.className = "alert " + al.kind;
-      el.innerHTML = `<span class="em">${D.esc(al.emoji || "🔔")}</span><span class="t">${D.esc(al.title)}</span><span class="b">${D.esc(al.body)}</span>`;
-      const close = () => { el.classList.add("out"); setTimeout(() => el.remove(), 400); };
-      el.onclick = close;
-      box.appendChild(el);
-      while (box.children.length > 3) box.firstElementChild.remove();
-      setTimeout(close, Math.max(3, a.banner_secs || 12) * 1000);
-    }
+    // Banners are shown by the separate alert window (toast.html).
   }
 
   let editing = null; // template being named; pauses target redraws
+  let lastTargetHtml = "";
   function renderTarget(f) {
     const t = f.target;
     if (editing) return;
@@ -241,12 +229,20 @@
     const hp = t.hp_pct != null ? `<div class="hp"><i style="width:${(t.hp_pct * 100).toFixed(1)}%"></i></div>` : "";
     const kill = f.boss_killed ? '<span class="kill">KILLED</span>' : (t.hp_pct != null ? `<span class="meta">${D.pct(t.hp_pct, 1)}</span>` : "");
     const nameit = t.named === false && t.npc_id ? `<span class="nameit" data-npc="${t.npc_id}" title="Looking it up on aion2.gaming.tools… or type the name yourself (saved for good)">✎ name it</span><span class="nameit" data-lk="${t.npc_id}" title="Open on aion2.gaming.tools">🔎</span>` : "";
-    $("target").innerHTML = `<div class="row1">${D.npcIcon(t.npc_id, 24)}<div class="name">${D.esc(t.name)}${nameit}</div>${kill}<div class="meta"><b>${D.fmt(f.total)}</b> dmg</div></div>${hp}`;
-    const b = $("target").querySelector(".nameit[data-npc]");
-    if (b) b.onclick = (ev) => { ev.stopPropagation(); startNaming(Number(b.dataset.npc)); };
-    const l = $("target").querySelector("[data-lk]");
-    if (l) l.onclick = (ev) => { ev.stopPropagation(); D.call("open_lookup", { kind: "npc", id: Number(l.dataset.lk) }).catch((e) => D.toast(String(e))); };
+    const html = `<div class="row1">${D.npcIcon(t.npc_id, 24)}<div class="name">${D.esc(t.name)}${nameit}</div>${kill}<div class="meta"><b>${D.fmt(f.total)}</b> dmg</div></div>${hp}`;
+    if (html !== lastTargetHtml) { $("target").innerHTML = html; lastTargetHtml = html; }
   }
+  // Handled on press, on the container: the target bar redraws 4x a second,
+  // which used to swallow clicks on these buttons.
+  $("target").addEventListener("pointerdown", (ev) => {
+    const b = ev.target.closest("[data-npc]");
+    const l = ev.target.closest("[data-lk]");
+    if (!b && !l) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (b) startNaming(Number(b.dataset.npc));
+    else D.call("open_lookup", { kind: "npc", id: Number(l.dataset.lk) }).then(() => D.toast("Opened in your browser")).catch((e) => D.toast(String(e)));
+  });
 
   function startNaming(npc) {
     editing = npc;
@@ -254,7 +250,7 @@
     box.innerHTML = `<input class="nm" maxlength="60" placeholder="Name on the target frame, then Enter">`;
     const i = box.querySelector("input");
     i.focus();
-    const done = () => { editing = null; render(lastSnap); };
+    const done = () => { editing = null; lastTargetHtml = ""; render(lastSnap); };
     i.onkeydown = async (ev) => {
       if (ev.key === "Escape") return done();
       if (ev.key !== "Enter" || !i.value.trim()) return;

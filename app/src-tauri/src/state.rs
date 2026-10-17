@@ -109,6 +109,10 @@ pub struct Core {
     pub site_bulk: Option<(usize, usize, f64)>,
     /// Picture paths from gaming.tools: "n<template>" / "s<skill>" -> path.
     pub icons: HashMap<String, String>,
+    /// Set by "Update names now".
+    pub site_wake: bool,
+    /// Which edge of the alert window the banners stack from ("top"/"bottom").
+    pub toast_anchor: &'static str,
 }
 
 #[derive(Default)]
@@ -238,6 +242,8 @@ impl Core {
             lookup_status: None,
             site_bulk: None,
             icons: HashMap::new(),
+            site_wake: false,
+            toast_anchor: "bottom",
         };
         c.load_wanted();
         c.load_site_missing();
@@ -957,12 +963,20 @@ impl Core {
             .set("anonymize_others", s.anonymize_others)
             .set("click_through", s.click_through)
             .build();
+        let alerts = self.alerts_view(now);
+        Obj::new().set("status", status).set("ui", ui).set("fight", fight).set("research", rec).set("alerts", alerts).build()
+    }
+
+    /// Event alerts for the overlay's next-events line and the alert window.
+    pub fn alerts_view(&self, now: f64) -> Value {
         let a = &self.settings.alerts;
-        let alerts = Obj::new()
+        Obj::new()
             .set("enabled", a.enabled)
             .set("sound", a.sound)
             .set("show_next", a.show_next)
             .set("banner_secs", a.banner_secs)
+            .set("position", a.position.as_str())
+            .set("anchor", self.toast_anchor)
             .set("error", self.events.error.clone())
             .set(
                 "next",
@@ -973,8 +987,7 @@ impl Core {
                 }),
             )
             .set("recent", Value::Arr(self.events.recent.iter().filter(|x| now - x.raised < a.banner_secs.max(3.0) + 5.0).map(|x| x.to_json()).collect()))
-            .build();
-        Obj::new().set("status", status).set("ui", ui).set("fight", fight).set("research", rec).set("alerts", alerts).build()
+            .build()
     }
 
     /// Everything the settings page needs about events.
@@ -1291,8 +1304,15 @@ fn site_sync(shared: Arc<Shared>) {
     let mut first = true;
     loop {
         if !first {
-            std::thread::sleep(Duration::from_secs(60));
+            // Check every few seconds for "Update names now"; fetch only when due.
+            for _ in 0..12 {
+                std::thread::sleep(Duration::from_secs(5));
+                if shared.lock().site_wake {
+                    break;
+                }
+            }
         }
+        let wake = std::mem::take(&mut shared.lock().site_wake);
         let enabled = shared.lock().settings.lookup_names;
         if !enabled {
             first = false;
@@ -1305,35 +1325,59 @@ fn site_sync(shared: Arc<Shared>) {
         let now = now_unix();
         let checked = meta["checked_at"].as_f64().unwrap_or(0.0);
         let retry_at = meta["retry_at"].as_f64().unwrap_or(0.0);
-        let due = now - checked > 24.0 * 3600.0 && now >= retry_at;
+        let due = wake || (now - checked > 24.0 * 3600.0 && now >= retry_at);
         // Use the saved copy straight away on start; fetch only when due.
         let mut err = None;
         if due {
-            for (url, file) in [(NPCS_DATA, "npcs.d.json"), (SKILLS_DATA, "skills.d.json")] {
-                let mut req = agent.get(url);
-                if let Some(tag) = meta["etag"][file].as_str() {
-                    if dir.join(file).exists() {
-                        req = req.set("If-None-Match", tag);
-                    }
+            let mirror = shared.lock().settings.names_mirror.trim().trim_end_matches('/').to_string();
+            let mut problems: Vec<String> = Vec::new();
+            for (cdn, file) in [(NPCS_DATA, "npcs.d.json"), (SKILLS_DATA, "skills.d.json")] {
+                // Your Daeva server's daily mirror first, gaming.tools itself second.
+                let mut sources = Vec::new();
+                if mirror.starts_with("https://") {
+                    sources.push(format!("{mirror}/{file}"));
                 }
-                match req.call() {
-                    Ok(r) if r.status() == 304 => {}
-                    Ok(r) => {
-                        let tag = r.header("ETag").map(String::from);
-                        match r.into_string() {
-                            Ok(body) if names_from_data(&body).is_ok() => {
-                                let _ = std::fs::write(dir.join(file), body);
-                                if !meta["etag"].is_object() {
-                                    meta["etag"] = serde_json::json!({});
-                                }
-                                meta["etag"][file] = serde_json::json!(tag);
-                            }
-                            Ok(_) => err = Some(format!("gaming.tools {file} could not be read")),
-                            Err(e) => err = Some(format!("gaming.tools download failed: {e}")),
+                sources.push(cdn.to_string());
+                let mut got = false;
+                for url in sources {
+                    let host = url.split('/').nth(2).unwrap_or("?").to_string();
+                    let mut req = agent.get(&url);
+                    if meta["etag"][file]["url"].as_str() == Some(url.as_str()) && dir.join(file).exists() {
+                        if let Some(tag) = meta["etag"][file]["tag"].as_str() {
+                            req = req.set("If-None-Match", tag);
                         }
                     }
-                    Err(ureq::Error::Status(304, _)) => {}
-                    Err(e) => err = Some(format!("gaming.tools unreachable: {e}")),
+                    match req.call() {
+                        Ok(r) if r.status() == 304 => got = true,
+                        Ok(r) => {
+                            let tag = r.header("ETag").map(String::from);
+                            let mut body = String::new();
+                            use std::io::Read;
+                            match r.into_reader().take(64 << 20).read_to_string(&mut body) {
+                                Ok(_) => match names_from_data(&body) {
+                                    Ok(_) => {
+                                        let _ = std::fs::write(dir.join(file), &body);
+                                        if !meta["etag"].is_object() {
+                                            meta["etag"] = serde_json::json!({});
+                                        }
+                                        meta["etag"][file] = serde_json::json!({"url": url, "tag": tag});
+                                        got = true;
+                                    }
+                                    Err(e) => problems.push(format!("{host}: {e}")),
+                                },
+                                Err(e) => problems.push(format!("{host}: {e}")),
+                            }
+                        }
+                        Err(ureq::Error::Status(304, _)) => got = true,
+                        Err(ureq::Error::Status(code, _)) => problems.push(format!("{host}: HTTP {code}")),
+                        Err(e) => problems.push(format!("{host}: {e}")),
+                    }
+                    if got {
+                        break;
+                    }
+                }
+                if !got {
+                    err = Some(format!("Names download failed ({})", problems.join("; ")));
                 }
             }
             if err.is_none() {
@@ -1352,9 +1396,7 @@ fn site_sync(shared: Arc<Shared>) {
                 let at = meta["checked_at"].as_f64().unwrap_or(now);
                 c.apply_site_bulk(npcs.unwrap_or_default(), skills.unwrap_or_default(), at);
             }
-            if err.is_some() {
-                c.lookup_status = err;
-            }
+            c.lookup_status = err;
         }
         first = false;
     }
