@@ -158,6 +158,8 @@ pub struct Entry {
     pub id: u32,
     pub name: String,
     pub icon: Option<String>,
+    /// Monster rank as shown on the site: "Common", "Elite", "Heroic"...
+    pub rank: Option<String>,
 }
 
 /// Entries from a gaming.tools `*.d.json` data file.
@@ -169,9 +171,15 @@ pub fn entries_from_data(src: &str) -> Result<Vec<Entry>, String> {
         let id = r.get("id").and_then(|x| x.as_str().and_then(|s| s.parse::<u32>().ok()).or_else(|| x.as_u64().map(|n| n as u32)));
         let name = r.get("name").and_then(|x| x.as_str()).map(|s| s.trim().to_string());
         let icon = r.get("iconPath").and_then(|x| x.as_str()).filter(|p| p.starts_with('/') && !p.contains("..") && p.len() < 200).map(String::from);
+        let rank = r
+            .get("rankName")
+            .and_then(|x| x.as_str())
+            .or_else(|| r.get("rank").and_then(|x| x.as_str()))
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty() && s.len() < 40);
         if let (Some(id), Some(name)) = (id, name) {
             if !name.is_empty() {
-                out.push(Entry { id, name, icon });
+                out.push(Entry { id, name, icon, rank });
             }
         }
     }
@@ -192,10 +200,12 @@ mod devalue_tests {
 
     #[test]
     fn npc_file_shape() {
-        let src = r#"[[1,14],{"entityType":2,"categories":3,"aliases":6,"minimumLevel":8,"maximumLevel":9,"level":10,"mainCategoryId":11,"name":7,"iconPath":12,"id":13},"npc",[4,5],"npcs/monster/intellect","npcs/citizen",[7,7,7,7],"Draconute Ranger",17,70,0,"npcs","/images/custom/npcs.2000002.webp","2000002",{"name":15,"id":16,"x":-1},"Earth's Retribution","17010000"]"#;
+        let src = r#"[[1,14],{"entityType":2,"categories":3,"aliases":6,"minimumLevel":8,"maximumLevel":9,"level":10,"mainCategoryId":11,"name":7,"iconPath":12,"id":13,"rank":17,"rankName":18},"npc",[4,5],"npcs/monster/intellect","npcs/citizen",[7,7,7,7],"Draconute Ranger",17,70,0,"npcs","/images/custom/npcs.2000002.webp","2000002",{"name":15,"id":16,"x":-1},"Earth's Retribution","17010000","heromonster","Heroic"]"#;
         let n = names_from_data(src).unwrap();
         assert_eq!(n, vec![(2000002, "Draconute Ranger".to_string()), (17010000, "Earth's Retribution".to_string())]);
         assert_eq!(entries_from_data(src).unwrap()[0].icon.as_deref(), Some("/images/custom/npcs.2000002.webp"));
+        assert_eq!(entries_from_data(src).unwrap()[0].rank.as_deref(), Some("Heroic"));
+        assert_eq!(entries_from_data(src).unwrap()[1].rank, None);
         let v = devalue(src).unwrap();
         assert_eq!(v.as_arr().unwrap()[0].get("aliases").unwrap().as_arr().unwrap().len(), 4);
     }

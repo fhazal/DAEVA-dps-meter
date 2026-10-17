@@ -27,6 +27,8 @@ pub struct Names {
     pub bosses: std::collections::HashSet<u32>,
     /// Boss enrage ("berserk") time in seconds from the first hit, by template.
     pub berserk: HashMap<u32, u32>,
+    /// Monster rank by template ("Common", "Elite", "Heroic"...).
+    pub ranks: HashMap<u32, String>,
 }
 
 impl Names {
@@ -74,6 +76,11 @@ impl Names {
                     n.items.insert(id, (x.str_or("name", "?").to_string(), x.get("grade").and_then(|g| g.as_u64()).map(|g| g as u32)));
                 }
                 _ => {}
+            }
+        }
+        for (id, x) in ids("ranks") {
+            if let Some(s) = x.as_str() {
+                n.ranks.insert(id, s.to_string());
             }
         }
         for (id, x) in ids("berserk") {
@@ -140,6 +147,7 @@ impl Names {
         self.items.extend(other.items);
         self.bosses.extend(other.bosses);
         self.berserk.extend(other.berserk);
+        self.ranks.extend(other.ranks);
         for (k, v) in other.classes {
             self.classes.entry(k).or_insert(v);
         }
@@ -986,6 +994,7 @@ impl Engine {
                 .set("max_hp", a.and_then(|a| a.max_hp))
                 .set("hp", a.and_then(|a| a.hp))
                 .set("berserk", npc_id.and_then(|n| self.names.berserk.get(&n).copied()))
+                .set("rank", npc_id.and_then(|n| self.names.ranks.get(&n).cloned()))
                 .build()
         });
         Obj::new()

@@ -20,27 +20,32 @@
   /* Target card: portrait, name, HP current / max · %, health bar,
      kill-time estimate and damage on the target. */
   .target { padding: 6px 7px 7px; border-bottom: 1px solid var(--line); }
-  .tcard { position: relative; padding: 8px 11px 7px; border-radius: 10px;
-    background: linear-gradient(180deg, rgba(64,30,38,0.55), rgba(38,24,30,0.45));
-    border: 1px solid rgba(214,104,124,0.38); }
-  .tcard.dead { background: linear-gradient(180deg, rgba(111,207,142,0.07), rgba(255,255,255,0.02)); border-color: rgba(111,207,142,0.26); }
+  /* Card colour follows the monster's rank from aion2.gaming.tools:
+     --rk is the rank colour (border, bar, % and rank label). */
+  .tcard { --rk: 232,103,126; position: relative; padding: 8px 11px 7px; border-radius: 10px;
+    background: linear-gradient(180deg, rgba(var(--rk),0.16), rgba(var(--rk),0.06));
+    border: 1px solid rgba(var(--rk),0.38); }
+  .tcard.r-common { --rk: 150,158,172; }
+  .tcard.r-elite { --rk: 79,157,240; }
+  .tcard.r-heroic { --rk: 232,168,75; }
+  .tcard.r-legendary, .tcard.r-boss { --rk: 232,103,126; }
+  .tcard.dead .hp i { opacity: 0; }
+  .tc-bot .rank { color: rgb(var(--rk)); font-weight: 700; letter-spacing: .02em; }
   .target .row1 { display: flex; align-items: center; gap: 8px; }
-  .target .tc-ic { width: 24px; height: 24px; flex: none; display: grid; place-items: center; border-radius: 50%; color: #f08ea0;
-    background: rgba(0,0,0,0.3); border: 1px solid rgba(232,103,126,0.3); }
+  .target .tc-ic { width: 24px; height: 24px; flex: none; display: grid; place-items: center; border-radius: 50%; color: rgb(var(--rk));
+    background: rgba(0,0,0,0.3); border: 1px solid rgba(var(--rk),0.3); }
   .target .tc-ic svg { width: 14px; height: 14px; }
   .target .name { flex: 1; min-width: 0; font-weight: 650; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .target .meta { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .target .meta b { color: var(--text); font-weight: 600; }
-  .target .meta .pc { color: #ff6f86; font-weight: 700; }
+  .target .meta .pc { color: rgb(var(--rk)); filter: brightness(1.15); font-weight: 700; }
   .hp { height: 7px; border-radius: 4px; background: rgba(10,12,16,0.75); margin: 7px 0 6px; overflow: hidden; }
-  .hp i { display: block; height: 100%; border-radius: 4px; background: linear-gradient(90deg, #f08a9b, #f6a3b0); transition: width .25s; }
+  .hp i { display: block; height: 100%; border-radius: 4px; background: linear-gradient(90deg, rgba(var(--rk),0.85), rgb(var(--rk))); transition: width .25s; }
   .tc-bot { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; color: #9c98a0; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .tc-bot b.warn { color: var(--warn); }
   .tc-bot b.bad { color: var(--bad); }
   .tc-bot b { color: var(--text); font-weight: 650; }
   .tc-bot b.good { color: var(--good); }
-  .tcard.dead .row1 { margin-bottom: 1px; }
-  .kill { color: var(--good); font-size: 11px; font-weight: 600; }
   .nameit { color: var(--accent); cursor: pointer; font-size: 11px; font-weight: 600; margin-left: 6px; white-space: nowrap; }
   .nameit:hover { text-decoration: underline; }
   .target input.nm { width: 100%; font: inherit; font-weight: 600; padding: 2px 6px; }
@@ -85,7 +90,7 @@
   .alert .t { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .alert .b { color: var(--muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   @keyframes slidein { from { opacity: 0; transform: translateY(-8px); } }
-  .foot .srv { color: var(--muted); font-weight: 600; letter-spacing: .02em; display: inline-flex; align-items: center; gap: 6px; }
+  .foot .srv { color: var(--text); font-weight: 600; letter-spacing: .02em; display: inline-flex; align-items: center; gap: 6px; }
   .foot .fr { display: inline-flex; align-items: center; gap: 8px; }
   .foot .sep { width: 1px; height: 11px; background: rgba(255,255,255,0.14); }
   .foot .fx { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
@@ -94,6 +99,7 @@
   .foot .ody { width: 11px; height: 11px; }
   .foot .srv-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--good); box-shadow: 0 0 6px rgba(111,207,142,0.7); }
   .nextev { flex: none; display: flex; gap: 12px; padding: 3px 10px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; font-variant-numeric: tabular-nums; }
+  .nextev > span { color: var(--text); }
   .nextev b { color: var(--text); font-weight: 600; }
   .nextev .live b { color: var(--good); }
   .nextev .soon b { color: var(--warn); }
@@ -241,7 +247,7 @@
         const t = live ? `live · ${countdown(o.ends - now)} left` : countdown(o.starts - now);
         const cls = live ? "live" : o.starts - now < 600 ? "soon" : "";
         const at = new Date(o.starts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-        return `<span class="${cls}" title="${D.esc(o.name)} · ${at}${o.note ? " · " + D.esc(o.note) : ""}">${D.eventIcon(o.id, o.emoji, 15)} ${D.esc(o.short)} <b>${t}</b></span>`;
+        return `<span class="${cls}" title="${D.esc(o.name)} · ${at}${o.note ? " · " + D.esc(o.note) : ""}">${D.esc(o.emoji || "")} ${D.esc(o.short)} <b>${t}</b></span>`;
       }).join("");
       next.title = a.error ? "Event feed: " + a.error + " (showing last known times)" : "";
     } else {
@@ -262,26 +268,25 @@
     const dead = f.boss_killed || (t.hp_pct != null && t.hp_pct <= 0.0005);
     const pctv = t.hp_pct == null ? null : Math.min(1, Math.max(0, t.hp_pct));
     const hpNow = t.hp != null && t.max_hp ? Math.min(t.hp, t.max_hp) : null;
-    const hp = !dead && pctv != null ? `<div class="hp" title="Health left"><i style="width:${(pctv * 100).toFixed(1)}%"></i></div>` : "";
-    const hpText = hpNow != null ? `${D.fmt(hpNow)} / ${D.fmt(t.max_hp)} · ` : "";
-    const kill = dead ? '<span class="kill">KILLED</span>' : (pctv != null ? `<span class="meta" title="Health left">${hpText}<span class="pc">${D.pct(pctv, pctv < 0.1 ? 1 : 0)}</span></span>` : "");
+    // Always "HP / max · %" top right; a dead target reads 0 and 0%.
+    const showPct = dead ? 0 : pctv;
+    const hp = showPct != null || dead ? `<div class="hp" title="Health left"><i style="width:${((showPct || 0) * 100).toFixed(1)}%"></i></div>` : "";
+    const hpText = t.max_hp ? `${D.fmt(dead ? 0 : hpNow != null ? hpNow : t.max_hp)} / ${D.fmt(t.max_hp)} · ` : "";
+    const kill = showPct != null ? `<span class="meta" title="Health left">${hpText}<span class="pc">${D.pct(showPct, showPct > 0 && showPct < 0.1 ? 1 : 0)}</span></span>` : "";
     // Kill-time estimate: HP left ÷ the group's damage rate on this target.
     const onTarget = t.dmg_taken || f.total || 0;
     const rate = onTarget / Math.max(1, f.duration || 1);
     const killIn = !dead && f.live && hpNow != null && rate > 0 ? D.dur(hpNow / rate) : null;
-    // "Berserk in": enrage countdown, only for bosses whose enrage time is
-    // known (names.json "berserk"); otherwise the fight time.
-    let right;
-    if (dead) right = `Damage <b>${D.fmt(onTarget)}</b>`;
-    else if (t.berserk) {
-      const left = t.berserk - (f.duration || 0);
-      right = left > 0 ? `Berserk in <b class="${left < 60 ? "bad" : left < 180 ? "warn" : ""}">${D.dur(left)}</b>` : `<b class="bad">Berserk!</b>`;
-    } else right = `Fight <b>${D.dur(f.duration)}</b>`;
+    // Bottom right: the monster's rank (Common, Elite, Heroic...) from
+    // aion2.gaming.tools; the fight time when the rank isn't known.
+    const rank = t.rank ? String(t.rank) : "";
+    const rkey = rank.toLowerCase().replace(/monster$/, "").replace(/^hero(ic)?$/, "heroic").replace(/^normal$/, "common").replace(/[^a-z]/g, "");
+    const right = rank ? `<span class="rank">${D.esc(rank)}</span>` : `Fight <b>${D.dur(f.duration)}</b>`;
     const bot = `<div class="tc-bot"><span>${dead ? `Killed in <b class="good">${D.dur(f.duration)}</b>` : killIn ? `Kill in <b class="good">${killIn}</b>` : `Damage <b>${D.fmt(onTarget)}</b>`}</span><span>${right}</span></div>`;
     const nameit = t.named === false && t.npc_id ? `<span class="nameit" data-npc="${t.npc_id}" title="Looking it up on aion2.gaming.tools… or type the name yourself (saved for good)">✎ name it</span><span class="nameit" data-lk="${t.npc_id}" title="Open on aion2.gaming.tools">🔎</span>` : "";
     const unknownTip = t.name === "Unknown monster" ? ` title="This monster was already nearby when the meter started, so the game never said which one it is. It gets its name after you change zone or it comes back into view."` : "";
     const portrait = D.npcIcon(t.npc_id, 24) || '<span class="tc-ic"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.5C4.5 1.5 2 4 2 7c0 1.9 1 3.3 2.3 4.1V13c0 .6.4 1 1 1h.7v-1.5h1V14h2v-1.5h1V14h.7c.6 0 1-.4 1-1v-1.9C13 10.3 14 8.9 14 7c0-3-2.5-5.5-6-5.5zM5.6 9.2a1.3 1.3 0 1 1 0-2.6 1.3 1.3 0 0 1 0 2.6zm4.8 0a1.3 1.3 0 1 1 0-2.6 1.3 1.3 0 0 1 0 2.6z"/></svg></span>';
-    const html = `<div class="tcard${dead ? " dead" : ""}"><div class="row1">${portrait}<div class="name"${unknownTip}>${D.esc(t.name)}${nameit}</div>${kill}</div>${hp}${bot}</div>`;
+    const html = `<div class="tcard${dead ? " dead" : ""}${rkey ? " r-" + rkey : ""}"><div class="row1">${portrait}<div class="name"${unknownTip}>${D.esc(t.name)}${nameit}</div>${kill}</div>${hp}${bot}</div>`;
     if (html !== lastTargetHtml) { $("target").innerHTML = html; lastTargetHtml = html; }
   }
   // Handled on press, on the container: the target bar redraws 4x a second,
