@@ -94,19 +94,27 @@
       .concat(targets.map((t) => `<option value="${t.id}" ${String(t.id) === String(target) ? "selected" : ""}>${D.esc(t.name)} · ${D.fmt(t.dmg)}</option>`)).join("");
     const head = `
       <div class="hdr">
-        <span class="big acc" style="color:${color}">${D.fmt(tab === "taken" ? data.taken : data.dmg)}</span>
-        <span class="lbl">${tab === "taken" ? "damage taken" : "damage"}</span>
+        <span class="big acc" style="color:${color}">${D.fmt(tab === "taken" ? data.taken : tab === "heal" ? data.heal : data.dmg)}</span>
+        <span class="lbl">${tab === "taken" ? "damage taken" : tab === "heal" ? "healing" : "damage"}</span>
         <span class="big">${D.pct(data.active_share ?? 1)}</span><span class="lbl">active</span>
         ${data.cp ? `<span class="lbl">CP ${Number(data.cp).toLocaleString()}</span>` : ""}
         <span class="sp"></span>
         <span class="tabs">
           <button data-tab="dmg" class="${tab === "dmg" ? "on" : ""}">Dmg</button>
-          <button data-tab="heal" disabled title="Healing is not decoded yet">Heal</button>
+          <button data-tab="heal" class="${tab === "heal" ? "on" : ""}">Heal</button>
           <button data-tab="taken" class="${tab === "taken" ? "on" : ""}">Taken</button>
         </span>
       </div>`;
     let body;
-    if (tab === "taken") {
+    if (tab === "heal") {
+      const hs = data.heal_skills || [];
+      const who = data.healed || [];
+      body = hs.length
+        ? `<div class="summary"><div class="l1">${D.fmt(data.heal)} healing · ${D.fmt(data.heal / Math.max(1, data.fight_duration || data.active_time))}/s</div></div>
+           <table class="grid"><thead><tr><th>Skill</th><th>Healing</th><th>%</th><th>Casts</th><th>Hits</th><th>Crit</th><th>Max</th><th>Avg</th></tr></thead><tbody>${hs.map((s) => `<tr><td>${D.esc(s.name)}</td><td><b>${D.fmt(s.amount)}</b></td><td>${pc(s.share)}</td><td>${s.casts}×</td><td>${s.hits}</td><td>${pc(s.crit_rate)}</td><td>${D.fmt(s.max)}</td><td>${D.fmt(s.avg)}</td></tr>`).join("")}</tbody></table>
+           <h2>Healed</h2><table class="grid"><tbody>${who.map((w) => `<tr><td>${D.esc(w.name)}</td><td>${D.fmt(w.amount)}</td></tr>`).join("")}</tbody></table>`
+        : '<p class="muted">No healing in this fight.</p>';
+    } else if (tab === "taken") {
       const rows = data.taken_from || [];
       body = rows.length
         ? `<table class="grid"><thead><tr><th>Source</th><th>Damage</th><th>%</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${D.esc(r.name)}</td><td>${D.fmt(r.dmg)}</td><td>${pc(r.dmg / Math.max(1, data.taken))}</td></tr>`).join("")}</tbody></table>`
@@ -132,7 +140,7 @@
           <tbody>${data.skills.map((s) => `<tr>
             <td class="sk"><i class="bg" style="width:${((s.dmg / top) * 100).toFixed(1)}%"></i><span>${D.esc(s.name)}</span></td>
             <td><b>${D.fmt(s.dmg)}</b></td><td>${pc(s.share)}</td>
-            <td>${s.casts ?? "–"}×</td><td>${s.hits}</td><td>${pc(s.multi_rate)}</td>
+            <td>${s.casts == null ? "–" : s.casts + "×"}</td><td>${s.hits}</td><td>${pc(s.multi_rate)}</td>
             <td>${pc(s.crit_rate)}</td><td>${pc(s.back_rate)}</td><td>${pc(s.front_rate)}</td><td>${pc(s.double_rate)}</td>
             <td>${D.fmt(s.max)}</td><td>${D.fmt(s.avg)}</td></tr>`).join("")}</tbody>
         </table>

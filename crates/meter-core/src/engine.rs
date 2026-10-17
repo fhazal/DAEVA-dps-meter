@@ -7,6 +7,10 @@ use std::collections::{HashMap, VecDeque};
 
 // ---------------------------------------------------------------- names
 
+/// Skill keys with this bit set are the periodic (DoT/HoT) part of a skill,
+/// listed separately like "Chain of Torment (DOT)".
+pub const DOT_KEY: u32 = 1 << 31;
+
 /// Lookup tables for skills, NPCs, classes and items. Loaded from
 /// `names.json` so the community can maintain them.
 #[derive(Default, Debug, Clone)]
@@ -78,6 +82,9 @@ impl Names {
 
     /// Skill ids often encode a level/rank suffix; fall back to coarser ids.
     pub fn skill(&self, id: u32) -> String {
+        if id & DOT_KEY != 0 {
+            return format!("{} (DOT)", self.skill(id & !DOT_KEY));
+        }
         if id == 0 {
             return "Auto attack".into();
         }
@@ -176,6 +183,9 @@ pub struct ActorStat {
     pub by_target: HashMap<u64, u64>,
     /// Damage taken per attacker.
     pub taken_from: HashMap<u64, u64>,
+    /// Healing done, per skill and per target.
+    pub heal_skills: HashMap<u32, SkillStat>,
+    pub healed: HashMap<u64, u64>,
     pub doubles: u64,
     /// Damage per second bucket from fight start.
     pub timeline: Vec<u64>,
@@ -217,6 +227,11 @@ pub struct Fight {
     pub zone: Option<u32>,
     pub boss_killed: bool,
     pub finished: bool,
+    /// The local player's id during this fight (ids change per zone).
+    pub self_id: Option<u64>,
+    /// Names/classes frozen when the fight ends, so history stays readable
+    /// after a zone change reuses entity ids.
+    pub names: HashMap<u64, (String, Option<String>)>,
 }
 
 impl Fight {
@@ -321,12 +336,39 @@ impl Engine {
         }
         let mut cur = id;
         for _ in 0..4 {
-            match self.actors.get(&cur).and_then(|a| a.owner) {
+            let Some(a) = self.actors.get(&cur) else { break };
+            match a.owner {
                 Some(o) if o != cur => cur = o,
-                _ => break,
+                _ => {
+                    // Summons/objects that only carry their owner's name.
+                    if a.kind == ActorKind::Summon {
+                        if let Some(n) = &a.name {
+                            if let Some(o) = self.owner_by_name(n) {
+                                if o != cur {
+                                    cur = o;
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                    break;
+                }
             }
         }
         cur
+    }
+
+    fn owner_by_name(&self, name: &str) -> Option<u64> {
+        if self.self_name.as_deref() == Some(name) {
+            return self.self_id;
+        }
+        match self.actors.values().find(|a| a.kind == ActorKind::Player && a.name.as_deref() == Some(name)) {
+            Some(a) => Some(a.id),
+            // Every other player in view announces their name when they
+            // appear, but the game never announces you to yourself: a
+            // named object whose owner isn't anyone visible is yours.
+            None => self.self_id,
+        }
     }
 
     fn is_npc(&self, id: u64) -> bool {
@@ -356,6 +398,13 @@ impl Engine {
                     }
                 }
                 let attacker = self.resolve_owner(*src);
+                let key = if fl & flags::DOT != 0 { *skill | DOT_KEY } else { *skill };
+                // Friendly on friendly: the game reports heals in the same
+                // message as damage.
+                if self.is_friendly(attacker) && self.is_friendly(self.resolve_owner(*tgt)) {
+                    self.record_heal(*ts, attacker, *tgt, key, *amount, *fl);
+                    return finished;
+                }
                 // Damage dealt *by* NPCs only counts as damage taken.
                 let attacker_is_npc = self.is_npc(attacker);
                 let target_is_friendly = self.actors.get(tgt).map_or(false, |a| matches!(a.kind, ActorKind::Player | ActorKind::Summon));
@@ -383,20 +432,23 @@ impl Engine {
                 let s = fight.stats.entry(attacker).or_insert_with(|| ActorStat { first: *ts, ..Default::default() });
                 s.last = *ts;
                 s.dmg += amount;
-                s.hits += 1;
-                let crit = fl & flags::CRIT != 0;
-                if crit {
-                    s.crits += 1;
-                }
-                if fl & flags::BACK != 0 {
-                    s.back += 1;
-                }
-                if fl & flags::PERFECT != 0 {
-                    s.perfect += 1;
+                // Periodic ticks don't count as hits for the rate columns
+                // (same as Abyss, which shows "-" for DoT casts).
+                if fl & flags::DOT == 0 {
+                    s.hits += 1;
+                    if fl & flags::CRIT != 0 {
+                        s.crits += 1;
+                    }
+                    if fl & flags::BACK != 0 {
+                        s.back += 1;
+                    }
+                    if fl & flags::PERFECT != 0 {
+                        s.perfect += 1;
+                    }
                 }
                 if *amount > s.max_hit {
                     s.max_hit = *amount;
-                    s.max_hit_skill = *skill;
+                    s.max_hit_skill = key;
                 }
                 *s.by_target.entry(*tgt).or_default() += amount;
                 if bucket < 3600 {
@@ -408,17 +460,13 @@ impl Engine {
                 if fl & flags::DOUBLE != 0 {
                     s.doubles += 1;
                 }
-                s.skills.entry(*skill).or_default().add(*amount, *fl);
-                s.target_skills.entry(*tgt).or_default().entry(*skill).or_default().add(*amount, *fl);
+                s.skills.entry(key).or_default().add(*amount, *fl);
+                s.target_skills.entry(*tgt).or_default().entry(key).or_default().add(*amount, *fl);
             }
-            GameEvent::Heal { ts, src, amount, .. } => {
+            GameEvent::Heal { ts, src, tgt, skill, amount, flags: fl } => {
                 let healer = self.resolve_owner(*src);
-                if let Some(f) = self.current.as_mut() {
-                    if !f.finished {
-                        let s = f.stats.entry(healer).or_insert_with(|| ActorStat { first: *ts, last: *ts, ..Default::default() });
-                        s.heal += amount;
-                    }
-                }
+                let key = if fl & flags::DOT != 0 { *skill | DOT_KEY } else { *skill };
+                self.record_heal(*ts, healer, *tgt, key, *amount, *fl);
             }
             GameEvent::Death { ts, target, killer } => {
                 let main = self.current.as_ref().and_then(|f| f.main_target());
@@ -446,7 +494,7 @@ impl Engine {
                 }
                 // A spawn (npc_id) is authoritative; otherwise only fill in an
                 // unknown kind, so guesses never flip a known player/NPC.
-                if *kind != ActorKind::Unknown && (a.kind == ActorKind::Unknown || npc_id.is_some()) {
+                if *kind != ActorKind::Unknown && (a.kind == ActorKind::Unknown || npc_id.is_some() || *kind == ActorKind::Summon) {
                     a.kind = *kind;
                 }
                 if npc_id.is_some() {
@@ -468,6 +516,12 @@ impl Engine {
                 // this event from messages that are about the local player).
                 if self.self_id != Some(*id) {
                     self.self_name = None;
+                    if self.self_id.is_some() {
+                        // Zone change / relog: every entity id is reassigned.
+                        finished = self.finish();
+                        self.actors.clear();
+                        self.pending_end = None;
+                    }
                 }
                 self.self_id = Some(*id);
                 if name.is_some() {
@@ -513,8 +567,10 @@ impl Engine {
             }
             GameEvent::Buff { .. } => {}
             GameEvent::SelfStats { cp } => {
-                if cp.is_some() {
-                    self.self_cp = *cp;
+                // Combat power is in the tens of thousands; ignore anything
+                // implausible from look-alike messages in some zones.
+                if let Some(c) = cp.filter(|c| (1..10_000_000).contains(c)) {
+                    self.self_cp = Some(c);
                 }
             }
         }
@@ -537,6 +593,8 @@ impl Engine {
                 zone: self.zone,
                 boss_killed: false,
                 finished: false,
+                self_id: self.self_id,
+                names: HashMap::new(),
             });
         }
         self.current.as_mut().unwrap()
@@ -564,6 +622,21 @@ impl Engine {
         }
     }
 
+    fn is_friendly(&self, id: u64) -> bool {
+        Some(id) == self.self_id || self.actors.get(&id).map_or(false, |a| matches!(a.kind, ActorKind::Player | ActorKind::Summon))
+    }
+
+    fn record_heal(&mut self, ts: f64, healer: u64, tgt: u64, key: u32, amount: u64, fl: u32) {
+        if let Some(f) = self.current.as_mut() {
+            if !f.finished {
+                let s = f.stats.entry(healer).or_insert_with(|| ActorStat { first: ts, last: ts, ..Default::default() });
+                s.heal += amount;
+                s.heal_skills.entry(key).or_default().add(amount, fl);
+                *s.healed.entry(tgt).or_default() += amount;
+            }
+        }
+    }
+
     /// True while the fight's main target is a known boss that is not dead.
     fn boss_alive(&self, f: &Fight) -> bool {
         let Some(t) = f.main_target() else { return false };
@@ -579,6 +652,16 @@ impl Engine {
             return None;
         }
         f.finished = true;
+        let ids: Vec<u64> = f
+            .stats
+            .iter()
+            .flat_map(|(id, st)| std::iter::once(*id).chain(st.by_target.keys().copied()).chain(st.taken_from.keys().copied()))
+            .chain(f.targets.keys().copied())
+            .collect();
+        for id in ids {
+            let n = (self.actor_name(id), self.actor_class(id));
+            f.names.entry(id).or_insert(n);
+        }
         // remove pure "taken" entries with no activity to keep history tidy
         f.stats.retain(|_, s| s.dmg > 0 || s.heal > 0 || s.taken > 0);
         if f.total() < self.cfg.min_fight_damage {
@@ -626,6 +709,20 @@ impl Engine {
         }
     }
 
+    /// Name as of a given fight (frozen names win once the fight is over).
+    pub fn fname(&self, f: &Fight, id: u64) -> String {
+        match f.names.get(&id) {
+            Some((n, _)) => n.clone(),
+            None => self.actor_name(id),
+        }
+    }
+    pub fn fclass(&self, f: &Fight, id: u64) -> Option<String> {
+        match f.names.get(&id) {
+            Some((_, c)) => c.clone(),
+            None => self.actor_class(id),
+        }
+    }
+
     pub fn actor_class(&self, id: u64) -> Option<String> {
         self.actors.get(&id).and_then(|a| a.class.as_ref()).map(|c| self.names.class(c))
     }
@@ -654,7 +751,7 @@ impl Engine {
             None => s.dmg,
         };
         let total: u64 = f.stats.values().map(dmg_of).sum();
-        let mut rows: Vec<(&u64, &ActorStat)> = f.stats.iter().filter(|(_, s)| dmg_of(s) > 0 || s.heal > 0).collect();
+        let mut rows: Vec<(&u64, &ActorStat)> = f.stats.iter().filter(|(_, s)| dmg_of(s) > 0).collect();
         rows.sort_by(|a, b| dmg_of(b.1).cmp(&dmg_of(a.1)).then(b.1.heal.cmp(&a.1.heal)));
         let players: Vec<Value> = rows
             .iter()
@@ -662,9 +759,9 @@ impl Engine {
                 let d = dmg_of(s);
                 Obj::new()
                     .set("id", **id)
-                    .set("name", self.actor_name(**id))
-                    .set("class", self.actor_class(**id))
-                    .set("is_self", Some(**id) == self.self_id)
+                    .set("name", self.fname(f, **id))
+                    .set("class", self.fclass(f, **id))
+                    .set("is_self", Some(**id) == f.self_id)
                     .set("dmg", d)
                     .set("dps", d as f64 / dur)
                     .set("share", if total > 0 { d as f64 / total as f64 } else { 0.0 })
@@ -690,7 +787,7 @@ impl Engine {
             });
             Obj::new()
                 .set("id", t)
-                .set("name", self.actor_name(t))
+                .set("name", self.fname(f, t))
                 .set("dmg_taken", *f.targets.get(&t).unwrap_or(&0))
                 .set("hp_pct", hp_pct)
                 .set("max_hp", a.and_then(|a| a.max_hp))
@@ -740,7 +837,7 @@ impl Engine {
                     .set("share", rate(k.dmg, total))
                     .set("hits", k.hits)
                     .set("swings", k.swings)
-                    .set("casts", k.casts)
+                    .set("casts", if **id & DOT_KEY != 0 { None } else { Some(k.casts) })
                     .set("multi_rate", rate(k.multi, k.casts))
                     .set("crit_rate", rate(k.crits, k.swings))
                     .set("back_rate", rate(k.back, k.swings))
@@ -754,23 +851,23 @@ impl Engine {
                     .build()
             })
             .collect();
-        let sum = |g: fn(&SkillStat) -> u64| -> u64 { table.values().map(g).sum() };
-        let hits = sum(|k| k.hits);
+        let sum = |g: fn(&SkillStat) -> u64| -> u64 { table.iter().filter(|(k, _)| **k & DOT_KEY == 0).map(|(_, v)| g(v)).sum() };
+        let hits: u64 = table.values().map(|k| k.hits).sum(); // incl. DoT ticks, like Abyss
         let swings = sum(|k| k.swings);
         let mut targets: Vec<(&u64, &u64)> = s.by_target.iter().collect();
         targets.sort_by(|a, b| b.1.cmp(a.1));
-        let tg: Vec<Value> = targets.iter().take(30).map(|(t, d)| Obj::new().set("id", **t).set("name", self.actor_name(**t)).set("dmg", **d).build()).collect();
+        let tg: Vec<Value> = targets.iter().take(30).map(|(t, d)| Obj::new().set("id", **t).set("name", self.fname(f, **t)).set("dmg", **d).build()).collect();
         let mut taken: Vec<(&u64, &u64)> = s.taken_from.iter().collect();
         taken.sort_by(|a, b| b.1.cmp(a.1));
-        let tk: Vec<Value> = taken.iter().take(30).map(|(t, d)| Obj::new().set("id", **t).set("name", self.actor_name(**t)).set("dmg", **d).build()).collect();
+        let tk: Vec<Value> = taken.iter().take(30).map(|(t, d)| Obj::new().set("id", **t).set("name", self.fname(f, **t)).set("dmg", **d).build()).collect();
         let first_hit = target.and(Some(s.first)).unwrap_or(s.first);
         Some(
             Obj::new()
                 .set("id", actor)
-                .set("name", self.actor_name(actor))
-                .set("class", self.actor_class(actor))
-                .set("is_self", Some(actor) == self.self_id)
-                .set("cp", if Some(actor) == self.self_id { self.self_cp } else { None })
+                .set("name", self.fname(f, actor))
+                .set("class", self.fclass(f, actor))
+                .set("is_self", Some(actor) == f.self_id)
+                .set("cp", if Some(actor) == f.self_id { self.self_cp } else { None })
                 .set("target", target)
                 .set("dmg", total)
                 .set("fight_dmg", s.dmg)
@@ -791,6 +888,32 @@ impl Engine {
                 .set("skills", Value::Arr(sk))
                 .set("targets", Value::Arr(tg))
                 .set("taken_from", Value::Arr(tk))
+                .set("heal_skills", {
+                    let mut hs: Vec<(&u32, &SkillStat)> = s.heal_skills.iter().collect();
+                    hs.sort_by(|a, b| b.1.dmg.cmp(&a.1.dmg));
+                    Value::Arr(
+                        hs.iter()
+                            .map(|(id, k)| {
+                                Obj::new()
+                                    .set("id", **id)
+                                    .set("name", self.names.skill(**id))
+                                    .set("amount", k.dmg)
+                                    .set("share", rate(k.dmg, s.heal))
+                                    .set("casts", k.casts)
+                                    .set("hits", k.hits)
+                                    .set("crit_rate", rate(k.crits, k.swings))
+                                    .set("max", k.max)
+                                    .set("avg", if k.swings > 0 { k.dmg as f64 / k.swings as f64 } else { 0.0 })
+                                    .build()
+                            })
+                            .collect(),
+                    )
+                })
+                .set("healed", {
+                    let mut h: Vec<(&u64, &u64)> = s.healed.iter().collect();
+                    h.sort_by(|a, b| b.1.cmp(a.1));
+                    Value::Arr(h.iter().take(30).map(|(t, d)| Obj::new().set("id", **t).set("name", self.fname(f, **t)).set("amount", **d).build()).collect())
+                })
                 .set("timeline", Value::Arr(s.timeline.iter().map(|x| Value::from(*x)).collect()))
                 .build(),
         )
@@ -808,8 +931,8 @@ impl Engine {
             .map(|(ts, t, k)| {
                 Obj::new()
                     .set("t", ts - f.start)
-                    .set("target", self.actor_name(*t))
-                    .set("killer", k.map(|k| self.actor_name(k)))
+                    .set("target", self.fname(f, *t))
+                    .set("killer", k.map(|k| self.fname(f, k)))
                     .build()
             })
             .collect();
@@ -818,7 +941,7 @@ impl Engine {
             m.insert("details".into(), Value::Arr(details));
             m.insert("loot".into(), Value::Arr(loot));
             m.insert("deaths".into(), Value::Arr(deaths));
-            m.insert("self_name".into(), self.self_id.map(|id| self.actor_name(id)).into());
+            m.insert("self_name".into(), f.self_id.map(|id| self.fname(f, id)).into());
         }
         table
     }
@@ -844,12 +967,12 @@ impl Engine {
             .iter()
             .rev()
             .map(|f| {
-                let top = f.stats.iter().max_by_key(|(_, s)| s.dmg).map(|(id, _)| self.actor_name(*id));
+                let top = f.stats.iter().max_by_key(|(_, s)| s.dmg).map(|(id, _)| self.fname(f, *id));
                 Obj::new()
                     .set("fight_id", f.id)
                     .set("started_unix", f.started_unix)
                     .set("duration", f.duration())
-                    .set("target", f.main_target().map(|t| self.actor_name(t)))
+                    .set("target", f.main_target().map(|t| self.fname(f, t)))
                     .set("total", f.total())
                     .set("dps", f.total() as f64 / f.duration())
                     .set("players", f.stats.values().filter(|s| s.dmg > 0).count())

@@ -6,7 +6,7 @@
 // updates after a game patch never need a new build.
 {
   "name": "AION 2 (global)",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "process_names": ["aion2"],
   // Server ports, if they turn out to be fixed. Auto-detection by process
   // already finds the server, so this can stay empty.
@@ -65,14 +65,41 @@
     {"opcode": "0x364a", "name": "S_SELF_STATE", "dir": "server",
      "fields": ["id:varint"],
      "emit": {"event": "self", "id": "id"}},
-    // NPC/monster spawn: template id, position, HP.
-    {"opcode": "0x3641", "name": "S_NPC_SPAWN", "dir": "server",
-     "fields": ["id:varint", "a:u8", "b:u16le", "npc:u32le", "c:u8", "d:u8",
-                "x:f32le", "y:f32le", "z:f32le", "heading:f32le",
-                "unk:varint", "hp:varint", "max_hp:varint"],
+    // Entity spawn. b==32 (0x20): NPC/monster with template id, position, HP.
+    // b==256 (0x100): player-owned object/summon, followed by the owner's name.
+    {"opcode": "0x3641", "name": "S_SPAWN", "dir": "server",
+     "fields": ["id:varint", "a:u8", "b:u16le",
+                {"name": "npc", "type": "u32le", "if": "b==32"},
+                {"name": "c", "type": "u8", "if": "b==32"},
+                {"name": "d", "type": "u8", "if": "b==32"},
+                {"name": "x", "type": "f32le", "if": "b==32"},
+                {"name": "y", "type": "f32le", "if": "b==32"},
+                {"name": "z", "type": "f32le", "if": "b==32"},
+                {"name": "heading", "type": "f32le", "if": "b==32"},
+                {"name": "unk", "type": "varint", "if": "b==32"},
+                {"name": "hp", "type": "varint", "if": "b==32"},
+                {"name": "max_hp", "type": "varint", "if": "b==32"},
+                {"name": "pname", "type": "str", "if": "b==256"}],
      "emit": [
-       {"event": "actor", "id": "id", "kind": "'npc'", "npc_id": "npc", "max_hp": "max_hp"},
-       {"event": "hp", "id": "id", "hp": "hp", "max_hp": "max_hp"}
+       {"event": "actor", "when": "b==32", "id": "id", "kind": "'npc'", "npc_id": "npc", "max_hp": "max_hp"},
+       {"event": "hp", "when": "b==32", "id": "id", "hp": "hp", "max_hp": "max_hp"},
+       // b==256 is an object/summon carrying its owner's name (e.g. Templar
+       // Divine Aura); its damage is credited to that owner. Real players
+       // arrive via 0x3645.
+       {"event": "actor", "when": "b==256", "id": "id", "kind": "'summon'", "name": "pname"}
+     ]},
+    // Full player info when another player comes into view (party members on
+    // dungeon entry): id, 5 header bytes, name.
+    {"opcode": "0x3645", "name": "S_PLAYER_INFO", "dir": "server",
+     "fields": ["id:varint", "p1:u8", "p2:u8", "p3:varint", "p4:u8", "name:str"],
+     "emit": {"event": "actor", "id": "id", "kind": "'player'", "name": "name"}},
+    // Periodic ticks: kind 10 = damage over time, kind 9 = heal over time
+    // (kinds 11/48 are other resources). Abyss lists these as "(DOT)".
+    {"opcode": "0x3805", "name": "S_PERIODIC", "dir": "server",
+     "fields": ["tgt:varint", "kind:u8", "src:varint", "tick:varint", "effect:u32le", "amount:varint", "skill:u32le"],
+     "emit": [
+       {"event": "damage", "when": "kind==10", "src": "src", "tgt": "tgt", "skill": "skill", "amount": "amount", "dot": 1},
+       {"event": "heal", "when": "kind==9", "src": "src", "tgt": "tgt", "skill": "skill", "amount": "amount", "dot": 1}
      ]},
     // Local player's combat power (sent on its own, no entity id).
     {"opcode": "0x3656", "name": "S_SELF_CP", "dir": "server",
