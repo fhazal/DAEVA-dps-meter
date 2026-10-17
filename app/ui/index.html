@@ -47,7 +47,11 @@
   .foot { flex: none; display: flex; align-items: center; gap: 8px; padding: 3px 10px; font-size: 10.5px; color: var(--dim); border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; }
   .foot span:last-child { margin-left: auto; }
   .ping { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .ping { color: var(--dim); }
   .ping.good { color: var(--good); } .ping.warn { color: var(--warn); } .ping.bad { color: var(--bad); }
+  .sig { display: inline-flex; align-items: flex-end; gap: 1px; margin-right: 4px; height: 9px; }
+  .sig i { width: 2px; background: currentColor; opacity: 0.25; border-radius: 1px; }
+  .sig i.on { opacity: 1; }
 </style>
 </head>
 <body>
@@ -149,8 +153,12 @@
     }
     const footL = snap.research ? `● REC ${D.dur(snap.research.elapsed)}` : text;
     const self = s.self ? `${D.esc(s.self)}` : "";
-    const ping = s.ping_ms != null ? `<b class="ping ${s.ping_ms < 80 ? "good" : s.ping_ms < 150 ? "warn" : "bad"}" title="Latency to the game server">${Math.round(s.ping_ms)} ms</b>` : "";
-    $("foot").innerHTML = `<span>${D.esc(footL)}${ping ? " · " + ping : ""}</span><span>${self}${s.uploads_pending ? " · ↑" + s.uploads_pending : ""}</span>`;
+    const pc = s.ping_ms == null ? "" : s.ping_ms < 80 ? "good" : s.ping_ms < 150 ? "warn" : "bad";
+    const bars = s.ping_ms == null ? 0 : s.ping_ms < 80 ? 4 : s.ping_ms < 150 ? 3 : s.ping_ms < 250 ? 2 : 1;
+    const sig = [1, 2, 3, 4].map((i) => `<i style="height:${i * 2 + 1}px" class="${i <= bars ? "on" : ""}"></i>`).join("");
+    const ping = `<b class="ping ${pc}" title="Latency to the game server (measured passively)"><span class="sig">${sig}</span>${s.ping_ms == null ? "-- ms" : Math.round(s.ping_ms) + " ms"}</b>`;
+    $("foot").innerHTML = `<span>${D.esc(footL)}</span><span>${self}${s.uploads_pending ? " · ↑" + s.uploads_pending : ""} · ${ping}</span>`;
+    $("foot").title = "Daeva Meter " + (s.version || "");
   }
 
   function renderTarget(f) {
@@ -168,8 +176,11 @@
     $("rows").innerHTML = rows.map((p, i) => {
       const v = m === "dps" ? p.dps : p.dmg;
       const color = D.classColor(p.class, p.name);
-      const main = m === "share" ? D.pct(p.share, 1) : D.fmt(v);
-      const sub = m === "share" ? `<span class="sub">${D.fmt(p.dps)}/s</span>` : `<small>${D.pct(p.share)}</small>`;
+      // Main number per the metric switch, plus the other figure in grey
+      // (DPS view shows total damage and vice versa) and the share.
+      const main = m === "share" ? D.pct(p.share, 1) : m === "dps" ? D.fmt(p.dps) + "/s" : D.fmt(p.dmg);
+      const other = m === "dps" ? D.fmt(p.dmg) : D.fmt(p.dps) + "/s";
+      const sub = m === "share" ? `<span class="sub">${D.fmt(p.dps)}/s</span>` : `<span class="sub">${other}</span><small>${D.pct(p.share)}</small>`;
       const heal = ui.show_heal && p.heal ? `<span class="sub">♥ ${D.fmt(p.hps)}/s</span>` : "";
       const tip = `${p.name}${p.class ? " (" + p.class + ")" : ""}\nDamage ${D.fmt(p.dmg)} · ${D.fmt(p.dps)}/s\nCrit ${D.pct(p.crit_rate)} · Back ${D.pct(p.back_rate)} · Hits ${p.hits}\nMax hit ${D.fmt(p.max_hit)} (${p.max_hit_skill})${p.heal ? "\nHealing " + D.fmt(p.heal) : ""}${p.deaths ? "\nDeaths " + p.deaths : ""}`;
       return `<div class="row${p.is_self ? " self" : ""}" data-id="${p.id}" title="${D.esc(tip)}">

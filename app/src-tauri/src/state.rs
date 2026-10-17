@@ -385,6 +385,7 @@ impl Core {
             .set("save_error", st.last_save_error.clone())
             .set("self", e.self_id.map(|id| e.actor_name(id)))
             .set("uploads_pending", self.uploads.len())
+            .set("version", env!("CARGO_PKG_VERSION"))
             .build();
         let ui = Obj::new()
             .set("opacity", s.opacity)
