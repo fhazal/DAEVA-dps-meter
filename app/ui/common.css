@@ -1,3 +1,5 @@
+/* The hidden attribute always wins over a display set by a class. */
+[hidden] { display: none !important; }
 :root {
   --accent: #d9a441;
   --accent-soft: rgba(217, 164, 65, 0.18);

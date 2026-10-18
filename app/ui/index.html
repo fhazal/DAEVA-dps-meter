@@ -218,7 +218,7 @@
       $("rows").innerHTML = emptyState(s, state, text);
       wireEmpty();
     } else {
-      $("title").innerHTML = `${appName(s)} <small>${f.live ? "" : "Last · "}${D.dur(f.duration)}</small>`;
+      $("title").innerHTML = appName(s);
       renderTarget(f);
       renderRows(f, m);
     }
