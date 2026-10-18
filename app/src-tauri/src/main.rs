@@ -447,9 +447,12 @@ fn main() {
                         let mut ignore = ct;
                         if ct {
                             if let (Some((cx, cy)), Ok(pos), Ok(size), Ok(scale)) = (winsys::cursor_pos(), w.outer_position(), w.outer_size(), w.scale_factor()) {
+                                // Title bar and footer (where the lock button sits).
                                 let bar = (34.0 * scale) as i32;
+                                let foot = (26.0 * scale) as i32;
+                                let bottom = pos.y + size.height as i32;
                                 let inside_x = cx >= pos.x && cx < pos.x + size.width as i32;
-                                let inside_bar = cy >= pos.y && cy < pos.y + bar;
+                                let inside_bar = (cy >= pos.y && cy < pos.y + bar) || (cy >= bottom - foot && cy < bottom);
                                 if inside_x && inside_bar {
                                     ignore = false;
                                 }

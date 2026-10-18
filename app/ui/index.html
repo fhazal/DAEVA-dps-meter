@@ -70,7 +70,10 @@
   .empty b { color: var(--text); font-weight: 600; }
   .empty a { color: var(--accent); cursor: pointer; text-decoration: underline; }
   .foot { flex: none; display: flex; align-items: center; gap: 8px; padding: 3px 10px; font-size: 10.5px; color: var(--dim); border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; }
-  .foot span:last-child { margin-left: auto; }
+  .footc { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; overflow: hidden; }
+  .footc > span:last-child { margin-left: auto; }
+  .foot .lockb { width: 20px; height: 20px; margin: -2px -4px -2px 0; flex: none; }
+  .foot .lockb svg { width: 13px; height: 13px; }
   .ping { font-weight: 600; font-variant-numeric: tabular-nums; }
   .ping { color: var(--dim); }
   .warnline { color: var(--warn); cursor: pointer; overflow: hidden; text-overflow: ellipsis; }
@@ -117,7 +120,6 @@
       <button class="icon-btn hide-locked" id="bHistory" title="History"></button>
       <button class="icon-btn hide-locked" id="bResearch" title="Research mode"></button>
       <button class="icon-btn hide-locked" id="bSettings" title="Settings"></button>
-      <button class="icon-btn" id="bLock" title="Click-through (Ctrl+Shift+L)"></button>
       <button class="icon-btn hide-locked" data-win="minimize" title="Minimise"></button>
       <button class="icon-btn close hide-locked" data-win="close" title="Quit"></button>
     </div>
@@ -125,7 +127,7 @@
   <div class="target" id="target" hidden></div>
   <div class="scroll"><div class="rows" id="rows"></div></div>
   <div class="nextev" id="nextev" hidden></div>
-  <div class="foot" id="foot"></div>
+  <div class="foot" id="foot"><div class="footc" id="footc"></div><i class="sep"></i><button class="icon-btn lockb" id="bLock" title="Click-through (Ctrl+Shift+L)"></button></div>
 </div>
 <script src="common.js"></script>
 <script>
@@ -216,7 +218,7 @@
     const sig = [1, 2, 3, 4].map((i) => `<i style="height:${i * 2 + 1}px" class="${i <= bars ? "on" : ""}"></i>`).join("");
     const ping = `<b class="ping ${pc}" title="Latency to the game server (measured passively)"><span class="sig">${sig}</span>${s.ping_ms == null ? "-- ms" : Math.round(s.ping_ms) + " ms"}</b>`;
     const odyle = s.odyle != null ? `<span class="fx" title="Odyle ${Number(s.odyle).toLocaleString()}${s.odyle_bonus ? ` (+${Number(s.odyle_bonus).toLocaleString()} from Odyle Energy)` : ""} · from the game, updated whenever it changes"><svg class="ody" viewBox="0 0 16 16"><path d="M8 1l4.5 5L8 15 3.5 6z" fill="#7cc4ff"/><path d="M8 1l4.5 5H3.5z" fill="#d6efff"/></svg><b>${Number(s.odyle).toLocaleString()}</b>${s.odyle_bonus ? `<span class="dl"> (+${Number(s.odyle_bonus).toLocaleString()})</span>` : ""}</span><i class="sep"></i>` : "";
-    $("foot").innerHTML = `<span class="${isSrv ? "srv" : ""}" title="${D.esc(text)}">${isSrv ? '<i class="srv-dot"></i>' : ""}${D.esc(footL)}</span><span class="fr">${s.uploads_pending ? `<span>↑${s.uploads_pending}</span><i class="sep"></i>` : ""}${odyle}${ping}</span>`;
+    $("footc").innerHTML = `<span class="${isSrv ? "srv" : ""}" title="${D.esc(text)}">${isSrv ? '<i class="srv-dot"></i>' : ""}${D.esc(footL)}</span><span class="fr">${s.uploads_pending ? `<span>↑${s.uploads_pending}</span><i class="sep"></i>` : ""}${odyle}${ping}</span>`;
     $("foot").title = "Daeva Meter " + (s.version || "");
     renderAlerts(snap.alerts);
     if (s.warning) {
@@ -225,7 +227,7 @@
       w.textContent = "⚠ " + s.warning;
       w.title = "Click to save a problem report to your Desktop";
       w.onclick = sendReport;
-      $("foot").firstElementChild.replaceWith(w);
+      $("footc").firstElementChild.replaceWith(w);
     }
   }
 
