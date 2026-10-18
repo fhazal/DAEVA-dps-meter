@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.4
+
+- **DPS boards:** sharing now goes to the Daeva bot at aion2.bajubesi.org out of the box. Run `/meter link` in our Discord, paste the token in **Settings → Share with Daeva bot**, turn sharing on, and your boss and elite fights appear in *Highest DPS today* and *Class DPS today* on the site and in the daily Discord recap. Sharing stays off until you turn it on.
+- **Test connection** button next to the token tells you straight away whether it works.
+- Uploads the bot refuses (for example an old token) are no longer retried five times.
+
 ## 0.3.3
 
 - Status light: a freshly opened meter now shows **idle** (pulsing amber) until your first fight, instead of "in combat" for the first 30 seconds.

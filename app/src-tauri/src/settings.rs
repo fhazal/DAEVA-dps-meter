@@ -41,9 +41,12 @@ pub struct Share {
     pub min_duration: f64,
 }
 
+/// The Daeva bot's upload address on aion2.bajubesi.org.
+pub const DEFAULT_SHARE_ENDPOINT: &str = "https://aion2.bajubesi.org/api/meter";
+
 impl Default for Share {
     fn default() -> Self {
-        Share { enabled: false, endpoint: String::new(), token: String::new(), scope: "self".into(), share_loot: false, min_loot_grade: 4, min_duration: 20.0 }
+        Share { enabled: false, endpoint: DEFAULT_SHARE_ENDPOINT.into(), token: String::new(), scope: "self".into(), share_loot: false, min_loot_grade: 4, min_duration: 20.0 }
     }
 }
 
@@ -201,7 +204,12 @@ impl Default for Settings {
 
 impl Settings {
     pub fn load(path: &Path) -> Settings {
-        std::fs::read_to_string(path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+        let mut s: Settings = std::fs::read_to_string(path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+        // Older versions saved an empty address; fill in the Daeva bot's.
+        if s.share.endpoint.trim().is_empty() {
+            s.share.endpoint = DEFAULT_SHARE_ENDPOINT.into();
+        }
+        s
     }
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
         if let Some(d) = path.parent() {

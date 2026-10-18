@@ -469,6 +469,8 @@
               headers: { "Content-Type": "application/json", ...(share.token ? { Authorization: "Bearer " + share.token } : {}) },
               body: item.body,
             });
+            // A refusal (bad token, not counted, too big) won't change on retry; drop it.
+            if (!r.ok && r.status >= 400 && r.status < 500 && r.status !== 408 && r.status !== 429) { retry.splice(i, 1); console.warn("upload refused", r.status); continue; }
             if (!r.ok) throw new Error("HTTP " + r.status);
             retry.splice(i, 1);
           } catch (e) {

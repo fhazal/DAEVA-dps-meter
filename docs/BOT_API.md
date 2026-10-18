@@ -18,7 +18,9 @@ Access-Control-Allow-Methods: POST, OPTIONS
 Access-Control-Allow-Headers: Content-Type, Authorization
 ```
 
-Return any `2xx` on success. A failed request is retried up to 5 times, 3 seconds apart, and then dropped.
+Return any `2xx` on success. A network error or `5xx`/`408`/`429` is retried up to 5 times, 3 seconds apart, and then dropped; any other `4xx` is dropped straight away.
+
+The Daeva bot lives at `https://aion2.bajubesi.org/api/meter`, which is the meter's default endpoint. Members get a token with `/meter link` in Discord.
 
 ## Bodies
 
@@ -66,6 +68,16 @@ With scope **Only me** (the default), `players` and `details` contain only the s
 
 `timeline` holds damage per second from the start of the fight.
 
+### Connection test
+
+**Settings → Share with Daeva bot → Test connection** sends:
+
+```json
+{"type": "ping", "meter": "daeva-meter"}
+```
+
+`200` means the token works; `401` means it's unknown.
+
 ### Loot
 
 ```json
@@ -81,6 +93,17 @@ With scope **Only me** (the default), `players` and `details` contain only the s
 ```
 
 Loot is only sent when the player enables it and the item meets their minimum grade.
+
+## What the Daeva bot counts
+
+- Real fights only: `demo: true` is ignored.
+- Fights of 20 s to 30 min against a **boss or elite** monster. The bot looks up `target.npc_id` in its own gaming.tools data; Common or unknown monsters don't count.
+- DPS is recomputed as damage ÷ duration. Damage far above `target.max_hp` is refused (`422`).
+- Each character belongs to one Discord member (`409` if someone else uploads it).
+- With "Everyone in the fight", other players appear only if they have linked their own meter.
+- Several members uploading the same kill (same target, start within 15 s) count once.
+
+Responses: `200 {"ok":true,"counted":n}`, `202 {"ok":true,"counted":0,"ignored":"reason"}`, or `4xx {"ok":false,"error":"…"}`.
 
 ## Suggested bot behaviour
 
