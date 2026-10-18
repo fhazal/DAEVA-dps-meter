@@ -358,11 +358,12 @@
     // side already says "Killed in", so show the damage dealt instead.
     const famIc = FAMILY_ICON[String(t.family || "").toLowerCase()] || "";
     const fam = t.family ? `<span class="fam">${famIc ? `<i class="famic">${famIc}</i>` : ""}${D.esc(t.family)}</span><span class="dotsep">·</span>` : "";
-    // Unknown monster while the meter still needs a zone load: say how to fix it.
-    const needTp = t.name === "Unknown monster" && lastSnap && lastSnap.status && lastSnap.status.needs_zone;
+        // The game only names a monster when it first comes into range; a big boss
+    // is announced from far away, so a short hop nearby isn't enough.
+    const needTp = t.name === "Unknown monster";
     // Fresh install: the monster data (type, family, picture) is still downloading.
     const loadingData = !rank && !t.family && !dead && lastSnap && lastSnap.status && lastSnap.status.monster_data === "loading";
-    const right = needTp ? `<span class="tp-hint">📍 Teleport once to identify</span>` : loadingData ? `<span class="md-loading" title="Downloading the monster list (type, family and picture). This only happens once."><i class="md-spin"></i>Loading monster data…</span>` : rank ? `${fam}<span class="rank">${D.esc(rank)}</span>` : t.family && !dead ? `${fam}Fight <b>${D.dur(secs)}</b>` : dead ? `Damage <b>${D.fmt(onTarget)}</b>` : `Fight <b>${D.dur(secs)}</b>`;
+    const right = needTp ? `<span class="tp-hint" title="The meter started while this monster was already nearby, so the game hasn't said which one it is. Teleport to another region and come back (or start the meter before heading to a boss).">📍 Teleport away and back to identify</span>` : loadingData ? `<span class="md-loading" title="Downloading the monster list (type, family and picture). This only happens once."><i class="md-spin"></i>Loading monster data…</span>` : rank ? `${fam}<span class="rank">${D.esc(rank)}</span>` : t.family && !dead ? `${fam}Fight <b>${D.dur(secs)}</b>` : dead ? `Damage <b>${D.fmt(onTarget)}</b>` : `Fight <b>${D.dur(secs)}</b>`;
     const bot = `<div class="tc-bot"><span>${dead ? `Killed in <b class="good">${D.dur(secs)}</b>` : killIn ? `Kill in <b class="good">${killIn}</b>` : `Damage <b>${D.fmt(onTarget)}</b>`}</span><span>${right}</span></div>`;
     const nameit = t.named === false && t.npc_id ? `<span class="nameit" data-npc="${t.npc_id}" title="Looking it up on aion2.gaming.tools… or type the name yourself (saved for good)">✎ name it</span><span class="nameit" data-lk="${t.npc_id}" title="Open on aion2.gaming.tools">🔎</span>` : "";
     const unknownTip = t.name === "Unknown monster" ? ` title="This monster was already nearby when the meter started, so the game never said which one it is. It gets its name after you change zone or it comes back into view."` : "";
