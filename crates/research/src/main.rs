@@ -483,7 +483,7 @@ fn cmd_decode(pkts: &[Packet], a: &Args) -> Result<(), String> {
     let mut p = Pipeline::new(Decoder::new(defs.clone(), Some(decompressor())), Engine::new(EngineConfig::default(), names));
     p.strict = !p.server_ports.is_empty();
     if let Some(id) = a.get("self").and_then(json::parse_number_str) {
-        p.engine.handle(&meter_core::events::GameEvent::SelfId { id: id as u64, name: a.get("self-name").map(String::from) });
+        p.engine.restore_self(id as u64, a.get("self-name").map(String::from));
     }
     let mut fights = Vec::new();
     // --swap-at N: replace the decoder after N packets (what a live

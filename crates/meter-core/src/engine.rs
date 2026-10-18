@@ -725,6 +725,10 @@ impl Engine {
                         // not a zone change, the game just hasn't reloaded.
                         if let Some(old) = self.self_id {
                             self.actors.remove(&old);
+                            // A different id may be a different character:
+                            // don't show the remembered name until the game
+                            // says who you are (zone load, self-buff, party).
+                            self.self_name = None;
                         }
                     } else if self.self_id.is_some() {
                         self.fresh_view = true;
@@ -1509,7 +1513,10 @@ mod zone_notice_tests {
         // Meter opened mid-zone: the game reports a new id (new session).
         e.handle(&GameEvent::SelfId { id: 6817, name: None });
         assert!(!e.fresh_view, "a remembered id must not clear the notice");
-        assert_eq!(e.self_name.as_deref(), Some("DewiHijau"));
+        // Could be another character: no remembered name until confirmed.
+        assert_eq!(e.self_name, None);
+        e.handle(&GameEvent::SelfId { id: 6817, name: Some("DewaPutih".into()) });
+        assert_eq!(e.self_name.as_deref(), Some("DewaPutih"));
         // A real zone change afterwards does.
         e.handle(&GameEvent::SelfId { id: 7000, name: None });
         assert!(e.fresh_view);
@@ -1518,7 +1525,10 @@ mod zone_notice_tests {
     #[test]
     fn zone_load_clears_notice() {
         let mut e = Engine::new(EngineConfig::default(), Names::default());
-        e.restore_self(6817, None);
+        e.restore_self(6817, Some("DewiHijau".into()));
+        // Same character, same id: the remembered name stays.
+        e.handle(&GameEvent::SelfId { id: 6817, name: None });
+        assert_eq!(e.self_name.as_deref(), Some("DewiHijau"));
         e.handle(&GameEvent::SelfId { id: 6817, name: Some("DewiHijau".into()) });
         assert!(!e.fresh_view);
         e.handle(&GameEvent::Fresh);
