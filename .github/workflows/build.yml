@@ -64,9 +64,26 @@ jobs:
         with:
           name: daeva-meter-windows
           path: dist/*
-      - name: Publish release
+      # Tagged builds become a DRAFT release: nothing is public until it is
+      # checked and published by hand. Only the installer is attached; the
+      # research toolkit stays in the build artifacts.
+      - name: Release notes with checksum
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem dist -Filter *setup*.exe | Select-Object -First 1
+          $hash = (Get-FileHash $setup.FullName -Algorithm SHA256).Hash
+          $notes = Get-Content .github/release-notes.md -Raw
+          $notes += "`n``$($setup.Name)``  `nSHA-256: ``$hash```n"
+          Set-Content -Path release-notes.md -Value $notes -Encoding utf8
+          New-Item -ItemType Directory -Force release | Out-Null
+          Copy-Item $setup.FullName release/
+      - name: Create draft release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*
+          draft: true
+          name: Daeva Meter ${{ github.ref_name }}
+          body_path: release-notes.md
+          files: release/*
           generate_release_notes: true

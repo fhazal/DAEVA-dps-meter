@@ -1202,18 +1202,19 @@ mod party_tests {
     use crate::net::Endpoint;
     use std::net::Ipv4Addr;
 
-    /// A real 0x9702 group list (Bakarma run).
+    /// A real 0x9702 group list (Bakarma run); other players' names replaced
+    /// with same-length placeholders.
     #[test]
     fn party_names_from_real_frame() {
         let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
         let mut d = Decoder::new(Arc::new(Definitions::from_json(&src).unwrap()), None);
         let flow = FlowKey { src: Endpoint { ip: Ipv4Addr::new(9, 9, 9, 9), port: 13328 }, dst: Endpoint { ip: Ipv4Addr::new(10, 0, 0, 2), port: 5000 } };
-        let hex = "b7 02 02 97 63 17 10 00 06 31 20 42 6f 73 73 05 e0 27 09 00 00 03 bc 7b 03 00 00 00 e1 05 ff 02 02 05 1e 01 bc 7b 03 00 00 00 e1 05 08 4c 6f 6c 6c 69 70 6f 70 22 00 00 00 2d 00 00 00 41 03 00 00 e1 05 9a 11 04 8a a4 00 00 00 00 00 00 00 1a 00 00 00 00 00 00 00 01 01 1e 02 4f c8 02 00 00 00 e1 05 07 55 76 57 68 69 74 65 0e 00 00 00 2d 00 00 00 4d 04 00 00 e1 05 9a 11 04 cd b4 00 00 00 00 00 00 00 a9 00 00 00 00 00 00 00 01 02 1e 03 d7 a5 02 00 00 00 c8 09 07 58 65 79 6c 79 6e 65 18 00 00 00 2d 00 00 00 09 09 00 00 c8 09 9a 11 04 a5 a6 01 00 00 00 00 00 00 9a 00 00 00 00 00 00 00 01 02 1e 04 ae e4 03 00 00 00 cc 09 09 44 65 77 69 48 69 6a 61 75 24 00 00 00 2d 00 00 00 72 04 00 00 07 cc 09 9a 11 04 d0 df 00 00 00 00 00 00 00 20 00 00 00 00 00 00 00 01 03 1e 05 37 65 00 00 00 00 e5 05 06 6d 61 6b 6f 74 69 0e 00 00 00 2d 00 00 00 3b 08 00 00 e5 05 9a 11 04 06 a0 01 00 00 00 00 00 00 b4 00 00 00 00 00 00 00 01 01 00 09";
+        let hex = "b7 02 02 97 63 17 10 00 06 31 20 42 6f 73 73 05 e0 27 09 00 00 03 bc 7b 03 00 00 00 e1 05 ff 02 02 05 1e 01 bc 7b 03 00 00 00 e1 05 08 4d 65 6d 62 65 72 30 31 22 00 00 00 2d 00 00 00 41 03 00 00 e1 05 9a 11 04 8a a4 00 00 00 00 00 00 00 1a 00 00 00 00 00 00 00 01 01 1e 02 4f c8 02 00 00 00 e1 05 07 4d 65 6d 62 65 72 32 0e 00 00 00 2d 00 00 00 4d 04 00 00 e1 05 9a 11 04 cd b4 00 00 00 00 00 00 00 a9 00 00 00 00 00 00 00 01 02 1e 03 d7 a5 02 00 00 00 c8 09 07 4d 65 6d 62 65 72 33 18 00 00 00 2d 00 00 00 09 09 00 00 c8 09 9a 11 04 a5 a6 01 00 00 00 00 00 00 9a 00 00 00 00 00 00 00 01 02 1e 04 ae e4 03 00 00 00 cc 09 09 44 65 77 69 48 69 6a 61 75 24 00 00 00 2d 00 00 00 72 04 00 00 07 cc 09 9a 11 04 d0 df 00 00 00 00 00 00 00 20 00 00 00 00 00 00 00 01 03 1e 05 37 65 00 00 00 00 e5 05 06 4d 65 6d 62 72 34 0e 00 00 00 2d 00 00 00 3b 08 00 00 e5 05 9a 11 04 06 a0 01 00 00 00 00 00 00 b4 00 00 00 00 00 00 00 01 01 00 09";
         let bytes: Vec<u8> = hex.split_whitespace().map(|h| u8::from_str_radix(h, 16).unwrap()).collect();
         let mut out = Vec::new();
         d.push(flow, true, &bytes, false, 1.0, &mut out);
         let names = out.iter().find_map(|e| match e { GameEvent::Party { names } => Some(names.clone()), _ => None }).expect("party event");
-        assert_eq!(names, vec!["Lollipop", "UvWhite", "Xeylyne", "DewiHijau", "makoti"]);
+        assert_eq!(names, vec!["Member01", "Member2", "Member3", "DewiHijau", "Membr4"]);
     }
 
     /// Start of a real 0x3633 sent on a teleport (same entity id as before).
