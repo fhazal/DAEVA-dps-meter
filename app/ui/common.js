@@ -219,5 +219,19 @@
     });
   }
 
+  // Window dragging by title bar. Not Tauri's data-tauri-drag-region: that
+  // maximises the window on double-click. A single press drags; double-clicks
+  // do nothing; nothing drags while the meter is locked.
+  document.addEventListener("mousedown", (e) => {
+    if (e.button !== 0 || e.detail !== 1 || !T) return;
+    if (!e.target.closest || !e.target.closest("[data-drag]")) return;
+    if (e.target.closest("button, input, select, textarea, a")) return;
+    if (document.body.classList.contains("locked")) return;
+    try { T.window.getCurrentWindow().startDragging(); } catch (err) { console.warn(err); }
+  });
+  document.addEventListener("dblclick", (e) => {
+    if (e.target.closest && e.target.closest("[data-drag]")) e.preventDefault();
+  });
+
   window.Daeva = { call, callJSON, fmt, pct, dur, when, esc, classColor, classIcon, skillIcon, npcIcon, eventIcon, loadArt, art, applyTheme, applyClassBorder, toast, icon, winAction, params, wireTitlebar };
 })();

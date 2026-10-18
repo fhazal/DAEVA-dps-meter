@@ -323,6 +323,7 @@ async fn open_window(app: AppHandle, kind: String, params: Option<String>) -> Re
         .decorations(false)
         .transparent(true)
         .always_on_top(true)
+        .maximizable(false)
         .build()
         .map(|_| ())
         .map_err(|e| e.to_string())
@@ -432,28 +433,31 @@ fn main() {
             app.manage(shared.clone());
             state::start_threads(shared.clone());
             start_hotkeys(app.handle(), &shared);
-            // While click-through is on, keep the title bar clickable when the
-            // mouse is over it, so the lock can always be clicked off again.
+            // While click-through is on, keep only the footer (where the lock
+            // button sits) clickable, so the lock can be clicked off again but
+            // the meter cannot be dragged or clicked anywhere else.
             {
                 let handle = app.handle().clone();
                 let sh = shared.clone();
                 std::thread::spawn(move || {
                     let mut applied: Option<bool> = None;
+                    let mut sized: Option<bool> = None;
                     let mut tick: u32 = 0;
                     loop {
                         std::thread::sleep(std::time::Duration::from_millis(80));
                         let Some(w) = handle.get_webview_window("main") else { continue };
                         let ct = sh.lock().settings.click_through;
                         let mut ignore = ct;
+                        // Locked: no resizing from the window edges either.
+                        if sized != Some(!ct) && w.set_resizable(!ct).is_ok() {
+                            sized = Some(!ct);
+                        }
                         if ct {
                             if let (Some((cx, cy)), Ok(pos), Ok(size), Ok(scale)) = (winsys::cursor_pos(), w.outer_position(), w.outer_size(), w.scale_factor()) {
-                                // Title bar and footer (where the lock button sits).
-                                let bar = (34.0 * scale) as i32;
                                 let foot = (26.0 * scale) as i32;
                                 let bottom = pos.y + size.height as i32;
                                 let inside_x = cx >= pos.x && cx < pos.x + size.width as i32;
-                                let inside_bar = (cy >= pos.y && cy < pos.y + bar) || (cy >= bottom - foot && cy < bottom);
-                                if inside_x && inside_bar {
+                                if inside_x && cy >= bottom - foot && cy < bottom {
                                     ignore = false;
                                 }
                             }
@@ -494,7 +498,17 @@ fn main() {
             if let Some(w) = app.get_webview_window("main") {
                 let s = shared.lock().settings.clone();
                 if let Some((x, y, width, height)) = s.window {
-                    let (width, height) = (width.clamp(200, 4000), height.clamp(100, 3000));
+                    let (mut width, mut height) = (width.clamp(200, 4000), height.clamp(100, 3000));
+                    // A size saved while the window was maximised (fills a
+                    // whole monitor): start at the normal size instead.
+                    let huge = w.available_monitors().map(|ms| {
+                        ms.iter().any(|m| width + 40 >= m.size().width && height + 80 >= m.size().height)
+                    });
+                    if huge.unwrap_or(false) {
+                        let scale = w.scale_factor().unwrap_or(1.0);
+                        width = (380.0 * scale) as u32;
+                        height = (320.0 * scale) as u32;
+                    }
                     // Only restore a position that is (mostly) on a monitor;
                     // otherwise keep the default spot so the meter is visible.
                     let on_screen = w.available_monitors().map(|ms| {
@@ -513,10 +527,22 @@ fn main() {
                 }
                 let _ = w.set_always_on_top(s.always_on_top);
                 let _ = w.set_ignore_cursor_events(s.click_through);
+                let _ = w.set_maximizable(false);
+                if w.is_maximized().unwrap_or(false) {
+                    let _ = w.unmaximize();
+                }
             }
             Ok(())
         })
         .on_window_event(|window, event| {
+            // Never stay maximised (Windows snap to the top edge, or a stray
+            // double-click): put the window back to its normal size.
+            if let tauri::WindowEvent::Resized(_) = event {
+                if window.is_maximized().unwrap_or(false) {
+                    let _ = window.unmaximize();
+                    return;
+                }
+            }
             if window.label() != "main" {
                 // Alt+F4 / taskbar close on a side window: hide it instead.
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {

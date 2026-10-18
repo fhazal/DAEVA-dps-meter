@@ -76,6 +76,7 @@
   .foot { flex: none; display: flex; align-items: center; gap: 8px; padding: 3px 10px; font-size: 10.5px; color: var(--dim); border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; }
   .footc { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; overflow: hidden; }
   .footc > span:last-child { margin-left: auto; }
+  .titlebar .title .ver { color: var(--muted); font-weight: 400; font-size: 11px; }
   .foot .lockb { width: 20px; height: 20px; margin: -2px -4px -2px 0; flex: none; }
   .foot .lockb svg { width: 13px; height: 13px; }
   .ping { font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -119,9 +120,9 @@
 </head>
 <body>
 <div class="shell">
-  <div class="titlebar" data-tauri-drag-region>
-    <span class="state-dot" id="dot" data-tauri-drag-region></span>
-    <div class="title" id="title" data-tauri-drag-region>Daeva Meter</div>
+  <div class="titlebar" data-drag>
+    <span class="state-dot" id="dot" data-drag></span>
+    <div class="title" id="title" data-drag>Daeva Meter</div>
     <div class="tools">
       <button class="icon-btn hide-locked" id="bMetric" title="Switch DPS / damage / share"></button>
       <button class="icon-btn hide-locked" id="bCopy" title="Copy summary for Discord"></button>
@@ -207,16 +208,17 @@
     $("dot").className = "state-dot " + state;
     $("dot").title = text;
 
+    const appName = (st) => `Daeva Meter${st.version ? ` <span class="ver">v${D.esc(st.version)}</span>` : ""}`;
     const f = snap.fight;
     lastFight = f;
     const m = metric || ui.primary_metric || "dps";
     if (!f || !f.players.length) {
-      $("title").innerHTML = "Daeva Meter";
+      $("title").innerHTML = appName(s);
       $("target").hidden = true;
       $("rows").innerHTML = emptyState(s, state, text);
       wireEmpty();
     } else {
-      $("title").innerHTML = `${f.live ? "" : '<span class="muted">Last · </span>'}${D.dur(f.duration)} <small>${D.fmt(f.dps)}/s party</small>`;
+      $("title").innerHTML = `${appName(s)} <small>${f.live ? "" : "Last · "}${D.dur(f.duration)}</small>`;
       renderTarget(f);
       renderRows(f, m);
     }

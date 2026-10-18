@@ -1185,18 +1185,32 @@ impl Core {
     }
 }
 
+/// "0.6.14" → [0, 6, 14] for comparing definition versions.
+fn version_key(v: &str) -> Vec<u64> {
+    v.trim().trim_start_matches('v').split('.').map(|p| p.trim().parse().unwrap_or(0)).collect()
+}
+
 fn load_definitions(paths: &Paths, status: &mut Status) -> (Arc<Definitions>, Names) {
     status.defs_error = None;
     status.names_error = None;
-    let defs = match paths.definition("aion2.json") {
-        Some(p) => match std::fs::read_to_string(&p).map_err(|e| e.to_string()).and_then(|s| Definitions::from_json(&s)) {
-            Ok(d) => d,
-            Err(e) => {
-                status.defs_error = Some(format!("{}: {e}", p.display()));
-                Definitions::from_json(FALLBACK_DEFS).unwrap()
-            }
-        },
-        None => {
+    // Your copy in the definitions folder overrides the bundled one only
+    // while it is at least as new; an old copy left behind after an update
+    // must not hide the fixes the update ships.
+    let load = |p: &std::path::Path| std::fs::read_to_string(p).map_err(|e| e.to_string()).and_then(|s| Definitions::from_json(&s)).map_err(|e| format!("{}: {e}", p.display()));
+    let user = paths.data.join("definitions").join("aion2.json");
+    let bundled = paths.resources.join("definitions").join("aion2.json");
+    let user = user.exists().then(|| load(&user));
+    let bundled = bundled.exists().then(|| load(&bundled));
+    let defs = match (user, bundled) {
+        (Some(Ok(u)), Some(Ok(b))) => {
+            if version_key(&u.version) >= version_key(&b.version) { u } else { b }
+        }
+        (Some(Ok(d)), _) | (_, Some(Ok(d))) => d,
+        (Some(Err(e)), _) | (None, Some(Err(e))) => {
+            status.defs_error = Some(e);
+            Definitions::from_json(FALLBACK_DEFS).unwrap()
+        }
+        (None, None) => {
             status.defs_error = Some("aion2.json not found".into());
             Definitions::from_json(FALLBACK_DEFS).unwrap()
         }
