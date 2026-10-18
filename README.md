@@ -167,6 +167,7 @@ More: [docs/DECODING.md](docs/DECODING.md) · [docs/DEFINITIONS.md](docs/DEFINIT
 ## 🙏 Credits
 
 - **[AION 2 Global Database](https://aion2.gaming.tools)** by gaming.tools: monster and skill names and game icons, with thanks to their team.
+- **[Lucide](https://lucide.dev)** (ISC licence): the settings cog icon.
 - **[Daeva](https://github.com/fhazal/Daeva-aion2-discordbot)**, our Discord assistant, supplies the event schedule.
 - Released under the [MIT licence](LICENSE).
 

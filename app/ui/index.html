@@ -10,6 +10,12 @@
   .state-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); flex: none; margin-right: 6px; box-shadow: 0 0 0 3px rgba(255,255,255,0.03); }
   .state-dot.live { background: var(--good); box-shadow: 0 0 8px rgba(111,207,142,0.7); }
   .state-dot.wait { background: var(--warn); }
+  /* Connected but no combat for 30 s: amber that slowly dims and glows. */
+  .state-dot.idle { background: var(--warn); animation: idleglow 2s ease-in-out infinite; }
+  @keyframes idleglow {
+    0%, 100% { opacity: 0.45; box-shadow: 0 0 0 rgba(231,180,76,0); }
+    50% { opacity: 1; box-shadow: 0 0 8px rgba(231,180,76,0.75); }
+  }
   .state-dot.err { background: var(--bad); }
   .state-dot.demo { background: #8f7ae0; }
   .state-dot.rec { background: var(--bad); animation: pulse 1s infinite; }
@@ -177,6 +183,9 @@
     return (p.class || "Player") + " " + (i + 1);
   }
 
+  // Green while fighting; idle (pulsing amber) after 30 s without combat.
+  const IDLE_MS = 30000;
+  let lastCombatAt = Date.now();
   function statusLine(s) {
     if (s.demo) return ["demo", "Demo mode — simulated party"];
     if (s.npcap_error) return ["err", s.npcap_error];
@@ -184,7 +193,9 @@
     if (!s.devices || !s.devices.length) return ["wait", "Opening network adapters…"];
     if (!s.game_process) return ["wait", "Waiting for AION 2 to start"];
     if (!s.servers.length) return ["wait", "AION 2 found — waiting for server connection"];
-    if (s.game_idle != null && s.game_idle < 5) return ["live", "Capturing"];
+    if (s.game_idle != null && s.game_idle < 5) {
+      return Date.now() - lastCombatAt > IDLE_MS ? ["idle", "Capturing · idle (no combat for 30 s)"] : ["live", "Capturing · in combat"];
+    }
     return ["wait", "Connected — no game traffic yet"];
   }
 
@@ -199,6 +210,7 @@
     $("bLock").classList.toggle("on", !!ui.click_through);
 
     const s = snap.status;
+    if (snap.fight && snap.fight.live) lastCombatAt = Date.now();
     // Window border follows your class colour (remembered between sessions).
     let myClass = s.self_class || (f0(snap) || {}).class;
     try { if (myClass) localStorage.setItem("daeva.selfClass", myClass); else myClass = localStorage.getItem("daeva.selfClass"); } catch {}
