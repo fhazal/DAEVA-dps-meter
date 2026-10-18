@@ -1215,4 +1215,19 @@ mod party_tests {
         let names = out.iter().find_map(|e| match e { GameEvent::Party { names } => Some(names.clone()), _ => None }).expect("party event");
         assert_eq!(names, vec!["Lollipop", "UvWhite", "Xeylyne", "DewiHijau", "makoti"]);
     }
+
+    /// Start of a real 0x3633 sent on a teleport (same entity id as before).
+    #[test]
+    fn self_info_on_teleport() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
+        let mut d = Decoder::new(Arc::new(Definitions::from_json(&src).unwrap()), None);
+        let flow = FlowKey { src: Endpoint { ip: Ipv4Addr::new(9, 9, 9, 9), port: 13328 }, dst: Endpoint { ip: Ipv4Addr::new(10, 0, 0, 2), port: 5000 } };
+        let body = "33 36 8d 69 5f a1 c1 08 37 08 42 61 6a 75 42 65 73 69 cc 09 07 00 00 00 02 2d 00 00 00";
+        let mut bytes: Vec<u8> = body.split_whitespace().map(|h| u8::from_str_radix(h, 16).unwrap()).collect();
+        bytes.insert(0, (bytes.len() + 1 + 3) as u8);
+        let mut out = Vec::new();
+        d.push(flow, true, &bytes, false, 1.0, &mut out);
+        assert!(out.iter().any(|e| matches!(e, GameEvent::SelfId { id: 13453, name: Some(n) } if n == "BajuBesi")), "{out:?}");
+        assert!(out.iter().any(|e| matches!(e, GameEvent::Fresh)), "{out:?}");
+    }
 }

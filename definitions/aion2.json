@@ -6,7 +6,7 @@
 // updates after a game patch never need a new build.
 {
   "name": "AION 2 (global)",
-  "version": "0.6.13",
+  "version": "0.6.14",
   "process_names": ["aion2"],
   // Server ports, if they turn out to be fixed. Auto-detection by process
   // already finds the server, so this can stay empty.
@@ -73,6 +73,16 @@
     {"opcode": "0x364a", "name": "S_SELF_STATE", "dir": "server",
      "fields": ["id:varint"],
      "emit": {"event": "self", "id": "id"}},
+    // Your full character info, sent once per zone load (login, teleport,
+    // dungeon entry; the entity id can stay the same across a teleport).
+    // id, 5 unknown bytes, your name, your server number.
+    {"opcode": "0x3633", "name": "S_SELF_INFO", "dir": "server",
+     "fields": ["id:varint", "x:skip5", "name:str", "server:u16le"],
+     "emit": [
+       {"event": "self", "id": "id", "name": "name"},
+       {"event": "actor_server", "id": "id", "server": "server"},
+       {"event": "fresh"}
+     ]},
     // Entity spawn. b is a flag set: bit 0x20 = NPC/monster with template id,
     // position, HP (seen as 32, 44 and 48; 48 = 0x20|0x10 has different
     // fields after the heading, so HP is only read for 32 and 44).
