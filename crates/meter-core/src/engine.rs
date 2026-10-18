@@ -405,6 +405,9 @@ pub struct Engine {
     pub self_keys: Option<u64>,
     /// Your group members' names (from the game's party list).
     pub party: std::collections::HashSet<String>,
+    /// True once the meter has seen a login or zone change, i.e. the game
+    /// has introduced everything around you (names, monsters, health).
+    pub fresh_view: bool,
     /// Highest max HP seen per monster template. A monster that appears
     /// already hurt reports its current HP as "max"; the template's real
     /// maximum is the highest one seen.
@@ -434,6 +437,7 @@ impl Engine {
             self_odyle: None,
             self_keys: None,
             party: Default::default(),
+            fresh_view: false,
             npc_max_hp: HashMap::new(),
         }
     }
@@ -706,6 +710,7 @@ impl Engine {
                     // changes); a different character's name replaces it as
                     // soon as the game sends it.
                     if self.self_id.is_some() {
+                        self.fresh_view = true;
                         // Zone change / relog: every entity id is reassigned.
                         finished = self.finish();
                         self.actors.clear();
@@ -798,6 +803,7 @@ impl Engine {
             }
             GameEvent::Keys { cur } => self.self_keys = Some(*cur),
             GameEvent::Party { names } => self.party = names.iter().cloned().collect(),
+            GameEvent::Fresh => self.fresh_view = true,
             GameEvent::Odyle { cur, bonus } => {
                 let (c0, b0) = self.self_odyle.unwrap_or((0, 0));
                 let c = cur.unwrap_or(c0);

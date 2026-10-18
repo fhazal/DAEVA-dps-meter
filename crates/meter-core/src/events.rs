@@ -78,6 +78,8 @@ pub enum GameEvent {
     Keys { cur: u64 },
     /// Names of your group (party) members, you included.
     Party { names: Vec<String> },
+    /// The game just sent a full picture (login or zone change).
+    Fresh,
 }
 
 impl GameEvent {
@@ -97,6 +99,7 @@ impl GameEvent {
             GameEvent::Odyle { .. } => "odyle",
             GameEvent::Keys { .. } => "keys",
             GameEvent::Party { .. } => "party",
+            GameEvent::Fresh => "fresh",
         }
     }
 }

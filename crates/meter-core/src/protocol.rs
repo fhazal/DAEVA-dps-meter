@@ -998,6 +998,7 @@ fn emit(e: &Emit, header: &Scope, scope: &Scope, ts: f64, out: &mut Vec<GameEven
                 (Some(id), Some(server)) if id != 0 && server != 0 => GameEvent::ActorServer { id, server: server as u32 },
                 _ => continue,
             },
+            "fresh" => GameEvent::Fresh,
             "party" => GameEvent::Party { names: txt("members").map(|s| s.split('\n').map(String::from).collect()).unwrap_or_default() },
             "keys" => match num("cur") {
                 Some(cur) if cur < 10_000 => GameEvent::Keys { cur },

@@ -6,7 +6,7 @@
 // updates after a game patch never need a new build.
 {
   "name": "AION 2 (global)",
-  "version": "0.6.12",
+  "version": "0.6.13",
   "process_names": ["aion2"],
   // Server ports, if they turn out to be fixed. Auto-detection by process
   // already finds the server, so this can stay empty.
@@ -162,7 +162,9 @@
                 {"name": "bonus", "type": "varint", "if": "flags&8"}],
      "emit": [
        {"event": "keys", "when": "kk==1&&k0==0&&k1==0&&k2==0&&kf&4", "cur": "keys"},
-       {"event": "odyle", "when": "kind==1&&t0==135&&t1==147&&t2==3", "cur": "cur", "bonus": "bonus"}
+       {"event": "odyle", "when": "kind==1&&t0==135&&t1==147&&t2==3", "cur": "cur", "bonus": "bonus"},
+       // Sent on login: everything around you is being introduced.
+       {"event": "fresh", "when": "1"}
      ]},
     // Group (party) list, resent every few seconds: member entries with an
     // account id, server and name. Used for "Me and my party".

@@ -1000,6 +1000,7 @@ impl Core {
             .set("odyle_bonus", e.self_odyle.or(self.settings.last_odyle).map(|o| o.1))
             // Remembered from an earlier session (Odyle regenerates while
             // you're away, so it's shown as "last seen" until the game sends it).
+            .set("needs_zone", !e.fresh_view && p.last_game_ts > 0.0 && e.self_id.is_some())
             .set("odyle_stale", e.self_odyle.is_none() && self.settings.last_odyle.is_some())
             .set("server", {
                 let manual = self.settings.server_name.trim();
