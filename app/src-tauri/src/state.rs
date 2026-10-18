@@ -504,6 +504,7 @@ impl Core {
             doc["skills"] = serde_json::Value::Object(skills.iter().map(|e| (e.id.to_string(), serde_json::json!(e.name))).collect());
             doc["icons"] = serde_json::Value::Object(icons.iter().map(|(k, v)| (k.clone(), serde_json::json!(v))).collect());
             doc["ranks"] = serde_json::Value::Object(npcs.iter().filter_map(|e| Some((e.id.to_string(), serde_json::json!(e.rank.clone()?)))).collect());
+            doc["families"] = serde_json::Value::Object(npcs.iter().filter_map(|e| Some((e.id.to_string(), serde_json::json!(e.family.clone()?)))).collect());
             doc["missing"] = serde_json::json!({});
             doc["fetched_at"] = serde_json::json!(fetched_at);
         });
@@ -1197,6 +1198,7 @@ fn load_definitions(paths: &Paths, status: &mut Status) -> (Arc<Definitions>, Na
         names.npcs.extend(site.npcs);
         names.skills.extend(site.skills);
         names.ranks.extend(site.ranks);
+        names.families.extend(site.families);
     }
     let mine = paths.data.join("my-names.json");
     if mine.exists() {

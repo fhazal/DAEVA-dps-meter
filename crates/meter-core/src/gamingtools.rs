@@ -160,6 +160,8 @@ pub struct Entry {
     pub icon: Option<String>,
     /// Monster rank as shown on the site: "Common", "Elite", "Heroic"...
     pub rank: Option<String>,
+    /// Monster family as the site labels it: Cogni, Natura, Fera, Varian...
+    pub family: Option<String>,
 }
 
 /// Entries from a gaming.tools `*.d.json` data file.
@@ -177,9 +179,24 @@ pub fn entries_from_data(src: &str) -> Result<Vec<Entry>, String> {
             .or_else(|| r.get("rank").and_then(|x| x.as_str()))
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty() && s.len() < 40);
+        // categories like "npcs/monster/feral" → the site's family label.
+        let family = r.get("categories").and_then(|c| c.as_arr()).and_then(|cats| {
+            cats.iter().filter_map(|c| c.as_str()).find_map(|c| c.strip_prefix("npcs/monster/")).map(|k| {
+                match k {
+                    "intellect" => "Cogni".to_string(),
+                    "nature" => "Natura".to_string(),
+                    "feral" => "Fera".to_string(),
+                    "trans" => "Varian".to_string(),
+                    other => {
+                        let mut c = other.chars();
+                        c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default()
+                    }
+                }
+            })
+        });
         if let (Some(id), Some(name)) = (id, name) {
             if !name.is_empty() {
-                out.push(Entry { id, name, icon, rank });
+                out.push(Entry { id, name, icon, rank, family });
             }
         }
     }
@@ -206,6 +223,7 @@ mod devalue_tests {
         assert_eq!(entries_from_data(src).unwrap()[0].icon.as_deref(), Some("/images/custom/npcs.2000002.webp"));
         assert_eq!(entries_from_data(src).unwrap()[0].rank.as_deref(), Some("Heroic"));
         assert_eq!(entries_from_data(src).unwrap()[1].rank, None);
+        assert_eq!(entries_from_data(src).unwrap()[0].family.as_deref(), Some("Cogni"));
         let v = devalue(src).unwrap();
         assert_eq!(v.as_arr().unwrap()[0].get("aliases").unwrap().as_arr().unwrap().len(), 4);
     }

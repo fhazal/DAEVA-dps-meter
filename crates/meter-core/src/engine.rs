@@ -29,6 +29,8 @@ pub struct Names {
     pub berserk: HashMap<u32, u32>,
     /// Monster rank by template ("Common", "Elite", "Heroic"...).
     pub ranks: HashMap<u32, String>,
+    /// Monster family by template (Cogni, Natura, Fera, Varian...).
+    pub families: HashMap<u32, String>,
 }
 
 impl Names {
@@ -76,6 +78,11 @@ impl Names {
                     n.items.insert(id, (x.str_or("name", "?").to_string(), x.get("grade").and_then(|g| g.as_u64()).map(|g| g as u32)));
                 }
                 _ => {}
+            }
+        }
+        for (id, x) in ids("families") {
+            if let Some(s) = x.as_str() {
+                n.families.insert(id, s.to_string());
             }
         }
         for (id, x) in ids("ranks") {
@@ -148,6 +155,7 @@ impl Names {
         self.bosses.extend(other.bosses);
         self.berserk.extend(other.berserk);
         self.ranks.extend(other.ranks);
+        self.families.extend(other.families);
         for (k, v) in other.classes {
             self.classes.entry(k).or_insert(v);
         }
@@ -1101,6 +1109,7 @@ impl Engine {
                 .set("hp", hp)
                 .set("berserk", npc_id.and_then(|n| self.names.berserk.get(&n).copied()))
                 .set("rank", npc_id.and_then(|n| self.names.ranks.get(&n).cloned()))
+                .set("family", npc_id.and_then(|n| self.names.families.get(&n).cloned()))
                 .build()
         });
         Obj::new()
