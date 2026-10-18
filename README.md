@@ -35,13 +35,13 @@ Live DPS · boss target card · skill breakdowns · event alerts · fight histor
 <td width="50%" valign="top">
 
 ### 📊 Live overlay
-DPS, total damage and share for everyone in the fight, coloured by class, in a small always-on-top window with click-through, opacity and scale.
+DPS, total damage and share for everyone in the fight, coloured by class, in a small always-on-top window with opacity and scale. Lock it in place with `Ctrl+Shift+L`; a status light shows when you're fighting (green) or idle (pulsing amber).
 
 </td>
 <td width="50%" valign="top">
 
 ### 🎯 Target card
-The monster's portrait and name, HP as current / max with a health bar, a **kill-time estimate** and the damage and DPS on it. Turns green with **KILLED** when it falls.
+The monster's portrait and name, its **type** (Cogni, Natura, Fera, Varian, Special) and **rank** colour, HP as current / max with a health bar, a **kill-time estimate**, and how long the kill took.
 
 </td>
 </tr>
@@ -73,6 +73,20 @@ Monster and skill names and game icons arrive automatically. Anything new can be
 
 </td>
 </tr>
+<tr>
+<td valign="top">
+
+### 💎 Your character
+Your **Odyle** energy and **Shugo Festival keys** under the meter, your server, and your **ping** to the game server (also through tunnels such as Mudfish). Switching characters is picked up automatically.
+
+</td>
+<td valign="top">
+
+### 🤝 Party and summons
+Summons and spirits count towards the player who summoned them. Show everyone fighting your target, just your party, or only yourself.
+
+</td>
+</tr>
 </table>
 
 <details>
@@ -85,9 +99,9 @@ Monster and skill names and game icons arrive automatically. Anything new can be
 | Hide / show overlay | `Ctrl+Shift+H` |
 | Copy summary for Discord | `Ctrl+Shift+C` |
 | Report a problem | `Ctrl+Shift+P` |
-| Research marker | `Ctrl+Shift+M` |
+| Research marker (testers) | `Ctrl+Shift+M` |
 
-All of them work while the game has focus and can be changed in Settings.
+All of them work while the game has focus and can be changed in Settings. Research tools for testers are under **Settings → Data → Show research tools**.
 
 </details>
 
