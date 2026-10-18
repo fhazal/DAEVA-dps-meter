@@ -488,10 +488,13 @@ impl Engine {
         }
         match self.actors.values().find(|a| a.kind == ActorKind::Player && a.name.as_deref() == Some(name)) {
             Some(a) => Some(a.id),
-            // Every other player in view announces their name when they
-            // appear, but the game never announces you to yourself: a
-            // named object whose owner isn't anyone visible is yours.
-            None => self.self_id,
+            // The game never announces you to yourself, so a named object
+            // whose owner isn't visible is yours only while your own name
+            // is still unknown. Once it is known, an unmatched name belongs
+            // to another player the game hasn't introduced (common in
+            // instances): leave it unowned rather than crediting you.
+            None if self.self_name.is_none() => self.self_id,
+            None => None,
         }
     }
 

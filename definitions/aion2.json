@@ -6,7 +6,7 @@
 // updates after a game patch never need a new build.
 {
   "name": "AION 2 (global)",
-  "version": "0.6.11",
+  "version": "0.6.12",
   "process_names": ["aion2"],
   // Server ports, if they turn out to be fixed. Auto-detection by process
   // already finds the server, so this can stay empty.
@@ -90,15 +90,25 @@
                 {"name": "unk", "type": "varint", "if": "b&32"},
                 {"name": "hp", "type": "varint", "if": "b&32"},
                 {"name": "max_hp", "type": "varint", "if": "b&32"},
-                {"name": "pname", "type": "str", "if": "b==256"}],
+                {"name": "pname", "type": "str", "if": "b==256"},
+                // Summoned spirits (b==16): after eight ff bytes and an 8-byte
+                // stamp comes the summoner's entity id.
+                {"name": "m16", "type": "seek", "pattern": "ff ff ff ff ff ff ff ff", "if": "b==16"},
+                {"name": "s16", "type": "skip", "len": 16, "if": "b==16"},
+                {"name": "owner", "type": "varint", "if": "b==16"},
+                // Skill objects (b==0) carry their summoner's name after
+                // "06 00 00 00 00 00" and the summoner's server number.
+                {"name": "m0", "type": "seek", "pattern": "06 00 00 00 00 00", "if": "b==0&&npc0>2000000&&npc0<3000000"},
+                {"name": "s0", "type": "skip", "len": 8, "if": "b==0&&npc0>2000000&&npc0<3000000"},
+                {"name": "oname", "type": "str", "if": "b==0&&npc0>2000000&&npc0<3000000"}],
      "emit": [
        // Every monster spawn names its template (fixes "Mob #12345").
        {"event": "actor", "when": "b&32", "id": "id", "kind": "'npc'", "npc_id": "npc"},
        // b==16: a player's spirit/pet/object (templates 292xxxx, e.g. an
        // Elementalist spirit). Name it from its template, not "Player #12345".
-       {"event": "actor", "when": "b==16", "id": "id", "kind": "'summon'", "npc_id": "npc"},
+       {"event": "actor", "when": "b==16", "id": "id", "kind": "'summon'", "npc_id": "npc", "owner": "owner"},
        // b==0 (a=95): skill objects such as Sorcerer summons, same idea.
-       {"event": "actor", "when": "b==0&&npc0>2000000&&npc0<3000000", "id": "id", "kind": "'summon'", "npc_id": "npc0"},
+       {"event": "actor", "when": "b==0&&npc0>2000000&&npc0<3000000", "id": "id", "kind": "'summon'", "npc_id": "npc0", "name": "oname"},
        // Max HP only where the layout is verified. The spawn's own "hp" field
        // is not current HP (e.g. 196 of 270000), so a new monster starts full;
        // 0x8d00 updates take over from the first hit.
