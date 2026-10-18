@@ -143,6 +143,9 @@ pub struct Settings {
     pub last_self: Option<(u64, Option<String>, f64)>,
     /// Last detected game server number, so the name shows straight away.
     pub last_server: Option<u32>,
+    /// Last Shugo Festival Reward Key count the game sent (it is only sent
+    /// at login and when it changes, so it is remembered between sessions).
+    pub last_keys: Option<u64>,
 }
 
 impl Default for Settings {
@@ -178,6 +181,7 @@ impl Default for Settings {
             history_keep_days: 30,
             last_self: None,
             last_server: None,
+            last_keys: None,
         }
     }
 }

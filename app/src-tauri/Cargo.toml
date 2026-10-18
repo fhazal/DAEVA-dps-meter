@@ -1,6 +1,6 @@
 [package]
 name = "daeva-meter"
-version = "0.2.40"
+version = "0.2.41"
 edition = "2021"
 description = "Daeva Meter — AION 2 damage meter"
 license = "MIT"

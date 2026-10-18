@@ -159,7 +159,7 @@ fn save_settings(app: AppHandle, st: St<'_>, settings: Settings) -> Vec<String> 
     }
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.set_always_on_top(settings.always_on_top);
-        let _ = w.set_ignore_cursor_events(settings.click_through);
+        // Click-through itself is applied by the hover thread in main().
     }
     if restart_capture {
         st.capture_gen.fetch_add(1, Ordering::SeqCst);
@@ -177,9 +177,10 @@ fn toggle_click_through_inner(app: &AppHandle, shared: &Shared) -> bool {
         c.settings_dirty = true;
         c.settings.click_through
     };
-    if let Some(w) = app.get_webview_window("main") {
-        let _ = w.set_ignore_cursor_events(v);
-    }
+    // The hover thread in main() applies it within 80 ms; setting it here as
+    // well left the thread's cached state wrong, so the title bar (and the
+    // lock button) stayed unclickable until the mouse left and came back.
+    let _ = app;
     v
 }
 
@@ -438,6 +439,7 @@ fn main() {
                 let sh = shared.clone();
                 std::thread::spawn(move || {
                     let mut applied: Option<bool> = None;
+                    let mut tick: u32 = 0;
                     loop {
                         std::thread::sleep(std::time::Duration::from_millis(80));
                         let Some(w) = handle.get_webview_window("main") else { continue };
@@ -453,7 +455,9 @@ fn main() {
                                 }
                             }
                         }
-                        if applied != Some(ignore) {
+                        // Re-assert every ~2 s too, in case anything else changed it.
+                        tick = tick.wrapping_add(1);
+                        if applied != Some(ignore) || tick % 25 == 0 {
                             if w.set_ignore_cursor_events(ignore).is_ok() {
                                 applied = Some(ignore);
                             }

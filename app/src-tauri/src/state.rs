@@ -370,6 +370,10 @@ impl Core {
                 self.settings.last_server = e.self_server;
                 self.settings_dirty = true;
             }
+            if e.self_keys.is_some() && e.self_keys != self.settings.last_keys {
+                self.settings.last_keys = e.self_keys;
+                self.settings_dirty = true;
+            }
             let e = &self.pipeline.engine;
             if let Some(id) = e.self_id {
                 let name = e.self_name.clone();
@@ -1029,7 +1033,7 @@ impl Core {
             .set("anchor", self.toast_anchor)
             .set("error", self.events.error.clone())
             // Keys per event id, once the game's key counter is decoded.
-            .set("keys", match self.pipeline.engine.self_keys {
+            .set("keys", match self.pipeline.engine.self_keys.or(self.settings.last_keys) {
                 Some(k) => Obj::new().set("shugo_festival", k).build(),
                 None => Value::Null,
             })
