@@ -95,6 +95,8 @@ pub struct Core {
     health_at: f64,
     health_decoded: u64,
     health_frames: u64,
+    /// Frames other than keep-alive pings, at the last health check.
+    health_content: u64,
     /// Frame count last seen and when it last moved (fast stall check).
     stall_frames: u64,
     stall_since: f64,
@@ -175,6 +177,9 @@ pub struct Shared {
 
 type Pkt = (u32, f64, Vec<u8>);
 
+/// The game's keep-alive ping, sent every ~0.2 s even when nothing happens.
+const KEEPALIVE_OPCODE: u64 = 0x3600;
+
 fn decompressor() -> Decompressor {
     Arc::new(|method: &str, data: &[u8]| -> Option<Vec<u8>> {
         match method {
@@ -236,6 +241,7 @@ impl Core {
             health_at: 0.0,
             health_decoded: 0,
             health_frames: 0,
+            health_content: 0,
             stall_frames: 0,
             stall_since: 0.0,
             health_resyncs: 0,
@@ -266,6 +272,7 @@ impl Core {
         self.pipeline.reasm.reset();
         self.pipeline.decoder = Decoder::new(defs, Some(decompressor()));
         self.health_frames = 0;
+        self.health_content = 0;
         self.health_decoded = 0;
         self.health_resyncs = 0;
         self.stall_frames = 0;
@@ -860,15 +867,20 @@ impl Core {
         let d = &self.pipeline.decoder;
         let decoded: u64 = d.stats.values().map(|s| s.decoded).sum();
         let frames = d.frames_total;
+        // Keep-alive pings (0x3600) carry no game data and never decode;
+        // while you're idle they are almost all that arrives, so they must
+        // not count towards "messages arrive but none decode".
+        let content: u64 = d.stats.iter().filter(|((_, op), _)| *op != KEEPALIVE_OPCODE).map(|(_, s)| s.count).sum();
         let resyncs = d.resyncs();
         if self.health_at > 0.0 {
+            let new_content = content.saturating_sub(self.health_content);
             let new_frames = frames.saturating_sub(self.health_frames);
             let new_decoded = decoded.saturating_sub(self.health_decoded);
             let new_resyncs = resyncs.saturating_sub(self.health_resyncs);
             let bytes_flowing = self.pipeline.last_game_ts > 0.0 && now - self.pipeline.last_game_ts < 30.0;
             self.warning = if bytes_flowing && new_frames == 0 {
                 Some("Game traffic arrives but can't be read (the game may have been patched). Press Ctrl+Shift+P to send a report.".into())
-            } else if new_frames > 1500 && new_decoded == 0 {
+            } else if new_content > 1500 && new_decoded == 0 {
                 Some("Game messages arrive but none decode any more (the game may have been patched). Press Ctrl+Shift+P to send a report.".into())
             } else if new_resyncs > 50 {
                 Some("Lots of unreadable game traffic. If damage looks wrong, press Ctrl+Shift+P to send a report.".into())
@@ -879,6 +891,7 @@ impl Core {
         self.health_at = now;
         self.health_decoded = decoded;
         self.health_frames = frames;
+        self.health_content = content;
         self.health_resyncs = resyncs;
     }
 
