@@ -63,7 +63,7 @@
           // Events entered with keys show how many you hold.
           const keyed = KEYED.has(al.id);
           const n = a.keys && a.keys[al.id];
-          const keys = keyed ? `<div class="keys"><span class="lbl">Keys held</span><span class="val${n == null ? " none" : ""}">${KEY_SVG}${n == null ? "(Not detected)" : Number(n).toLocaleString()}</span></div>` : "";
+          const keys = keyed ? `<div class="keys"><span class="lbl">Keys held</span><span class="val${n == null ? " none" : ""}">${KEY_SVG}${n == null ? "(Log in once with the meter on)" : Number(n).toLocaleString()}</span></div>` : "";
           el.innerHTML = `<div class="top"><span class="ic">${D.eventIcon(al.id, al.emoji, 44)}</span><span class="t">${D.esc(al.title)}</span><span class="tag">${D.esc(tag)}</span><span class="b">${D.esc(al.body)}</span></div>${keys}<span class="life"><i style="animation-duration:${secs}s"></i></span>`;
           if (a.anchor === "top") box.prepend(el); else box.appendChild(el);
           while (box.children.length > 3) (a.anchor === "top" ? box.lastElementChild : box.firstElementChild).remove();
