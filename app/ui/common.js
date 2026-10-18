@@ -189,20 +189,22 @@
     toastTimer = setTimeout(() => el.classList.remove("show"), 2200);
   }
 
+  // Icons: Lucide (lucide.dev, ISC licence), drawn on its 24-unit grid and
+  // scaled into our 16-unit buttons. Lucide is the project's icon set.
   const ICONS = {
-    close: '<path d="M4 4l8 8M12 4l-8 8"/>',
-    min: '<path d="M4 8h8"/>',
+    close: '<g transform="scale(0.6667)" stroke-width="2.4"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></g>',
+    min: '<g transform="scale(0.6667)" stroke-width="2.4"><path d="M5 12h14"/></g>',
     // Download tray from Lucide (lucide.dev, ISC licence), 24-unit grid.
-    download: '<g transform="scale(0.6667)" stroke-width="2.6"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></g>',
+    download: '<g transform="scale(0.6667)" stroke-width="2.4"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></g>',
     // Cog wheel from Lucide (lucide.dev, ISC licence), drawn on a 24-unit grid.
     gear: '<g transform="scale(0.6667)" stroke-width="2.4"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></g>',
-    history: '<path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9"/><path d="M2.5 2.5v2.2h2.2"/><path d="M8 5v3.2l2 1.3"/>',
-    reset: '<path d="M3 8a5 5 0 1 1 1.5 3.6"/><path d="M3 12V8.8h3.2"/>',
-    copy: '<rect x="5" y="5" width="8" height="8" rx="1.5"/><path d="M3 10.5V3.5A.5.5 0 0 1 3.5 3h7"/>',
-    lock: '<rect x="3.5" y="7" width="9" height="6.5" rx="1.3"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/>',
-    unlock: '<rect x="3.5" y="7" width="9" height="6.5" rx="1.3"/><path d="M5.5 7V5a2.5 2.5 0 0 1 4.8-1"/>',
-    flask: '<path d="M6 2h4M6.5 2v4L3 13a1 1 0 0 0 .9 1.4h8.2A1 1 0 0 0 13 13L9.5 6V2"/><path d="M4.6 10h6.8"/>',
-    metric: '<path d="M3 13V9M6.5 13V5M10 13V7.5M13.5 13V3"/>',
+    history: '<g transform="scale(0.6667)" stroke-width="2.4"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></g>',
+    reset: '<g transform="scale(0.6667)" stroke-width="2.4"><circle cx="12" cy="12" r="10"/><rect x="9" y="9" width="6" height="6" rx="1"/></g>',
+    copy: '<g transform="scale(0.6667)" stroke-width="2.4"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></g>',
+    lock: '<g transform="scale(0.6667)" stroke-width="2.4"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></g>',
+    unlock: '<g transform="scale(0.6667)" stroke-width="2.4"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></g>',
+    flask: '<g transform="scale(0.6667)" stroke-width="2.4"><path d="M14 2v6a2 2 0 0 0 .245.96l5.51 10.08A2 2 0 0 1 18 22H6a2 2 0 0 1-1.755-2.96l5.51-10.08A2 2 0 0 0 10 8V2"/><path d="M6.453 15h11.094"/><path d="M8.5 2h7"/></g>',
+    metric: '<g transform="scale(0.6667)" stroke-width="2.4"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></g>',
   };
   function icon(name) {
     return `<svg viewBox="0 0 16 16">${ICONS[name] || ""}</svg>`;
