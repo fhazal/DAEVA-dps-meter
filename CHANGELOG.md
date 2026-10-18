@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.5 (not released yet)
+
+- **Test connection** results are now coloured: a green ✓ when your token works (with an amber reminder to Save), a red ✕ with advice when it doesn't. The `/meter link` hint is in gold.
+
 ## 0.3.4
 
 - **DPS boards:** sharing now goes to the Daeva bot at aion2.bajubesi.org out of the box. Run `/meter link` in our Discord, paste the token in **Settings → Share with Daeva bot**, turn sharing on, and your boss and elite fights appear in *Highest DPS today* and *Class DPS today* on the site and in the daily Discord recap. Sharing stays off until you turn it on.

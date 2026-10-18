@@ -15,6 +15,8 @@
   .bar .sp { flex: 1; }
   .errs { color: var(--bad); font-size: 12px; margin-top: 8px; }
   .row-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+  .cmd { color: var(--accent); font-weight: 600; }
+  .st-ok b { color: var(--good); } .st-bad b { color: var(--bad); } .st-save { color: var(--warn); font-weight: 600; }
   .warnbox { border: 1px solid rgba(231,180,76,0.35); background: rgba(231,180,76,0.08); border-radius: 8px; padding: 8px 10px; font-size: 12px; color: var(--muted); margin: 6px 0 10px; }
 </style>
 </head>
@@ -98,7 +100,7 @@
     <div class="warnbox">Puts your boss and elite fights on the DPS boards at aion2.bajubesi.org and in the Daeva daily recap on Discord. Off by default. Get your token with <b>/meter link</b> in our Discord. “Only me” never sends other players' names.</div>
     <div class="f">
       ${F("", chk("share.enabled", "Enable sharing"))}
-      ${F("Token", `<div class="row-btns">${txt("share.token", "paste the token from /meter link", "password")}<button class="btn" id="bTestShare">Test connection</button></div><div class="muted" id="shareStatus" style="font-size:11.5px;margin-top:4px"></div>`, "Run <b>/meter link</b> in our Discord to get yours. Running it again replaces the old token.")}
+      ${F("Token", `<div class="row-btns">${txt("share.token", "paste the token from /meter link", "password")}<button class="btn" id="bTestShare">Test connection</button></div><div class="muted" id="shareStatus" style="font-size:11.5px;margin-top:4px"></div>`, "Run <span class=\"cmd\">/meter link</span> in our Discord to get yours. Running it again replaces the old token.")}
       ${F("Endpoint URL", txt("share.endpoint", "https://aion2.bajubesi.org/api/meter"), "Leave as it is unless your community runs its own Daeva bot.")}
       ${F("What to share", sel("share.scope", [["self", "Only me"], ["party", "Everyone in the fight"], ["none", "Nothing"]]))}
       ${F("Minimum fight length (s)", num("share.min_duration", 0, 3600))}
@@ -213,9 +215,17 @@
       const out = document.getElementById("shareStatus");
       const endpoint = document.querySelector('[data-k="share.endpoint"]').value.trim();
       const token = document.querySelector('[data-k="share.token"]').value.trim();
-      if (!token) { out.textContent = "Paste your token first (run /meter link in our Discord)."; return; }
-      if (!/^https:\/\//.test(endpoint)) { out.textContent = "The endpoint must start with https://"; return; }
-      out.textContent = "Testing…";
+      // Coloured result: green ✓ / red ✕ headline, grey advice, amber "Remember to Save."
+      const show = (kind, head, rest, save) => {
+        out.className = kind === "ok" ? "st-ok" : kind === "bad" ? "st-bad" : "muted";
+        out.textContent = "";
+        if (head) { const b = document.createElement("b"); b.textContent = head; out.append(b, " "); }
+        const r = document.createElement("span"); r.className = "muted"; r.textContent = rest; out.append(r);
+        if (save) { const sv = document.createElement("span"); sv.className = "st-save"; sv.textContent = " Remember to Save."; out.append(sv); }
+      };
+      if (!token) { show("bad", "✕ No token.", "Paste your token first (run /meter link in our Discord)."); return; }
+      if (!/^https:\/\//.test(endpoint)) { show("bad", "✕ Wrong endpoint.", "It must start with https://"); return; }
+      show("", "", "Testing…");
       try {
         const r = await fetch(endpoint, {
           method: "POST",
@@ -223,12 +233,12 @@
           body: JSON.stringify({ type: "ping", meter: "daeva-meter" }),
           signal: AbortSignal.timeout(10000),
         });
-        out.textContent = r.ok ? "✓ Connected. Your token works. Remember to Save."
-          : r.status === 401 ? "Token not recognised. Run /meter link again and paste the new token."
-          : r.status === 429 ? "Too many uploads this hour. Try again later."
-          : "The server answered HTTP " + r.status + ".";
+        if (r.ok) show("ok", "✓ Connected.", "Your token works.", true);
+        else if (r.status === 401) show("bad", "✕ Token not recognised.", "Run /meter link again and paste the new token.");
+        else if (r.status === 429) show("bad", "✕ Too many uploads.", "Try again in a while.");
+        else show("bad", "✕ The server answered HTTP " + r.status + ".", "Try again later.");
       } catch (e) {
-        out.textContent = "Couldn't reach the server. Check your internet connection and the endpoint.";
+        show("bad", "✕ Couldn't reach the server.", "Check your internet connection and the endpoint.");
       }
     };
     document.getElementById("bTestAlert").onclick = async () => { await D.call("test_alert"); D.toast("Test alert sent — save first if you changed the position"); };
