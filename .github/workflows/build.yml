@@ -67,10 +67,16 @@ jobs:
       # Tagged builds become a DRAFT release: nothing is public until it is
       # checked and published by hand. Only the installer is attached; the
       # research toolkit stays in the build artifacts.
+      # A tag push (v*) or a commit whose message contains [release] makes a
+      # draft for the version in tauri.conf.json; GitHub creates the tag when
+      # the draft is published.
       - name: Release notes with checksum
-        if: startsWith(github.ref, 'refs/tags/v')
+        id: rel
+        if: startsWith(github.ref, 'refs/tags/v') || contains(github.event.head_commit.message, '[release]')
         shell: pwsh
         run: |
+          $v = (Get-Content app/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          "tag=v$v" >> $env:GITHUB_OUTPUT
           $setup = Get-ChildItem dist -Filter *setup*.exe | Select-Object -First 1
           $hash = (Get-FileHash $setup.FullName -Algorithm SHA256).Hash
           $notes = Get-Content .github/release-notes.md -Raw
@@ -79,11 +85,13 @@ jobs:
           New-Item -ItemType Directory -Force release | Out-Null
           Copy-Item $setup.FullName release/
       - name: Create draft release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || contains(github.event.head_commit.message, '[release]')
         uses: softprops/action-gh-release@v2
         with:
           draft: true
-          name: Daeva Meter ${{ github.ref_name }}
+          tag_name: ${{ steps.rel.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Daeva Meter ${{ steps.rel.outputs.tag }}
           body_path: release-notes.md
           files: release/*
           generate_release_notes: true
