@@ -80,7 +80,9 @@ jobs:
           $setup = Get-ChildItem dist -Filter *setup*.exe | Select-Object -First 1
           $hash = (Get-FileHash $setup.FullName -Algorithm SHA256).Hash
           $notes = Get-Content .github/release-notes.md -Raw
-          $notes += "`n``$($setup.Name)``  `nSHA-256: ``$hash```n"
+          # GitHub shows the uploaded file with dots instead of spaces.
+          $shown = $setup.Name -replace ' ', '.'
+          $notes += "`n``$shown``  `nSHA-256: ``$hash```n"
           Set-Content -Path release-notes.md -Value $notes -Encoding utf8
           New-Item -ItemType Directory -Force release | Out-Null
           Copy-Item $setup.FullName release/
