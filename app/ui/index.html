@@ -196,8 +196,9 @@
   }
 
   // Green while fighting; idle (pulsing amber) after 30 s without combat.
+  // Starts as "no fight yet", so a freshly opened meter shows idle, not combat.
   const IDLE_MS = 30000;
-  let lastCombatAt = Date.now();
+  let lastCombatAt = 0;
   function statusLine(s) {
     if (s.demo) return ["demo", "Demo mode — simulated party"];
     if (s.npcap_error) return ["err", s.npcap_error];
