@@ -282,7 +282,9 @@
     // aion2.gaming.tools; the fight time when the rank isn't known.
     const rank = t.rank ? String(t.rank) : "";
     const rkey = rank.toLowerCase().replace(/monster$/, "").replace(/^hero(ic)?$/, "heroic").replace(/^normal$/, "common").replace(/[^a-z]/g, "");
-    const right = rank ? `<span class="rank">${D.esc(rank)}</span>` : `Fight <b>${D.dur(secs)}</b>`;
+    // Without a rank: the fight time while it runs; after the kill the left
+    // side already says "Killed in", so show the damage dealt instead.
+    const right = rank ? `<span class="rank">${D.esc(rank)}</span>` : dead ? `Damage <b>${D.fmt(onTarget)}</b>` : `Fight <b>${D.dur(secs)}</b>`;
     const bot = `<div class="tc-bot"><span>${dead ? `Killed in <b class="good">${D.dur(secs)}</b>` : killIn ? `Kill in <b class="good">${killIn}</b>` : `Damage <b>${D.fmt(onTarget)}</b>`}</span><span>${right}</span></div>`;
     const nameit = t.named === false && t.npc_id ? `<span class="nameit" data-npc="${t.npc_id}" title="Looking it up on aion2.gaming.tools… or type the name yourself (saved for good)">✎ name it</span><span class="nameit" data-lk="${t.npc_id}" title="Open on aion2.gaming.tools">🔎</span>` : "";
     const unknownTip = t.name === "Unknown monster" ? ` title="This monster was already nearby when the meter started, so the game never said which one it is. It gets its name after you change zone or it comes back into view."` : "";

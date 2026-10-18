@@ -321,6 +321,9 @@ pub struct Fight {
     pub focus: Option<u64>,
     /// First and last time each target was hit.
     pub tspan: HashMap<u64, (f64, f64)>,
+    /// Targets' (hp, max_hp, template) frozen when the fight ends, so the
+    /// card still shows them after a zone change clears the actors.
+    pub tinfo: HashMap<u64, (Option<u64>, Option<u64>, Option<u32>)>,
 }
 
 impl Fight {
@@ -741,8 +744,12 @@ impl Engine {
                         // we started watching it.
                         // (Only your own and nearby damage is visible, so this
                         // can only under-estimate: keep the highest.)
-                        let est = hp.saturating_add(a.taken - a.taken_base);
-                        a.max_hp = Some(a.max_hp.map_or(est, |m| m.max(est)));
+                        // Estimate once, from the first real health update;
+                        // after that only a higher health reading raises it
+                        // (later estimates drift up with update lag).
+                        if a.max_hp.is_none() {
+                            a.max_hp = Some(hp.saturating_add(a.taken - a.taken_base));
+                        }
                     }
                 }
                 if let Some(m) = a.max_hp {
@@ -820,6 +827,7 @@ impl Engine {
                 allies: Default::default(),
                 focus: None,
                 tspan: Default::default(),
+                tinfo: Default::default(),
             });
         }
         self.current.as_mut().unwrap()
@@ -902,6 +910,11 @@ impl Engine {
         for id in ids {
             let n = (self.actor_name(id), self.actor_class(id));
             f.names.entry(id).or_insert(n);
+        }
+        for t in f.targets.keys() {
+            if let Some(a) = self.actors.get(t) {
+                f.tinfo.insert(*t, (a.hp, a.max_hp, a.npc_id));
+            }
         }
         // remove pure "taken" entries with no activity to keep history tidy
         f.stats.retain(|_, s| s.dmg > 0 || s.heal > 0 || s.taken > 0);
@@ -1068,11 +1081,14 @@ impl Engine {
         let main = target.or(f.focus).or_else(|| f.main_target());
         let target_v = main.map(|t| {
             let a = self.actors.get(&t);
-            let hp_pct = a.and_then(|a| match (a.hp, a.max_hp) {
+            let frozen = f.tinfo.get(&t).copied();
+            let hp = a.map(|a| a.hp).or(frozen.map(|x| x.0)).flatten();
+            let max_hp = a.map(|a| a.max_hp).or(frozen.map(|x| x.1)).flatten();
+            let hp_pct = match (hp, max_hp) {
                 (Some(h), Some(m)) if m > 0 => Some(h as f64 / m as f64),
                 _ => None,
-            });
-            let npc_id = a.and_then(|a| a.npc_id);
+            };
+            let npc_id = a.and_then(|a| a.npc_id).or(frozen.and_then(|x| x.2));
             Obj::new()
                 .set("id", t)
                 .set("name", self.fname(f, t))
@@ -1081,8 +1097,8 @@ impl Engine {
                 .set("dmg_taken", *f.targets.get(&t).unwrap_or(&0))
                 .set("secs", f.tspan.get(&t).map(|(a, b)| (b - a).max(1.0)))
                 .set("hp_pct", hp_pct)
-                .set("max_hp", a.and_then(|a| a.max_hp))
-                .set("hp", a.and_then(|a| a.hp))
+                .set("max_hp", max_hp)
+                .set("hp", hp)
                 .set("berserk", npc_id.and_then(|n| self.names.berserk.get(&n).copied()))
                 .set("rank", npc_id.and_then(|n| self.names.ranks.get(&n).cloned()))
                 .build()
@@ -1425,7 +1441,7 @@ mod naming_tests {
         assert!(n.skill_named(17010230 | DOT_KEY));
         assert_eq!(n.skill(17020000), "Skill 17020000");
         let mut e = Engine::new(EngineConfig::default(), n);
-        let mut f = Fight { id: 1, start: 0.0, end: 1.0, started_unix: 0.0, stats: Default::default(), targets: Default::default(), deaths: vec![], loot: vec![], zone: None, boss_killed: false, finished: true, self_id: None, names: Default::default(), allies: Default::default(), focus: None, tspan: Default::default() };
+        let mut f = Fight { id: 1, start: 0.0, end: 1.0, started_unix: 0.0, stats: Default::default(), targets: Default::default(), deaths: vec![], loot: vec![], zone: None, boss_killed: false, finished: true, self_id: None, names: Default::default(), allies: Default::default(), focus: None, tspan: Default::default(), tinfo: Default::default() };
         f.names.insert(9, ("NPC 2400002".into(), None));
         e.history.push_back(f);
         e.rename_npc(2400002, "Black Claw Manduri Fighter");
