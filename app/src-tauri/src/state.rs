@@ -116,6 +116,8 @@ pub struct Core {
     pub icons: HashMap<String, String>,
     /// Set by "Update names now".
     pub site_wake: bool,
+    /// The monster data is downloading and no copy is loaded yet (first run).
+    pub site_loading: bool,
     /// Which edge of the alert window the banners stack from ("top"/"bottom").
     pub toast_anchor: &'static str,
     /// Latest published release on GitHub: (tag like "v0.3.1", page url).
@@ -257,6 +259,7 @@ impl Core {
             lookup_retry: HashMap::new(),
             lookup_missing: HashSet::new(),
             lookup_status: None,
+            site_loading: false,
             site_bulk: None,
             icons: HashMap::new(),
             site_wake: false,
@@ -787,6 +790,7 @@ impl Core {
             .set("lookup_on", self.settings.lookup_names)
             .set("site_bulk", self.site_bulk.map(|(n, s, at)| Obj::new().set("npcs", n).set("skills", s).set("at", at).build()))
             .set("lookup_status", self.lookup_status.clone())
+            .set("site_loading", self.site_loading)
             .set("site_count", {
                 let site: Option<serde_json::Value> = std::fs::read_to_string(self.site_names_path()).ok().and_then(|s| serde_json::from_str(&s).ok());
                 site.map_or(0, |d| d["npcs"].as_object().map_or(0, |o| o.len()) + d["skills"].as_object().map_or(0, |o| o.len()))
@@ -1043,6 +1047,9 @@ impl Core {
             // Remembered from an earlier session (Odyle regenerates while
             // you're away, so it's shown as "last seen" until the game sends it).
             .set("needs_zone", !e.fresh_view && p.last_game_ts > 0.0 && e.self_id.is_some())
+            // "loading" while a fresh install downloads the monster data, so
+            // the boss card can say so instead of looking incomplete.
+            .set("monster_data", if self.site_bulk.is_some() { None } else if self.site_loading { Some("loading") } else { None })
             .set("odyle_stale", e.self_odyle.is_none() && self.settings.last_odyle.is_some())
             .set("server", {
                 let manual = self.settings.server_name.trim();
@@ -1458,9 +1465,23 @@ fn site_sync(shared: Arc<Shared>) {
         let checked = meta["checked_at"].as_f64().unwrap_or(0.0);
         let retry_at = meta["retry_at"].as_f64().unwrap_or(0.0);
         let due = wake || (now - checked > 24.0 * 3600.0 && now >= retry_at);
-        // Use the saved copy straight away on start; fetch only when due.
+        let read = |f: &str| std::fs::read_to_string(dir.join(f)).ok().and_then(|s| entries_from_data(&s).ok());
+        // Use the saved copy straight away on start, before any download, so
+        // boss cards get their type and picture even when the copy is old.
+        if first {
+            let (npcs, skills) = (read("npcs.d.json"), read("skills.d.json"));
+            if npcs.is_some() || skills.is_some() {
+                let at = meta["checked_at"].as_f64().unwrap_or(now);
+                shared.lock().apply_site_bulk(npcs.unwrap_or_default(), skills.unwrap_or_default(), at);
+            }
+        }
+        let have_data = shared.lock().site_bulk.is_some();
         let mut err = None;
+        let mut changed = false;
         if due {
+            if !have_data {
+                shared.lock().site_loading = true;
+            }
             let mirror = shared.lock().settings.names_mirror.trim().trim_end_matches('/').to_string();
             let mut problems: Vec<String> = Vec::new();
             for (cdn, file) in [(NPCS_DATA, "npcs.d.json"), (SKILLS_DATA, "skills.d.json")] {
@@ -1495,6 +1516,7 @@ fn site_sync(shared: Arc<Shared>) {
                                         }
                                         meta["etag"][file] = serde_json::json!({"url": url, "tag": tag});
                                         got = true;
+                                        changed = true;
                                     }
                                     Err(e) => problems.push(format!("{host}: {e}")),
                                 },
@@ -1517,18 +1539,22 @@ fn site_sync(shared: Arc<Shared>) {
                 meta["checked_at"] = serde_json::json!(now);
                 meta["retry_at"] = serde_json::json!(0);
             } else {
-                meta["retry_at"] = serde_json::json!(now + 1800.0);
+                // No data at all yet (fresh install): try again soon.
+                meta["retry_at"] = serde_json::json!(now + if have_data { 1800.0 } else { 60.0 });
             }
             let _ = std::fs::write(&meta_path, serde_json::to_string_pretty(&meta).unwrap_or_default());
         }
-        if due || first {
-            let read = |f: &str| std::fs::read_to_string(dir.join(f)).ok().and_then(|s| entries_from_data(&s).ok());
-            let (npcs, skills) = (read("npcs.d.json"), read("skills.d.json"));
+        if due {
+            // Parse outside the lock; apply only when something new arrived.
+            let fresh = if changed || !have_data { Some((read("npcs.d.json"), read("skills.d.json"))) } else { None };
             let mut c = shared.lock();
-            if npcs.is_some() || skills.is_some() {
-                let at = meta["checked_at"].as_f64().unwrap_or(now);
-                c.apply_site_bulk(npcs.unwrap_or_default(), skills.unwrap_or_default(), at);
+            if let Some((npcs, skills)) = fresh {
+                if npcs.is_some() || skills.is_some() {
+                    let at = meta["checked_at"].as_f64().unwrap_or(now);
+                    c.apply_site_bulk(npcs.unwrap_or_default(), skills.unwrap_or_default(), at);
+                }
             }
+            c.site_loading = false;
             c.lookup_status = err;
         }
         first = false;

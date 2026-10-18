@@ -2,6 +2,9 @@
 
 ## 0.3.5 (not released yet)
 
+- **Boss cards on a fresh install:** while the monster list (type, family and picture) downloads for the first time, the card says **Loading monster data…** and then fills in by itself, with no restart. A failed first download is retried after a minute instead of 30.
+- **Faster start:** the saved monster list is used straight away at launch, even when it's due for its daily refresh. Before, cards could miss their type and picture for up to a minute while the refresh ran.
+- **Settings → Data → Names** shows the monster data state: how many monsters and when it was updated, *downloading…*, or the error.
 - **Test connection** results are now coloured: a green ✓ when your token works (with an amber reminder to Save), a red ✕ with advice when it doesn't. The `/meter link` hint is in gold.
 
 ## 0.3.4

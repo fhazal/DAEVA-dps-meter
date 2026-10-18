@@ -40,6 +40,10 @@
   .tc-bot .fam { color: var(--text); font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
   .tc-bot .famic svg { width: 13px; height: 13px; display: block; }
   .tc-bot .dotsep { color: var(--dim); margin: 0 1px; }
+  .md-loading { color: var(--muted); font-style: italic; display: inline-flex; align-items: center; gap: 5px; }
+  .md-spin { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid rgba(255,255,255,.18); border-top-color: var(--accent); animation: mdspin .9s linear infinite; }
+  @keyframes mdspin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .md-spin { animation: none; } }
   .tc-bot .rank { color: rgb(var(--rk)); font-weight: 700; letter-spacing: .02em; }
   .target .row1 { display: flex; align-items: center; gap: 8px; }
   .target .tc-ic { width: 24px; height: 24px; flex: none; display: grid; place-items: center; border-radius: 50%; color: rgb(var(--rk));
@@ -356,7 +360,9 @@
     const fam = t.family ? `<span class="fam">${famIc ? `<i class="famic">${famIc}</i>` : ""}${D.esc(t.family)}</span><span class="dotsep">·</span>` : "";
     // Unknown monster while the meter still needs a zone load: say how to fix it.
     const needTp = t.name === "Unknown monster" && lastSnap && lastSnap.status && lastSnap.status.needs_zone;
-    const right = needTp ? `<span class="tp-hint">📍 Teleport once to identify</span>` : rank ? `${fam}<span class="rank">${D.esc(rank)}</span>` : t.family && !dead ? `${fam}Fight <b>${D.dur(secs)}</b>` : dead ? `Damage <b>${D.fmt(onTarget)}</b>` : `Fight <b>${D.dur(secs)}</b>`;
+    // Fresh install: the monster data (type, family, picture) is still downloading.
+    const loadingData = !rank && !t.family && !dead && lastSnap && lastSnap.status && lastSnap.status.monster_data === "loading";
+    const right = needTp ? `<span class="tp-hint">📍 Teleport once to identify</span>` : loadingData ? `<span class="md-loading" title="Downloading the monster list (type, family and picture). This only happens once."><i class="md-spin"></i>Loading monster data…</span>` : rank ? `${fam}<span class="rank">${D.esc(rank)}</span>` : t.family && !dead ? `${fam}Fight <b>${D.dur(secs)}</b>` : dead ? `Damage <b>${D.fmt(onTarget)}</b>` : `Fight <b>${D.dur(secs)}</b>`;
     const bot = `<div class="tc-bot"><span>${dead ? `Killed in <b class="good">${D.dur(secs)}</b>` : killIn ? `Kill in <b class="good">${killIn}</b>` : `Damage <b>${D.fmt(onTarget)}</b>`}</span><span>${right}</span></div>`;
     const nameit = t.named === false && t.npc_id ? `<span class="nameit" data-npc="${t.npc_id}" title="Looking it up on aion2.gaming.tools… or type the name yourself (saved for good)">✎ name it</span><span class="nameit" data-lk="${t.npc_id}" title="Open on aion2.gaming.tools">🔎</span>` : "";
     const unknownTip = t.name === "Unknown monster" ? ` title="This monster was already nearby when the meter started, so the game never said which one it is. It gets its name after you change zone or it comes back into view."` : "";

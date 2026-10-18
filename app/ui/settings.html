@@ -116,7 +116,7 @@
       <button class="btn" id="bNames">Monster &amp; skill names</button>
       <button class="btn" id="bRefreshNames">Update names now</button>
     </div>
-    <div class="f" style="margin-top:8px">${F("Names", `<div class="row-btns">${chk("lookup_names", "Get monster and skill names from aion2.gaming.tools")}${chk("game_art", "Show game icons (classes, skills, monsters)")}</div>`, "Downloads their monster and skill lists at most once a day and keeps a copy for offline use. Names you type yourself always win. Game icons are NCSOFT's, shown via gaming.tools. With thanks to the AION 2 Global Database team.")}</div>
+    <div class="f" style="margin-top:8px">${F("Names", `<div class="row-btns">${chk("lookup_names", "Get monster and skill names from aion2.gaming.tools")}${chk("game_art", "Show game icons (classes, skills, monsters)")}</div><div class="muted" id="namesStatus" style="font-size:11.5px;margin-top:4px">…</div>`, "Downloads their monster and skill lists at most once a day and keeps a copy for offline use. Names you type yourself always win. Game icons are NCSOFT's, shown via gaming.tools. With thanks to the AION 2 Global Database team.")}</div>
     <div class="f" style="margin-top:8px">${F("Updates", `<div class="row-btns">${chk("check_updates", "Check GitHub for new versions")}<button class="btn" id="bCheckUpd">Check now</button></div><div class="muted" id="updStatus" style="font-size:11.5px;margin-top:4px">…</div>`, "Asks GitHub for the latest published Daeva Meter release at start-up and every 6 hours. Nothing about you is sent. A new version shows a notice under the meter; Download opens the release page.")}</div>
     <div class="f" style="margin-top:8px">${F("Testers", chk("show_research", "Show research tools (flask button in the header)"), "Research mode records game traffic with markers, for decoding after a game patch. Most players don't need it: use Report a problem instead.")}</div>
     <p class="muted" style="font-size:11.5px"><b>Report a problem</b> saves the last 3 minutes of game traffic plus what the meter showed as one zip on your Desktop (also Ctrl+Shift+P, even in game). Send that file when something looks wrong.</p>
@@ -196,6 +196,20 @@
     } catch (e) { el.textContent = String(e); }
   }
 
+  // "Monster data: 12,345 monsters · updated 2 h ago", or downloading / the error.
+  async function loadNames() {
+    const el = document.getElementById("namesStatus");
+    try {
+      const n = JSON.parse(await D.call("get_names"));
+      el.textContent = n.lookup_on === false ? "Monster data: off"
+        : n.site_bulk ? `Monster data: ${n.site_bulk.npcs.toLocaleString()} monsters, ${n.site_bulk.skills.toLocaleString()} skills · updated ${D.when(n.site_bulk.at)}`
+        : n.site_loading ? "Monster data: downloading…"
+        : n.lookup_status ? `Monster data: ${n.lookup_status}. Retrying in a minute.`
+        : "Monster data: not downloaded yet";
+      if (n.site_loading || (!n.site_bulk && n.lookup_on !== false)) setTimeout(loadNames, 3000);
+    } catch (e) { el.textContent = ""; }
+  }
+
   async function init() {
     s = await D.call("get_settings");
     D.applyTheme({ accent: s.accent, opacity: 0.97 });
@@ -205,6 +219,7 @@
     updateVol();
     loadEvents();
     loadUpdate();
+    loadNames();
     document.getElementById("bCheckUpd").onclick = async () => {
       await D.call("check_updates_now");
       document.getElementById("updStatus").textContent = "Checking…";
@@ -250,7 +265,7 @@
       const r = JSON.parse(await D.call("reload_definitions"));
       D.toast(r.error ? "Error: " + r.error : "Loaded " + r.defs);
     };
-    document.getElementById("bRefreshNames").onclick = async () => { await D.call("refresh_names"); D.toast("Downloading names… check Monster & skill names in a moment"); };
+    document.getElementById("bRefreshNames").onclick = async () => { await D.call("refresh_names"); D.toast("Downloading names… check Monster & skill names in a moment"); setTimeout(loadNames, 1500); };
     document.getElementById("bNames").onclick = () => D.call("open_window", { kind: "names" });
     document.querySelectorAll("[data-folder]").forEach((b) => (b.onclick = () => D.call("open_folder", { which: b.dataset.folder })));
   }
