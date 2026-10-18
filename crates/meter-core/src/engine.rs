@@ -408,6 +408,9 @@ pub struct Engine {
     /// True once the meter has seen a login or zone change, i.e. the game
     /// has introduced everything around you (names, monsters, health).
     pub fresh_view: bool,
+    /// The current self id came from the game this run (not restored from
+    /// the last session), so a different id means a real zone change.
+    self_live: bool,
     /// Highest max HP seen per monster template. A monster that appears
     /// already hurt reports its current HP as "max"; the template's real
     /// maximum is the highest one seen.
@@ -438,6 +441,7 @@ impl Engine {
             self_keys: None,
             party: Default::default(),
             fresh_view: false,
+            self_live: false,
             npc_max_hp: HashMap::new(),
         }
     }
@@ -507,6 +511,13 @@ impl Engine {
     }
 
     /// Feeds one event. Returns a fight if this event finished one.
+    /// Your character as remembered from the last session: shows your name
+    /// at once, but never counts as having seen a zone load.
+    pub fn restore_self(&mut self, id: u64, name: Option<String>) {
+        self.handle(&GameEvent::SelfId { id, name });
+        self.self_live = false;
+    }
+
     pub fn handle(&mut self, ev: &GameEvent) -> Option<Fight> {
         self.events_seen += 1;
         let mut finished = None;
@@ -709,7 +720,13 @@ impl Engine {
                     // Keep your name across zone changes (only the entity id
                     // changes); a different character's name replaces it as
                     // soon as the game sends it.
-                    if self.self_id.is_some() {
+                    if !self.self_live {
+                        // Replacing an id remembered from the last session:
+                        // not a zone change, the game just hasn't reloaded.
+                        if let Some(old) = self.self_id {
+                            self.actors.remove(&old);
+                        }
+                    } else if self.self_id.is_some() {
                         self.fresh_view = true;
                         // Zone change / relog: every entity id is reassigned.
                         finished = self.finish();
@@ -718,6 +735,7 @@ impl Engine {
                     }
                 }
                 self.self_id = Some(*id);
+                self.self_live = true;
                 if name.is_some() {
                     self.self_name = name.clone();
                 }
@@ -1478,4 +1496,32 @@ mod naming_tests {
         assert_eq!((a.hp, a.max_hp), (Some(72_792), Some(119_700)));
     }
 
+}
+
+#[cfg(test)]
+mod zone_notice_tests {
+    use super::*;
+
+    #[test]
+    fn remembered_self_is_not_a_zone_change() {
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.restore_self(13745, Some("DewiHijau".into()));
+        // Meter opened mid-zone: the game reports a new id (new session).
+        e.handle(&GameEvent::SelfId { id: 6817, name: None });
+        assert!(!e.fresh_view, "a remembered id must not clear the notice");
+        assert_eq!(e.self_name.as_deref(), Some("DewiHijau"));
+        // A real zone change afterwards does.
+        e.handle(&GameEvent::SelfId { id: 7000, name: None });
+        assert!(e.fresh_view);
+    }
+
+    #[test]
+    fn zone_load_clears_notice() {
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.restore_self(6817, None);
+        e.handle(&GameEvent::SelfId { id: 6817, name: Some("DewiHijau".into()) });
+        assert!(!e.fresh_view);
+        e.handle(&GameEvent::Fresh);
+        assert!(e.fresh_view);
+    }
 }

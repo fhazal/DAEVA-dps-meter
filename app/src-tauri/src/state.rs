@@ -216,7 +216,7 @@ impl Core {
         if !settings.demo {
             if let Some((id, name, at)) = settings.last_self.clone() {
                 if now_unix() - at < 12.0 * 3600.0 {
-                    pipeline.engine.handle(&meter_core::events::GameEvent::SelfId { id, name });
+                    pipeline.engine.restore_self(id, name);
                 }
             }
         }

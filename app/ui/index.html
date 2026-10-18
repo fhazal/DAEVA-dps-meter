@@ -116,6 +116,7 @@
   .zonetip { flex: none; display: flex; align-items: center; gap: 8px; padding: 5px 10px; font-size: 11px; line-height: 1.35; color: #e8d3a6;
     background: rgba(232,176,75,0.10); border-top: 1px solid rgba(232,176,75,0.30); }
   .zonetip b { color: #f3c46b; font-weight: 650; }
+  .tp-hint { color: #f3c46b; font-weight: 600; }
   .zonetip .x { margin-left: auto; flex: none; background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 11px; padding: 0 2px; }
   .nextev { flex: none; display: flex; gap: 12px; padding: 3px 10px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; font-variant-numeric: tabular-nums; }
   .nextev > span { color: var(--text); }
@@ -237,8 +238,10 @@
     // Left: your server while capturing (status messages otherwise); right: ping.
     const footL = snap.research ? `● REC ${D.dur(snap.research.elapsed)}` : state === "live" || (state === "wait" && s.servers && s.servers.length) ? (s.server || text) : text;
     const isSrv = !snap.research && !!s.server && footL === s.server;
-    const pc = s.ping_ms == null ? "" : s.ping_ms < 80 ? "good" : s.ping_ms < 150 ? "warn" : "bad";
-    const bars = s.ping_ms == null ? 0 : s.ping_ms < 80 ? 4 : s.ping_ms < 150 ? 3 : s.ping_ms < 250 ? 2 : 1;
+    // Green under 100 ms, amber to 179 ms, red from 180 ms (typical Asia
+    // pings, direct or through a tunnel, shouldn't sit on a boundary).
+    const pc = s.ping_ms == null ? "" : s.ping_ms < 100 ? "good" : s.ping_ms < 180 ? "warn" : "bad";
+    const bars = s.ping_ms == null ? 0 : s.ping_ms < 100 ? 4 : s.ping_ms < 180 ? 3 : s.ping_ms < 250 ? 2 : 1;
     const sig = [1, 2, 3, 4].map((i) => `<i style="height:${i * 2 + 1}px" class="${i <= bars ? "on" : ""}"></i>`).join("");
     const ping = `<b class="ping ${pc}" title="Latency to the game server (measured passively)"><span class="sig">${sig}</span>${s.ping_ms == null ? "-- ms" : Math.round(s.ping_ms) + " ms"}</b>`;
     const odyle = s.odyle != null ? `<span class="fx${s.odyle_stale ? " stale" : ""}" title="${s.odyle_stale ? "Last seen: " : ""}Odyle ${Number(s.odyle).toLocaleString()}${s.odyle_bonus ? ` (+${Number(s.odyle_bonus).toLocaleString()} from Odyle Energy)` : ""} · from the game, updated whenever it changes"><svg class="ody" viewBox="0 0 16 16"><path d="M8 1l4.5 5L8 15 3.5 6z" fill="#7cc4ff"/><path d="M8 1l4.5 5H3.5z" fill="#d6efff"/></svg><b>${Number(s.odyle).toLocaleString()}</b>${s.odyle_bonus ? `<span class="dl"> (+${Number(s.odyle_bonus).toLocaleString()})</span>` : ""}</span><i class="sep"></i>` : "";
@@ -324,7 +327,9 @@
     // side already says "Killed in", so show the damage dealt instead.
     const famIc = FAMILY_ICON[String(t.family || "").toLowerCase()] || "";
     const fam = t.family ? `<span class="fam">${famIc ? `<i class="famic">${famIc}</i>` : ""}${D.esc(t.family)}</span><span class="dotsep">·</span>` : "";
-    const right = rank ? `${fam}<span class="rank">${D.esc(rank)}</span>` : t.family && !dead ? `${fam}Fight <b>${D.dur(secs)}</b>` : dead ? `Damage <b>${D.fmt(onTarget)}</b>` : `Fight <b>${D.dur(secs)}</b>`;
+    // Unknown monster while the meter still needs a zone load: say how to fix it.
+    const needTp = t.name === "Unknown monster" && lastSnap && lastSnap.status && lastSnap.status.needs_zone;
+    const right = needTp ? `<span class="tp-hint">📍 Teleport once to identify</span>` : rank ? `${fam}<span class="rank">${D.esc(rank)}</span>` : t.family && !dead ? `${fam}Fight <b>${D.dur(secs)}</b>` : dead ? `Damage <b>${D.fmt(onTarget)}</b>` : `Fight <b>${D.dur(secs)}</b>`;
     const bot = `<div class="tc-bot"><span>${dead ? `Killed in <b class="good">${D.dur(secs)}</b>` : killIn ? `Kill in <b class="good">${killIn}</b>` : `Damage <b>${D.fmt(onTarget)}</b>`}</span><span>${right}</span></div>`;
     const nameit = t.named === false && t.npc_id ? `<span class="nameit" data-npc="${t.npc_id}" title="Looking it up on aion2.gaming.tools… or type the name yourself (saved for good)">✎ name it</span><span class="nameit" data-lk="${t.npc_id}" title="Open on aion2.gaming.tools">🔎</span>` : "";
     const unknownTip = t.name === "Unknown monster" ? ` title="This monster was already nearby when the meter started, so the game never said which one it is. It gets its name after you change zone or it comes back into view."` : "";
