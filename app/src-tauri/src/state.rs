@@ -370,6 +370,10 @@ impl Core {
                 self.settings.last_server = e.self_server;
                 self.settings_dirty = true;
             }
+            if e.self_odyle.is_some() && e.self_odyle != self.settings.last_odyle {
+                self.settings.last_odyle = e.self_odyle;
+                self.settings_dirty = true;
+            }
             if e.self_keys.is_some() && e.self_keys != self.settings.last_keys {
                 self.settings.last_keys = e.self_keys;
                 self.settings_dirty = true;
@@ -992,8 +996,11 @@ impl Core {
             .set("self", e.self_id.map(|id| e.actor_name(id)))
             .set("self_class", e.self_id.and_then(|id| e.actor_class(id)))
             .set("self_cp", e.self_cp)
-            .set("odyle", e.self_odyle.map(|o| o.0))
-            .set("odyle_bonus", e.self_odyle.map(|o| o.1))
+            .set("odyle", e.self_odyle.or(self.settings.last_odyle).map(|o| o.0))
+            .set("odyle_bonus", e.self_odyle.or(self.settings.last_odyle).map(|o| o.1))
+            // Remembered from an earlier session (Odyle regenerates while
+            // you're away, so it's shown as "last seen" until the game sends it).
+            .set("odyle_stale", e.self_odyle.is_none() && self.settings.last_odyle.is_some())
             .set("server", {
                 let manual = self.settings.server_name.trim();
                 if !manual.is_empty() {

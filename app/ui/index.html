@@ -103,6 +103,7 @@
   .foot .fx { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
   .foot .fx b { color: var(--text); font-weight: 650; font-variant-numeric: tabular-nums; }
   .foot .fx .dl { color: #4fb8e8; margin-left: 1px; }
+  .foot .fx.stale { opacity: .55; }
   .foot .ody { width: 11px; height: 11px; }
   .foot .srv-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--good); box-shadow: 0 0 6px rgba(111,207,142,0.7); }
   .nextev { flex: none; display: flex; gap: 12px; padding: 3px 10px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; font-variant-numeric: tabular-nums; }
@@ -221,7 +222,7 @@
     const bars = s.ping_ms == null ? 0 : s.ping_ms < 80 ? 4 : s.ping_ms < 150 ? 3 : s.ping_ms < 250 ? 2 : 1;
     const sig = [1, 2, 3, 4].map((i) => `<i style="height:${i * 2 + 1}px" class="${i <= bars ? "on" : ""}"></i>`).join("");
     const ping = `<b class="ping ${pc}" title="Latency to the game server (measured passively)"><span class="sig">${sig}</span>${s.ping_ms == null ? "-- ms" : Math.round(s.ping_ms) + " ms"}</b>`;
-    const odyle = s.odyle != null ? `<span class="fx" title="Odyle ${Number(s.odyle).toLocaleString()}${s.odyle_bonus ? ` (+${Number(s.odyle_bonus).toLocaleString()} from Odyle Energy)` : ""} · from the game, updated whenever it changes"><svg class="ody" viewBox="0 0 16 16"><path d="M8 1l4.5 5L8 15 3.5 6z" fill="#7cc4ff"/><path d="M8 1l4.5 5H3.5z" fill="#d6efff"/></svg><b>${Number(s.odyle).toLocaleString()}</b>${s.odyle_bonus ? `<span class="dl"> (+${Number(s.odyle_bonus).toLocaleString()})</span>` : ""}</span><i class="sep"></i>` : "";
+    const odyle = s.odyle != null ? `<span class="fx${s.odyle_stale ? " stale" : ""}" title="${s.odyle_stale ? "Last seen: " : ""}Odyle ${Number(s.odyle).toLocaleString()}${s.odyle_bonus ? ` (+${Number(s.odyle_bonus).toLocaleString()} from Odyle Energy)` : ""} · from the game, updated whenever it changes"><svg class="ody" viewBox="0 0 16 16"><path d="M8 1l4.5 5L8 15 3.5 6z" fill="#7cc4ff"/><path d="M8 1l4.5 5H3.5z" fill="#d6efff"/></svg><b>${Number(s.odyle).toLocaleString()}</b>${s.odyle_bonus ? `<span class="dl"> (+${Number(s.odyle_bonus).toLocaleString()})</span>` : ""}</span><i class="sep"></i>` : "";
     $("footc").innerHTML = `<span class="${isSrv ? "srv" : ""}" title="${D.esc(text)}">${isSrv ? '<i class="srv-dot"></i>' : ""}${D.esc(footL)}</span><span class="fr">${s.uploads_pending ? `<span>↑${s.uploads_pending}</span><i class="sep"></i>` : ""}${odyle}${ping}</span>`;
     $("foot").title = "Daeva Meter " + (s.version || "");
     renderAlerts(snap.alerts);
