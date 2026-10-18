@@ -117,6 +117,16 @@
     background: rgba(232,176,75,0.10); border-top: 1px solid rgba(232,176,75,0.30); }
   .zonetip b { color: #f3c46b; font-weight: 650; }
   .tp-hint { color: #f3c46b; font-weight: 600; }
+  /* New version on GitHub. */
+  .updline { flex: none; display: flex; align-items: center; gap: 8px; padding: 5px 10px; font-size: 11px; color: #bfe3ff;
+    background: rgba(80,150,230,.12); border-top: 1px solid rgba(120,180,255,.25); }
+  .updline > svg { width: 14px; height: 14px; flex: none; color: #8fd0ff; stroke: currentColor; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+  .updline b { color: #8fd0ff; }
+  .updline .go { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; color: #fff; background: rgba(80,150,230,.35);
+    border: 0; border-radius: 5px; padding: 1px 7px; font: inherit; font-weight: 600; cursor: pointer; }
+  .updline .go:hover { background: rgba(80,150,230,.55); }
+  .updline .go svg { width: 11px; height: 11px; stroke: currentColor; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+  .updline .x { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 11px; padding: 0 2px; }
   .zonetip .x { margin-left: auto; flex: none; background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 11px; padding: 0 2px; }
   .nextev { flex: none; display: flex; gap: 12px; padding: 3px 10px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; font-variant-numeric: tabular-nums; }
   .nextev > span { color: var(--text); }
@@ -144,6 +154,7 @@
   <div class="target" id="target" hidden></div>
   <div class="scroll"><div class="rows" id="rows"></div></div>
   <div class="zonetip" id="zonetip" hidden><span>📍 <b>Teleport or change zone once</b> so Daeva Meter can read names, monster health, Odyle and keys.</span><button class="x" id="zonetipX" title="Hide">✕</button></div>
+  <div class="updline" id="updline" hidden></div>
   <div class="nextev" id="nextev" hidden></div>
   <div class="foot" id="foot"><div class="footc" id="footc"></div><i class="sep"></i><button class="icon-btn lockb" id="bLock" title="Click-through (Ctrl+Shift+L)"></button></div>
 </div>
@@ -249,6 +260,7 @@
     const ping = `<b class="ping ${pc}" title="Latency to the game server (measured passively)"><span class="sig">${sig}</span>${s.ping_ms == null ? "-- ms" : Math.round(s.ping_ms) + " ms"}</b>`;
     const odyle = s.odyle != null ? `<span class="fx${s.odyle_stale ? " stale" : ""}" title="${s.odyle_stale ? "Last seen: " : ""}Odyle ${Number(s.odyle).toLocaleString()}${s.odyle_bonus ? ` (+${Number(s.odyle_bonus).toLocaleString()} from Odyle Energy)` : ""} · from the game, updated whenever it changes"><svg class="ody" viewBox="0 0 16 16"><path d="M8 1l4.5 5L8 15 3.5 6z" fill="#7cc4ff"/><path d="M8 1l4.5 5H3.5z" fill="#d6efff"/></svg><b>${Number(s.odyle).toLocaleString()}</b>${s.odyle_bonus ? `<span class="dl"> (+${Number(s.odyle_bonus).toLocaleString()})</span>` : ""}</span><i class="sep"></i>` : "";
     $("zonetip").hidden = !s.needs_zone || zoneTipHidden;
+    renderUpdate(s);
     $("footc").innerHTML = `<span class="${isSrv ? "srv" : ""}" title="${D.esc(text)}">${isSrv ? '<i class="srv-dot"></i>' : ""}${D.esc(footL)}</span><span class="fr">${s.uploads_pending ? `<span>↑${s.uploads_pending}</span><i class="sep"></i>` : ""}${odyle}${ping}</span>`;
     $("foot").title = "Daeva Meter " + (s.version || "");
     renderAlerts(snap.alerts);
@@ -299,6 +311,17 @@
     special: '<svg viewBox="0 0 16 16"><path d="M8 1.8l1.7 4.1 4.4.4-3.3 2.9 1 4.3L8 11.2l-3.8 2.3 1-4.3-3.3-2.9 4.4-.4z" stroke="#e8b04b" stroke-width="1.4" fill="none" stroke-linejoin="round"/></svg>',
   };
   let zoneTipHidden = false;
+  // New version on GitHub: Download opens the release page; ✕ hides this version.
+  let updShown = "";
+  function renderUpdate(s) {
+    const v = s.update_version || "";
+    $("updline").hidden = !v;
+    if (!v || v === updShown) return;
+    updShown = v;
+    $("updline").innerHTML = `${D.icon("download")}<span><b>Daeva Meter ${D.esc(v)}</b> is available</span><button class="go" id="updGo">${D.icon("download")}Download</button><button class="x" id="updX" title="Hide until the next version">✕</button>`;
+    $("updGo").onclick = () => D.call("open_release", { url: s.update_url }).catch((e) => D.toast(String(e)));
+    $("updX").onclick = async () => { await D.call("dismiss_update", { version: v }); $("updline").hidden = true; };
+  }
   $("zonetipX").onclick = () => { zoneTipHidden = true; $("zonetip").hidden = true; };
   let editing = null; // template being named; pauses target redraws
   let lastTargetHtml = "";

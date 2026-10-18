@@ -114,7 +114,7 @@ All of them work while the game has focus and can be changed in Settings. Resear
 3. Start AION 2 in **borderless or windowed** mode, then Daeva Meter. The dot top-left turns green while it's capturing.
 
 > [!TIP]
-> To update, just run the new installer over the top. If an uninstall screen ever asks, leave **"delete application data"** unticked, or you lose your settings, fight history and the names you typed.
+> From 0.3.1 the meter tells you when a new version is out (a line under the meter with a **Download** button). To update, just run the new installer over the top. If an uninstall screen ever asks, leave **"delete application data"** unticked, or you lose your settings, fight history and the names you typed.
 
 > [!TIP]
 > Start the meter **before** you enter a zone. Monsters that were already around when it started can't be identified until you change zone (they show as *Unknown monster* with a "Teleport once to identify" hint, and a notice under the meter reminds you).

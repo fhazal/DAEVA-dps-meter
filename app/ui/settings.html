@@ -115,6 +115,7 @@
       <button class="btn" id="bRefreshNames">Update names now</button>
     </div>
     <div class="f" style="margin-top:8px">${F("Names", `<div class="row-btns">${chk("lookup_names", "Get monster and skill names from aion2.gaming.tools")}${chk("game_art", "Show game icons (classes, skills, monsters)")}</div>`, "Downloads their monster and skill lists at most once a day and keeps a copy for offline use. Names you type yourself always win. Game icons are NCSOFT's, shown via gaming.tools. With thanks to the AION 2 Global Database team.")}</div>
+    <div class="f" style="margin-top:8px">${F("Updates", `<div class="row-btns">${chk("check_updates", "Check GitHub for new versions")}<button class="btn" id="bCheckUpd">Check now</button></div><div class="muted" id="updStatus" style="font-size:11.5px;margin-top:4px">…</div>`, "Asks GitHub for the latest published Daeva Meter release at start-up and every 6 hours. Nothing about you is sent. A new version shows a notice under the meter; Download opens the release page.")}</div>
     <div class="f" style="margin-top:8px">${F("Testers", chk("show_research", "Show research tools (flask button in the header)"), "Research mode records game traffic with markers, for decoding after a game patch. Most players don't need it: use Report a problem instead.")}</div>
     <p class="muted" style="font-size:11.5px"><b>Report a problem</b> saves the last 3 minutes of game traffic plus what the meter showed as one zip on your Desktop (also Ctrl+Shift+P, even in game). Send that file when something looks wrong.</p>
     <p class="muted" style="font-size:11.5px">Drop an updated <span class="mono">aion2.json</span> or <span class="mono">names.json</span> in the definitions folder to override the bundled copy after a game patch.</p>`;
@@ -181,6 +182,18 @@
     } catch (e) { document.getElementById("evList").textContent = String(e); }
   }
 
+  async function loadUpdate() {
+    const el = document.getElementById("updStatus");
+    try {
+      const u = JSON.parse(await D.call("update_status"));
+      const when = u.checked_at ? " · checked " + D.when(u.checked_at) : "";
+      el.textContent = u.available ? `You're on v${u.current} · ${u.available} is available${when}`
+        : u.error ? `You're on v${u.current} · couldn't check: ${u.error}${when}`
+        : u.latest ? `You're on v${u.current} · up to date${when}`
+        : `You're on v${u.current}` + (u.enabled ? " · checking shortly" : "");
+    } catch (e) { el.textContent = String(e); }
+  }
+
   async function init() {
     s = await D.call("get_settings");
     D.applyTheme({ accent: s.accent, opacity: 0.97 });
@@ -189,6 +202,12 @@
     document.querySelectorAll("input[type=range]").forEach((r) => (r.oninput = () => { if (r.dataset.k === "alerts.volume") updateVol(); else updateRanges(); }));
     updateVol();
     loadEvents();
+    loadUpdate();
+    document.getElementById("bCheckUpd").onclick = async () => {
+      await D.call("check_updates_now");
+      document.getElementById("updStatus").textContent = "Checking…";
+      setTimeout(loadUpdate, 4000);
+    };
     document.getElementById("bTestAlert").onclick = async () => { await D.call("test_alert"); D.toast("Test alert sent — save first if you changed the position"); };
     document.getElementById("bRestart").onclick = async () => { await D.call("restart_capture"); D.toast("Capture restarted"); };
     document.getElementById("bReport").onclick = async () => {

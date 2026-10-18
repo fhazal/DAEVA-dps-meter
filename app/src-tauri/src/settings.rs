@@ -138,6 +138,10 @@ pub struct Settings {
     /// Show the research-mode (flask) button in the header. Off for normal
     /// users; testers turn it on to record captures after a game patch.
     pub show_research: bool,
+    /// Ask GitHub for the latest published release (start-up, then every 6 h).
+    pub check_updates: bool,
+    /// A version the user hid the update notice for ("v0.3.1").
+    pub skipped_update: String,
     pub window: Option<(i32, i32, u32, u32)>,
     pub history_keep_days: u32,
     /// Last known local player (entity id, name, unix time). Entity ids only
@@ -183,6 +187,8 @@ impl Default for Settings {
             game_art: true,
             demo: false,
             show_research: false,
+            check_updates: true,
+            skipped_update: String::new(),
             window: None,
             history_keep_days: 30,
             last_self: None,

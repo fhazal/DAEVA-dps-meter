@@ -116,6 +116,33 @@ fn open_lookup(kind: String, id: u32) -> Result<(), String> {
     winsys::open_url(&url)
 }
 
+/// Update check: status for Settings, "Check now", hide a version, and open
+/// the release page (only the project's own GitHub releases).
+#[tauri::command]
+fn update_status(st: St<'_>) -> String {
+    st.lock().update_view()
+}
+
+#[tauri::command]
+fn check_updates_now(st: St<'_>) {
+    st.lock().update_wake = true;
+}
+
+#[tauri::command]
+fn dismiss_update(st: St<'_>, version: String) {
+    let mut c = st.lock();
+    c.settings.skipped_update = version;
+    c.settings_dirty = true;
+}
+
+#[tauri::command]
+fn open_release(url: String) -> Result<(), String> {
+    if !url.starts_with(state::RELEASES_URL) {
+        return Err("not a Daeva Meter release page".into());
+    }
+    winsys::open_url(&url)
+}
+
 #[tauri::command]
 fn get_alerts(st: St<'_>) -> String {
     st.lock().alerts_view(state::now_unix()).to_string()
@@ -585,6 +612,10 @@ fn main() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            update_status,
+            check_updates_now,
+            dismiss_update,
+            open_release,
             get_snapshot,
             get_detail,
             get_history,

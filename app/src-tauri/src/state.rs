@@ -118,6 +118,12 @@ pub struct Core {
     pub site_wake: bool,
     /// Which edge of the alert window the banners stack from ("top"/"bottom").
     pub toast_anchor: &'static str,
+    /// Latest published release on GitHub: (tag like "v0.3.1", page url).
+    pub update_latest: Option<(String, String)>,
+    pub update_checked: f64,
+    pub update_error: Option<String>,
+    /// Set by "Check now".
+    pub update_wake: bool,
 }
 
 #[derive(Default)]
@@ -255,6 +261,10 @@ impl Core {
             icons: HashMap::new(),
             site_wake: false,
             toast_anchor: "bottom",
+            update_latest: None,
+            update_checked: 0.0,
+            update_error: None,
+            update_wake: false,
         };
         c.load_wanted();
         c.load_site_missing();
@@ -694,6 +704,25 @@ impl Core {
         }
     }
 
+    /// A published release newer than this build that the user hasn't hidden.
+    pub fn update_available(&self) -> Option<(String, String)> {
+        let (tag, url) = self.update_latest.clone()?;
+        let newer = version_key(&tag) > version_key(env!("CARGO_PKG_VERSION"));
+        (newer && self.settings.check_updates && tag != self.settings.skipped_update).then_some((tag, url))
+    }
+
+    pub fn update_view(&self) -> String {
+        serde_json::json!({
+            "current": env!("CARGO_PKG_VERSION"),
+            "latest": self.update_latest.as_ref().map(|(t, _)| t.trim_start_matches('v').to_string()),
+            "available": self.update_available().map(|(t, _)| t),
+            "checked_at": if self.update_checked > 0.0 { Some(self.update_checked) } else { None },
+            "error": self.update_error,
+            "enabled": self.settings.check_updates,
+        })
+        .to_string()
+    }
+
     pub fn icons_view(&self) -> String {
         let icons: serde_json::Map<String, serde_json::Value> = if self.settings.game_art {
             self.icons.iter().map(|(k, v)| (k.clone(), serde_json::json!(v))).collect()
@@ -1024,6 +1053,8 @@ impl Core {
                 }
             })
             .set("uploads_pending", self.uploads.len())
+            .set("update_version", self.update_available().map(|(v, _)| v))
+            .set("update_url", self.update_available().map(|(_, u)| u))
             .set("version", env!("CARGO_PKG_VERSION"))
             .set("warning", self.warning.clone())
             .build();
@@ -1187,7 +1218,7 @@ impl Core {
 }
 
 /// "0.6.14" → [0, 6, 14] for comparing definition versions.
-fn version_key(v: &str) -> Vec<u64> {
+pub fn version_key(v: &str) -> Vec<u64> {
     v.trim().trim_start_matches('v').split('.').map(|p| p.trim().parse().unwrap_or(0)).collect()
 }
 
@@ -1298,6 +1329,10 @@ pub fn start_threads(shared: Arc<Shared>) {
     {
         let s = shared.clone();
         std::thread::Builder::new().name("event-feed".into()).spawn(move || event_feed(s)).ok();
+    }
+    {
+        let s = shared.clone();
+        std::thread::Builder::new().name("update-check".into()).spawn(move || update_check(s)).ok();
     }
     // Page-by-page look-ups on gaming.tools are retired: names come only
     // from the Daeva server's mirror. (name_lookup kept for reference.)
@@ -1691,4 +1726,57 @@ pub fn fix_names(src: &str, names: &Names) -> String {
     }
     out.push_str(rest);
     out
+}
+
+/// The project's GitHub releases. Only this page is ever opened from the
+/// update notice.
+pub const RELEASES_URL: &str = "https://github.com/fhazal/DAEVA-dps-meter/releases";
+const LATEST_API: &str = "https://api.github.com/repos/fhazal/DAEVA-dps-meter/releases/latest";
+
+/// Asks GitHub for the latest published release (drafts and pre-releases are
+/// never "latest"): shortly after start, then every 6 hours, or on "Check now".
+/// Sends nothing about the user; one read-only request.
+fn update_check(shared: Arc<Shared>) {
+    let agent = ureq::AgentBuilder::new()
+        .timeout(Duration::from_secs(20))
+        .user_agent(concat!("DaevaMeter/", env!("CARGO_PKG_VERSION"), " (+https://github.com/fhazal/DAEVA-dps-meter)"))
+        .build();
+    std::thread::sleep(Duration::from_secs(10));
+    let mut next = Instant::now();
+    loop {
+        let (enabled, wake) = {
+            let mut c = shared.lock();
+            (c.settings.check_updates, std::mem::take(&mut c.update_wake))
+        };
+        if wake || (enabled && Instant::now() >= next) {
+            let res = agent
+                .get(LATEST_API)
+                .set("Accept", "application/vnd.github+json")
+                .call()
+                .map_err(|e| match e {
+                    ureq::Error::Status(code, _) => format!("GitHub answered HTTP {code}"),
+                    e => e.to_string(),
+                })
+                .and_then(|r| r.into_string().map_err(|e| e.to_string()))
+                .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).map_err(|e| e.to_string()));
+            let mut c = shared.lock();
+            c.update_checked = now_unix();
+            match res {
+                Ok(v) => {
+                    let tag = v["tag_name"].as_str().unwrap_or("").to_string();
+                    let url = v["html_url"].as_str().unwrap_or("").to_string();
+                    if !tag.is_empty() && url.starts_with(RELEASES_URL) {
+                        c.update_latest = Some((tag, url));
+                        c.update_error = None;
+                    } else {
+                        c.update_error = Some("unexpected answer from GitHub".into());
+                    }
+                }
+                Err(e) => c.update_error = Some(e),
+            }
+            drop(c);
+            next = Instant::now() + Duration::from_secs(6 * 3600);
+        }
+        std::thread::sleep(Duration::from_secs(5));
+    }
 }
