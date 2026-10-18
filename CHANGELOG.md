@@ -25,6 +25,7 @@ The first public build of Daeva Meter for AION 2 (Windows 10/11).
 - Status light: green while fighting, pulsing amber when idle, steady amber when there's no game traffic.
 - Ping in the footer (green under 100 ms, amber to 179 ms, red from 180 ms). Works through tunnels such as Mudfish.
 - "Teleport or change zone once" notice when the meter was started mid-zone.
+- Report a problem (Ctrl+Shift+P) saves the last 3 minutes of game traffic for bug reports. Research tools for testers are under Settings → Data → Show research tools.
 
 **Known limitations**
 - Monsters that were already near you when the meter started show as *Unknown monster* until you teleport or change zone.

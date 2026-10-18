@@ -207,6 +207,9 @@
     ui = snap.ui || {};
     D.applyTheme(ui);
     document.body.classList.toggle("locked", !!ui.click_through);
+    // Research mode only for testers (Settings → Data → Show research tools),
+    // or while a recording is running so it can always be stopped.
+    $("bResearch").hidden = !ui.show_research && !snap.research;
     $("bLock").innerHTML = D.icon(ui.click_through ? "lock" : "unlock");
     $("bLock").classList.toggle("on", !!ui.click_through);
 

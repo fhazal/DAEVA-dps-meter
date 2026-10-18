@@ -1038,6 +1038,7 @@ impl Core {
             .set("primary_metric", s.primary_metric.as_str())
             .set("anonymize_others", s.anonymize_others)
             .set("click_through", s.click_through)
+            .set("show_research", s.show_research)
             .build();
         let alerts = self.alerts_view(now);
         Obj::new().set("status", status).set("ui", ui).set("fight", fight).set("research", rec).set("alerts", alerts).build()

@@ -135,6 +135,9 @@ pub struct Settings {
     /// aion2.gaming.tools (falls back to the built-in icons).
     pub game_art: bool,
     pub demo: bool,
+    /// Show the research-mode (flask) button in the header. Off for normal
+    /// users; testers turn it on to record captures after a game patch.
+    pub show_research: bool,
     pub window: Option<(i32, i32, u32, u32)>,
     pub history_keep_days: u32,
     /// Last known local player (entity id, name, unix time). Entity ids only
@@ -179,6 +182,7 @@ impl Default for Settings {
             names_mirror: "https://aion2.bajubesi.org/api/gt".into(),
             game_art: true,
             demo: false,
+            show_research: false,
             window: None,
             history_keep_days: 30,
             last_self: None,
