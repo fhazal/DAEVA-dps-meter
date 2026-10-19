@@ -1,4 +1,4 @@
-**Daeva Meter** — a passive damage meter for AION 2, by the Bajubesi Network community. See the [changelog](https://github.com/fhazal/DAEVA-dps-meter/blob/main/CHANGELOG.md) for everything in this version.
+**Daeva Meter** — a passive damage meter for AION 2, by the Bajubesi Network community. See the [changelog](https://github.com/fhazal/DAEVA-dps-meter/blob/main/CHANGELOG.md) for everything in this version · [Code signing policy](https://github.com/fhazal/DAEVA-dps-meter/blob/main/CODE_SIGNING.md)
 
 ### Install
 1. Install **[Npcap](https://npcap.com/#download)** with the default options, and leave *"Restrict Npcap driver's access to Administrators only"* **unticked**.

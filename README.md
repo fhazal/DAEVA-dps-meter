@@ -110,7 +110,7 @@ All of them work while the game has focus and can be changed in Settings. Resear
 ## 🚀 Install
 
 1. Install **[Npcap](https://npcap.com/#download)** with the default options. Leave *"Restrict Npcap driver's access to Administrators only"* **unticked**.
-2. Download the latest installer (`Daeva.Meter_…_x64-setup.exe`) from **[Releases](https://github.com/fhazal/DAEVA-dps-meter/releases/latest)** and run it. It isn't code-signed yet, so Windows SmartScreen may warn you: choose **More info → Run anyway**.
+2. Download the latest installer (`Daeva.Meter_…_x64-setup.exe`) from **[Releases](https://github.com/fhazal/DAEVA-dps-meter/releases/latest)** and run it. It isn't code-signed yet, so Windows SmartScreen may warn you: choose **More info → Run anyway**. See our **[Code signing policy](CODE_SIGNING.md)**.
 3. Start AION 2 in **borderless or windowed** mode, then Daeva Meter. The dot top-left turns green while it's capturing.
 
 > [!TIP]
@@ -120,6 +120,10 @@ All of them work while the game has focus and can be changed in Settings. Resear
 > Start the meter **before** you enter a zone. Monsters that were already around when it started can't be identified until you change zone (they show as *Unknown monster* with a "Teleport once to identify" hint, and a notice under the meter reminds you).
 
 ---
+
+## 🔒 Privacy
+
+Daeva Meter only reads your network traffic; it never touches the game client. It sends nothing about you anywhere unless you use a feature that needs it (update check, monster names, event alerts, opt-in sharing), and each connection can be switched off in Settings. Full list: [Code signing policy → Privacy](CODE_SIGNING.md#privacy).
 
 ## 🩺 When something looks wrong
 
