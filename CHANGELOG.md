@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0
+
+- **Rows glide when someone overtakes:** when the ranking changes mid-fight, players slide to their new place instead of jumping, and the one moving up glows gold for a moment, so you can see who passed whom. Rows that keep their place don't move. Turned off when Windows' *Show animations* setting is off.
+- **"Your time" ranks by DPS:** under *Settings → Fights → DPS clock → Your time*, each player's DPS uses their own time in the fight, so a late joiner could show a higher DPS than the row above. The list now ranks by the DPS shown there. With the default clocks nothing changes (damage and DPS order are the same).
+
 ## 0.3.9
 
 - **World bosses no longer look like a fault:** at an open-world boss the game only sends you the hits of players near you, so the HP check read something like *⚠ 3.9% of HP counted* even though every one of your own hits was recorded. When the meter watched the boss from (nearly) full health to the kill with no data lost, the card now says **🌐 All your hits seen** instead (hover for why). Dungeon bosses keep *✓ 99.8% of HP counted*, and a real problem (joined late, data lost) still shows ⚠.

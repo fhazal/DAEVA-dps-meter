@@ -1,11 +1,11 @@
 <!-- Short release notes the Daeva Discord bot posts when a release is published.
      Update "version" and the lists with each release. -->
-version: 0.3.9
-tagline: Fair for world bosses: your kills now show "All your hits seen" and can earn ✅ on the DPS boards.
+version: 0.4.0
+tagline: Watch the race: rows now glide into place when someone overtakes, with a gold flash for the climber.
 
 ## New
-- 🌐 **World bosses**: "All your hits seen" instead of a scary ⚠ when the game only sends nearby players' hits
-- ✅ **Verified world-boss kills** on the DPS boards when the meter saw the whole fight
+- 🏁 **Gliding rows**: players slide to their new rank instead of jumping, so every overtake is easy to follow
+- 📈 **"Your time" clock ranks by DPS**, so the top row always shows the highest number
 
 ## Fixed
-- A stray hit on another monster after a world boss died cancelled "killed"
+- Under the "Your time" clock, a late joiner's higher DPS could sit below a lower one

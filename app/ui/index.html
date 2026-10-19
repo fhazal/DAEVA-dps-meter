@@ -88,6 +88,7 @@
   .row .fill { position: absolute; left: 0; top: 0; bottom: 0; opacity: 0.22; border-radius: 6px; transition: width .3s ease; }
   .row .edge { position: absolute; left: 0; top: 4px; bottom: 4px; width: 3px; border-radius: 2px; }
   .row.self { background: var(--self); }
+  .row.climb { box-shadow: inset 0 0 0 1px rgba(232,176,75,.55), 0 0 10px rgba(232,176,75,.25); }
   .row > * { position: relative; }
   .rank { color: var(--dim); font-size: 11px; text-align: right; font-variant-numeric: tabular-nums; }
   .who { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 6px; }
@@ -480,6 +481,27 @@
       requestAnimationFrame(step);
     });
   }
+  // Rows that change place slide to their new spot (FLIP); one that moves
+  // up glows gold for a moment. Off when Windows asks for reduced motion.
+  const calm = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function glide(before) {
+    if (calm || !before.size) return;
+    document.querySelectorAll("#rows .row").forEach((r) => {
+      const old = before.get(r.dataset.id);
+      if (old == null) return;
+      const dy = old - r.getBoundingClientRect().top;
+      if (Math.abs(dy) < 1) return;
+      r.style.transition = "none";
+      r.style.transform = `translateY(${dy}px)`;
+      r.style.zIndex = dy > 0 ? "2" : "1";
+      if (dy > 0) r.classList.add("climb");
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        r.style.transition = "transform .35s cubic-bezier(.2,.8,.2,1)";
+        r.style.transform = "";
+        setTimeout(() => r.classList.remove("climb"), 700);
+      }));
+    });
+  }
   function renderRows(f, m) {
     const list = ui.show_players === "me" ? f.players.filter((p) => p.is_self)
       : ui.show_players === "party" ? f.players.filter((p) => p.in_party || p.is_self)
@@ -492,6 +514,8 @@
     $("rows").classList.toggle("cols", cc.length > 0);
     $("rows").style.setProperty("--xc", cc.length * 44 + "px");
     const head = cc.length ? `<div class="colhead" style="--xc:${cc.length * 44}px"><span>Player</span><span class="xcs">${cc.map((c) => `<span>${COLS[c][0]}</span>`).join("")}</span><span class="vh">${m === "dps" ? "DPS" : m === "dmg" ? "Damage" : "Share"}</span></div>` : "";
+    // Remember where each row was, so rows that change place glide there.
+    const before = new Map([...document.querySelectorAll("#rows .row")].map((r) => [r.dataset.id, r.getBoundingClientRect().top]));
     $("rows").innerHTML = head + rows.map((p, i) => {
       const v = m === "dps" ? p.dps : p.dmg;
       const color = D.classColor(p.class, p.name);
@@ -510,6 +534,7 @@
       </div>`;
     }).join("");
     runOdos();
+    glide(before);
     document.querySelectorAll(".row").forEach((r) => {
       r.onclick = () => D.call("open_window", { kind: "detail", params: JSON.stringify({ fight_id: lastFight.fight_id, actor_id: Number(r.dataset.id) }) });
     });

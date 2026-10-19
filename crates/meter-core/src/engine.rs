@@ -1266,7 +1266,14 @@ impl Engine {
         };
         let total: u64 = f.stats.values().map(dmg_of).sum();
         let mut rows: Vec<(&u64, &ActorStat)> = f.stats.iter().filter(|(_, s)| dmg_of(s) > 0).collect();
-        rows.sort_by(|a, b| dmg_of(b.1).cmp(&dmg_of(a.1)).then(b.1.heal.cmp(&a.1.heal)));
+        // Highest first by the number shown: damage under a shared clock (the
+        // same order as DPS); under "your time" each player has their own
+        // divisor, so rank by DPS or a late joiner's higher DPS sits below.
+        if personal {
+            rows.sort_by(|a, b| (dmg_of(b.1) as f64 / own_dur(b.1)).total_cmp(&(dmg_of(a.1) as f64 / own_dur(a.1))).then(b.1.heal.cmp(&a.1.heal)));
+        } else {
+            rows.sort_by(|a, b| dmg_of(b.1).cmp(&dmg_of(a.1)).then(b.1.heal.cmp(&a.1.heal)));
+        }
         let players: Vec<Value> = rows
             .iter()
             .map(|(id, s)| {
@@ -1669,9 +1676,14 @@ mod tests {
         // Whole fight: everything ÷ 20 s.
         let w = run(DpsClock::Fight);
         assert_eq!(row(&w, "Me"), 110.0);
-        // Your time: the late joiner's own 1 s.
+        // Your time: the late joiner's own 1 s, and ranked first by DPS
+        // (500/s) although "Me" did more damage.
         let p = run(DpsClock::Personal);
         assert_eq!(row(&p, "Late"), 500.0);
+        let first = p.get("players").unwrap().as_arr().unwrap()[0].str_or("name", "").to_string();
+        assert_eq!(first, "Late");
+        let b0 = b.get("players").unwrap().as_arr().unwrap()[0].str_or("name", "").to_string();
+        assert_eq!(b0, "Me", "shared clocks rank by damage");
         // HP check: 2000 of 2000 counted on the dead boss.
         let tg = b.get("target").unwrap();
         assert_eq!(tg.f64_or("counted", 0.0), 1.0, "{}", b.to_string());
