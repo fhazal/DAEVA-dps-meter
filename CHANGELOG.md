@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.8
+
+- **The meter recovers by itself when it stops reading the game:** on a server switch (leaving the Beritra air raid, for example) the meter could lose its place in the game's data and stay deaf until restarted: you kept fighting and nothing registered. It already had a self-repair, but your own outgoing messages kept it believing all was well. It now watches only what the server sends: if the server keeps sending but none of it can be read for 15 seconds, the meter restarts reading on its own, so at most about 15 seconds are lost. Reports record how often this happened.
+- **More Sorcerer ground skills credited to the Sorcerer:** in some areas (the Beritra air raid, open-world bosses) Bittercold Wind, Fire Wall and Cold Storm arrive in a slightly different form that names the caster by id instead of by name, and still showed as *Player #12345* rows. They now count for the Sorcerer who cast them, including hits that went missing before. (Game definitions 0.6.17.)
+
 ## 0.3.7
 
 - **Live numbers:** DPS, damage and share now count smoothly to each new value, like a digital dashboard, instead of jumping. Your DPS glows faintly green while it climbs.

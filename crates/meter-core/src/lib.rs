@@ -42,6 +42,12 @@ pub struct Pipeline {
     pub game_bytes: u64,
     pub last_ts: f64,
     pub last_game_ts: f64,
+    /// Last time the server sent us any payload (for the stall check).
+    pub last_server_data_ts: f64,
+    /// How often the stall check restarted reading (shown in reports).
+    pub stall_heals: u64,
+    stall_frames: u64,
+    stall_since: f64,
     pub ping: Ping,
     events: Vec<GameEvent>,
 }
@@ -114,6 +120,10 @@ impl Pipeline {
             game_bytes: 0,
             last_ts: 0.0,
             last_game_ts: 0.0,
+            last_server_data_ts: 0.0,
+            stall_heals: 0,
+            stall_frames: 0,
+            stall_since: 0.0,
             ping: Ping::default(),
             events: Vec::new(),
         }
@@ -147,6 +157,9 @@ impl Pipeline {
         self.game_packets += 1;
         self.game_bytes += seg.payload.len() as u64;
         self.last_game_ts = ts;
+        if from_server && !seg.payload.is_empty() {
+            self.last_server_data_ts = ts;
+        }
         if from_server {
             if seg.flags & net::TCP_ACK != 0 {
                 self.ping.server_acked(seg.flow.reversed(), seg.ack, ts);
@@ -179,6 +192,34 @@ impl Pipeline {
     /// Feed already-decoded events (demo mode, tests).
     pub fn push_events(&mut self, evs: &[GameEvent]) -> Vec<Fight> {
         evs.iter().filter_map(|e| self.engine.handle(e)).collect()
+    }
+
+    /// Seconds the server may keep sending without anything decoding
+    /// before reading restarts.
+    pub const STALL_SECS: f64 = 15.0;
+
+    /// Self-heal for a stuck stream: when the server keeps sending but none
+    /// of it reads as a frame for `STALL_SECS`, the stream has lost sync
+    /// (e.g. on a server switch) and would otherwise stay deaf. Restart
+    /// reading from the next packet. Only the server's side counts: your
+    /// own outgoing messages keep decoding while the server's are stuck,
+    /// which once hid a stall for minutes. Returns true when it restarted.
+    pub fn heal_stall(&mut self, now: f64) -> bool {
+        let frames = self.decoder.frames_server;
+        let flowing = self.last_server_data_ts > 0.0 && now - self.last_server_data_ts < 5.0;
+        if frames != self.stall_frames || !flowing {
+            self.stall_frames = frames;
+            self.stall_since = now;
+            return false;
+        }
+        if now - self.stall_since > Self::STALL_SECS {
+            self.reasm.reset();
+            self.decoder.reset_all();
+            self.stall_since = now;
+            self.stall_heals += 1;
+            return true;
+        }
+        false
     }
 
     pub fn tick(&mut self, now: f64) -> Option<Fight> {
@@ -232,6 +273,93 @@ mod tests {
         let f = p.engine.current.as_ref().unwrap();
         assert_eq!(f.stats[&5].dmg, (100..110).sum::<u64>());
         assert_eq!(f.stats[&5].crits, 5);
+    }
+
+    /// Leaving the Beritra air raid: the server stream lost sync and sat
+    /// waiting for a bogus frame while your own outgoing messages kept
+    /// decoding, so the old stall check (all frames) never fired and the
+    /// meter stayed deaf for minutes. Only the server's frames count now.
+    #[test]
+    fn stuck_server_stream_heals_while_client_still_decodes() {
+        let defs = Arc::new(
+            Definitions::from_json(
+                r#"{"framing": {"header": ["length:u16le", "opcode:u16le"]}, "ports": [7777],
+                    "messages": [{"opcode": 1, "fields": ["src:u32", "tgt:u32", "skill:u32", "dmg:u32", "f:u8"],
+                                  "emit": {"event": "damage", "src": "src", "tgt": "tgt", "skill": "skill", "amount": "dmg", "crit": "f&1"}}]}"#,
+            )
+            .unwrap(),
+        );
+        let mut p = Pipeline::new(Decoder::new(defs, None), Engine::new(EngineConfig::default(), Names::default()));
+        let server = FlowKey {
+            src: Endpoint { ip: Ipv4Addr::new(52, 1, 1, 1), port: 7777 },
+            dst: Endpoint { ip: Ipv4Addr::new(192, 168, 0, 10), port: 51000 },
+        };
+        let client = server.reversed();
+        let hit = |dmg: u32| {
+            let mut body = Vec::new();
+            for v in [5u32, 99, 42, dmg] {
+                body.extend_from_slice(&v.to_le_bytes());
+            }
+            body.push(0);
+            let mut f = ((body.len() + 4) as u16).to_le_bytes().to_vec();
+            f.extend_from_slice(&1u16.to_le_bytes());
+            f.extend_from_slice(&body);
+            f
+        };
+        let ping = [6u8, 0, 2, 0, 0, 0]; // a 6-byte client frame, opcode 2
+        let (mut sseq, mut cseq) = (1u32, 1u32);
+        let send = |p: &mut Pipeline, flow: &FlowKey, seq: &mut u32, data: &[u8], t: f64| {
+            p.push_frame(net::DLT_EN10MB, &net::build_frame(flow, *seq, net::TCP_ACK, data), t);
+            *seq += data.len() as u32;
+        };
+        send(&mut p, &server, &mut sseq, &hit(100), 0.0);
+        assert!(!p.heal_stall(0.0));
+        // A known opcode claiming 60000 bytes: the framer waits for it.
+        send(&mut p, &server, &mut sseq, &[0x60, 0xea, 1, 0], 0.5);
+        let mut healed_at = None;
+        let mut t = 1.0;
+        while t < 30.0 {
+            send(&mut p, &server, &mut sseq, &[0x11; 40], t);
+            send(&mut p, &client, &mut cseq, &ping, t);
+            if p.heal_stall(t) && healed_at.is_none() {
+                healed_at = Some(t);
+            }
+            if healed_at.is_some() {
+                break;
+            }
+            t += 1.0;
+        }
+        let healed_at = healed_at.expect("a stuck server stream must restart");
+        assert!(healed_at > Pipeline::STALL_SECS && healed_at < Pipeline::STALL_SECS + 3.0, "{healed_at}");
+        assert_eq!(p.stall_heals, 1);
+        // Reading restarts: the next hits count again.
+        for i in 0..3 {
+            send(&mut p, &server, &mut sseq, &hit(1000), healed_at + 1.0 + i as f64 * 0.1);
+        }
+        let f = p.engine.current.as_ref().unwrap();
+        assert!(f.stats[&5].dmg >= 2000, "{}", f.stats[&5].dmg);
+    }
+
+    /// A quiet server (only keep-alives) is not a stall.
+    #[test]
+    fn quiet_server_is_not_a_stall() {
+        let defs = Arc::new(Definitions::from_json(r#"{"framing": {"header": ["length:u16le", "opcode:u16le"]}, "ports": [7777]}"#).unwrap());
+        let mut p = Pipeline::new(Decoder::new(defs, None), Engine::new(EngineConfig::default(), Names::default()));
+        let server = FlowKey {
+            src: Endpoint { ip: Ipv4Addr::new(52, 1, 1, 1), port: 7777 },
+            dst: Endpoint { ip: Ipv4Addr::new(192, 168, 0, 10), port: 51000 },
+        };
+        let mut seq = 1u32;
+        for i in 0..60 {
+            let t = i as f64;
+            p.push_frame(net::DLT_EN10MB, &net::build_frame(&server, seq, net::TCP_ACK, &[6, 0, 0, 0x36, 0, 0]), t);
+            seq += 6;
+            assert!(!p.heal_stall(t), "keep-alives decode as frames: no restart");
+        }
+        // Nothing at all from the server (you're idle, or offline): no restart either.
+        for i in 60..120 {
+            assert!(!p.heal_stall(i as f64));
+        }
     }
 
     #[test]

@@ -27,7 +27,10 @@ pub enum FType {
     Svarint,
     Skip(usize),
     /// Jump to the next occurrence of a byte pattern (minus `back` bytes).
-    Seek { pattern: Vec<u8>, back: usize },
+    /// An `optional` seek doesn't fail the message when the pattern is
+    /// missing: it stays put and records 1 (found) or 0 under its name, so
+    /// later fields can pick another layout.
+    Seek { pattern: Vec<u8>, back: usize, optional: bool },
     /// Group member names from a party list: entries start with the byte
     /// `marker`, an index, a u32 id, u16 0, u16 server, then a u8-length
     /// UTF-8 name. Reads to the end; names are joined with newlines.
@@ -352,7 +355,7 @@ fn parse_ftype(v: &Value, ctx: &str) -> Result<FType, String> {
             if pattern.is_empty() {
                 return Err(format!("{ctx}: seek needs a 'pattern'"));
             }
-            FType::Seek { pattern, back: v.u64_or("back", 0) as usize }
+            FType::Seek { pattern, back: v.u64_or("back", 0) as usize, optional: v.bool_or("optional", false) }
         }
         "bytes" => FType::Bytes(len_spec("len")?),
         "str" | "str_varint" => FType::StrVarint,
@@ -541,14 +544,18 @@ fn read_fields(r: &mut Reader<'_>, defs: &[FieldDef], parents: &[&Scope], out: &
                 r.pos = r.buf.len();
                 FVal::S(names.join("\n"))
             }
-            FType::Seek { pattern, back } => {
+            FType::Seek { pattern, back, optional } => {
                 let rest = r.rest();
-                let i = rest.windows(pattern.len()).position(|w| w == pattern.as_slice()).ok_or(WireErr::Eof)?;
-                if i < *back {
-                    return Err(WireErr::Eof);
+                let at = rest.windows(pattern.len()).position(|w| w == pattern.as_slice()).filter(|i| *i >= *back);
+                match at {
+                    Some(i) => r.pos += i - back,
+                    None if *optional => {}
+                    None => return Err(WireErr::Eof),
                 }
-                r.pos += i - back;
-                continue;
+                if !*optional {
+                    continue;
+                }
+                FVal::U(at.is_some() as u64)
             }
             FType::Bytes(l) => {
                 let n = resolve_len(l, r, parents, out);
@@ -794,6 +801,9 @@ pub struct Decoder {
     /// Bytes of each recent frame to keep (96 in the app, everything offline).
     pub keep_bytes: usize,
     pub frames_total: u64,
+    /// Frames read from the server's side only (the stall check: your own
+    /// outgoing messages keep flowing even when the server stream is stuck).
+    pub frames_server: u64,
 }
 
 impl Decoder {
@@ -807,6 +817,7 @@ impl Decoder {
             keep_recent: 0,
             keep_bytes: 96,
             frames_total: 0,
+            frames_server: 0,
         }
     }
 
@@ -836,6 +847,9 @@ impl Decoder {
 
     fn handle_frame(&mut self, defs: &Definitions, f: Frame, from_server: bool, ts: f64, out: &mut Vec<GameEvent>, depth: usize) {
         self.frames_total += 1;
+        if from_server {
+            self.frames_server += 1;
+        }
         let mut payload: Vec<u8> = f.payload().to_vec();
         if let Some(c) = &defs.framing.compressed_if {
             if c.truthy(&[&f.header]) {
@@ -1231,5 +1245,61 @@ mod party_tests {
         d.push(flow, true, &bytes, false, 1.0, &mut out);
         assert!(out.iter().any(|e| matches!(e, GameEvent::SelfId { id: 13453, name: Some(n) } if n == "BajuBesi")), "{out:?}");
         assert!(out.iter().any(|e| matches!(e, GameEvent::Fresh)), "{out:?}");
+    }
+
+    /// A real 0x3641 from the Beritra air raid: a Sorcerer's Bittercold Wind
+    /// (a==95) that carries the caster's entity id after "07 02 06" instead
+    /// of a name. The name seek used to fail the whole spawn, so each cast
+    /// showed as its own "Player #12345" row. (A player name in the frame is
+    /// replaced with a same-length placeholder.)
+    #[test]
+    fn ground_skill_owner_by_id_real_frame() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
+        let mut d = Decoder::new(Arc::new(Definitions::from_json(&src).unwrap()), None);
+        let flow = FlowKey { src: Endpoint { ip: Ipv4Addr::new(9, 9, 9, 9), port: 13328 }, dst: Endpoint { ip: Ipv4Addr::new(10, 0, 0, 2), port: 5000 } };
+        let hex = "ce 01 41 36 e5 d1 04 5f 00 00 cd 90 2c 00 40 02 31 11 fa c3 49 9f 7f 44 00 00 98 41 44 7a 18 43 6e 6c 01 cf 83 01 cf 83 01 6e 11 00 00 6e 11 00 00 00 00 00 00 00 00 00 00 00 00 00 00 78 5d 02 00 64 00 00 00 f0 49 02 00 01 00 00 00 00 00 00 00 a0 86 01 00 00 00 00 00 74 ae 0a 00 01 02 01 11 01 81 96 98 00 ff ff ff ff ff ff ff ff 80 75 d5 2a bb 03 00 00 e5 d1 04 01 02 31 11 fa c3 49 9f 7f 44 00 00 98 41 07 02 06 04 15 00 00 68 03 00 00 00 00 cb 09 0b 50 6c 61 79 65 72 2d 4e 61 6d 65 02 00 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 03 cd 00 12 02 00 00 d0 00 7a 01 00 00 d6 00 32 00 00 00 2d 00 00 00 00";
+        let bytes: Vec<u8> = hex.split_whitespace().map(|h| u8::from_str_radix(h, 16).unwrap()).collect();
+        let mut out = Vec::new();
+        d.push(flow, true, &bytes, false, 1.0, &mut out);
+        assert!(
+            out.iter().any(|e| matches!(e, GameEvent::Actor { id: 76005, kind: ActorKind::Summon, owner: Some(5380), npc_id: Some(2920653), .. })),
+            "{out:?}"
+        );
+    }
+
+    /// An optional seek records whether it found its pattern, so the next
+    /// fields can choose between layouts instead of failing the message.
+    #[test]
+    fn optional_seek_picks_layout() {
+        let defs = Arc::new(
+            Definitions::from_json(
+                r#"{"framing": {"header": ["length:u16le", "opcode:u16le"], "length_counts": "frame"},
+                    "messages": [{"opcode": 9, "fields": ["id:u8",
+                        {"name": "named", "type": "seek", "pattern": "aa aa", "optional": true},
+                        {"name": "s1", "type": "skip", "len": 2, "if": "named"},
+                        {"name": "nm", "type": "str", "if": "named"},
+                        {"name": "byid", "type": "seek", "pattern": "bb bb", "optional": true, "if": "named==0"},
+                        {"name": "s2", "type": "skip", "len": 2, "if": "named==0&&byid"},
+                        {"name": "own", "type": "u8", "if": "named==0&&byid"}],
+                      "emit": [{"event": "actor", "when": "named", "id": "id", "kind": "'summon'", "name": "nm"},
+                               {"event": "actor", "when": "named==0&&own>0", "id": "id", "kind": "'summon'", "owner": "own"}]}]}"#,
+            )
+            .unwrap(),
+        );
+        let mut d = Decoder::new(defs, None);
+        let flow = FlowKey { src: Endpoint { ip: Ipv4Addr::new(9, 9, 9, 9), port: 7777 }, dst: Endpoint { ip: Ipv4Addr::new(10, 0, 0, 2), port: 5000 } };
+        let frame = |op: u16, body: &[u8]| {
+            let mut f = ((body.len() + 4) as u16).to_le_bytes().to_vec();
+            f.extend_from_slice(&op.to_le_bytes());
+            f.extend_from_slice(body);
+            f
+        };
+        let mut out = Vec::new();
+        d.push(flow, true, &frame(9, &[1, 0, 0xaa, 0xaa, 2, b'H', b'i']), false, 1.0, &mut out);
+        d.push(flow, true, &frame(9, &[2, 0, 0xbb, 0xbb, 7]), false, 1.0, &mut out);
+        d.push(flow, true, &frame(9, &[3, 0, 0]), false, 1.0, &mut out);
+        assert_eq!(out.len(), 2, "{out:?}");
+        assert!(matches!(&out[0], GameEvent::Actor { id: 1, name: Some(n), .. } if n == "Hi"), "{out:?}");
+        assert!(matches!(&out[1], GameEvent::Actor { id: 2, owner: Some(7), .. }), "{out:?}");
     }
 }

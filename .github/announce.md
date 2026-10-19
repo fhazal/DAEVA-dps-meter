@@ -1,18 +1,11 @@
 <!-- Short release notes the Daeva Discord bot posts when a release is published.
      Update "version" and the lists with each release. -->
-version: 0.3.7
-tagline: Honest boss DPS that matches the game's Combat Analysis, live counting numbers, and event alerts you can drag anywhere.
+version: 0.3.8
+tagline: A reliability update: the meter now recovers on its own if it loses track of the game, and Sorcerer ground skills count for the Sorcerer everywhere.
 
 ## New
-- ⏱️ **Boss-fight DPS clock**: counts the boss and its adds from first hit to kill, like Details! and ACT
-- 📈 **Live numbers** that count up like a digital dashboard
-- ✅ **HP check** on boss kills: proof every hit was seen
-- 🖱️ **Drag event alerts anywhere**, plus a compact banner style
-- 📊 **Extra columns**: Crit %, Back %, Perfect %, Max hit and more
-- 🏆 **Personal bests** per boss
+- 🔄 **Self-repair**: if the meter stops reading the game (e.g. after leaving an event), it recovers by itself within about 15 seconds, no restart needed
 
 ## Fixed
-- Thamon's self-heals no longer count as your damage
-- Untargetable phases (Vakron's barrier) pause the clock
-- Sorcerer ground skills credited to the Sorcerer
-- Party members no longer mistaken for monsters
+- Damage not registering after leaving the Beritra air raid until the meter was restarted
+- Sorcerer Bittercold Wind, Fire Wall and Cold Storm showing as "Player #" rows in the air raid and at open-world bosses

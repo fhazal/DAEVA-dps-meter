@@ -6,7 +6,7 @@
 // updates after a game patch never need a new build.
 {
   "name": "AION 2 (global)",
-  "version": "0.6.16",
+  "version": "0.6.17",
   "process_names": ["aion2"],
   // Server ports, if they turn out to be fixed. Auto-detection by process
   // already finds the server, so this can stay empty.
@@ -114,9 +114,16 @@
                 {"name": "owner28", "type": "u32le", "if": "b==16&&a==28"},
                 // Skill objects (b==0) carry their summoner's name after
                 // "06 00 00 00 00 00" and the summoner's server number.
-                {"name": "m0", "type": "seek", "pattern": "06 00 00 00 00 00", "if": "b==0&&a!=31&&npc0>2000000&&npc0<3000000"},
-                {"name": "s0", "type": "skip", "len": 8, "if": "b==0&&a!=31&&npc0>2000000&&npc0<3000000"},
-                {"name": "oname", "type": "str", "if": "b==0&&a!=31&&npc0>2000000&&npc0<3000000"},
+                {"name": "m0", "type": "seek", "pattern": "06 00 00 00 00 00", "optional": true, "if": "b==0&&a!=31&&npc0>2000000&&npc0<3000000"},
+                {"name": "s0", "type": "skip", "len": 8, "if": "b==0&&a!=31&&npc0>2000000&&npc0<3000000&&m0"},
+                {"name": "oname", "type": "str", "if": "b==0&&a!=31&&npc0>2000000&&npc0<3000000&&m0"},
+                // Some carry the caster's entity id instead, like a==31 below
+                // (a==95 Sorcerer ground skills in the Beritra air raid). The
+                // name seek used to fail the whole spawn, so each cast showed
+                // as its own "Player #12345" row.
+                {"name": "m95", "type": "seek", "pattern": "07 02 06", "optional": true, "if": "b==0&&a!=31&&npc0>2000000&&npc0<3000000&&m0==0"},
+                {"name": "s95", "type": "skip", "len": 3, "if": "b==0&&a!=31&&npc0>2000000&&npc0<3000000&&m0==0&&m95"},
+                {"name": "owner95", "type": "u32le", "if": "b==0&&a!=31&&npc0>2000000&&npc0<3000000&&m0==0&&m95"},
                 // a==31: ground skills such as a Sorcerer's Bittercold Wind,
                 // Fire Wall and Cold Storm. No name; the caster's entity id is
                 // the u32 after "07 02 06" near the end. Without it each cast
@@ -132,7 +139,8 @@
        {"event": "actor", "when": "b==16&&a!=28", "id": "id", "kind": "'summon'", "npc_id": "npc", "owner": "owner"},
        {"event": "actor", "when": "b==16&&a==28", "id": "id", "kind": "'summon'", "npc_id": "npc", "owner": "owner28"},
        // b==0 (a=95): skill objects such as Sorcerer summons, same idea.
-       {"event": "actor", "when": "b==0&&a!=31&&npc0>2000000&&npc0<3000000", "id": "id", "kind": "'summon'", "npc_id": "npc0", "name": "oname"},
+       {"event": "actor", "when": "b==0&&a!=31&&npc0>2000000&&npc0<3000000&&m0", "id": "id", "kind": "'summon'", "npc_id": "npc0", "name": "oname"},
+       {"event": "actor", "when": "b==0&&a!=31&&npc0>2000000&&npc0<3000000&&m0==0&&owner95>0", "id": "id", "kind": "'summon'", "npc_id": "npc0", "owner": "owner95"},
        {"event": "actor", "when": "b==0&&a==31&&npc0>2000000&&npc0<3000000&&owner31>0", "id": "id", "kind": "'summon'", "npc_id": "npc0", "owner": "owner31"},
        // Max HP only where the layout is verified. The spawn's own "hp" field
        // is not current HP (e.g. 196 of 270000), so a new monster starts full;

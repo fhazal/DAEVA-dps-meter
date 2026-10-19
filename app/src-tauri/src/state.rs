@@ -97,9 +97,7 @@ pub struct Core {
     health_frames: u64,
     /// Frames other than keep-alive pings, at the last health check.
     health_content: u64,
-    /// Frame count last seen and when it last moved (fast stall check).
-    stall_frames: u64,
-    stall_since: f64,
+    /// Resyncs at the last health check.
     health_resyncs: u64,
     pub warning: Option<String>,
     pub events: EventFeed,
@@ -332,8 +330,6 @@ impl Core {
             health_decoded: 0,
             health_frames: 0,
             health_content: 0,
-            stall_frames: 0,
-            stall_since: 0.0,
             health_resyncs: 0,
             warning: None,
             events: EventFeed::new(&Default::default()),
@@ -377,7 +373,6 @@ impl Core {
         self.health_content = 0;
         self.health_decoded = 0;
         self.health_resyncs = 0;
-        self.stall_frames = 0;
         self.pipeline.decoder.keep_recent = if self.recorder.is_some() { 400 } else { 200 };
         self.pipeline.server_ports = self.pipeline.decoder.defs.ports.iter().copied().chain(self.settings.manual_ports.iter().copied()).collect();
         if !self.settings.demo {
@@ -1053,19 +1048,9 @@ impl Core {
     /// Notices when game traffic keeps arriving but nothing decodes any more
     /// (the usual sign of a game patch changing the protocol).
     fn check_health(&mut self, now: f64) {
-        // Fast self-heal: bytes keep arriving but no frame for 15 s means a
-        // stream is stuck (lost sync); restart reading from the next packet.
+        // Fast self-heal for a stuck server stream (see Pipeline::heal_stall).
         if self.sim.is_none() {
-            let frames = self.pipeline.decoder.frames_total;
-            let flowing = self.pipeline.last_game_ts > 0.0 && now - self.pipeline.last_game_ts < 5.0;
-            if frames != self.stall_frames || !flowing {
-                self.stall_frames = frames;
-                self.stall_since = now;
-            } else if now - self.stall_since > 15.0 {
-                self.pipeline.reasm.reset();
-                self.pipeline.decoder.reset_all();
-                self.stall_since = now;
-            }
+            self.pipeline.heal_stall(now);
         }
         if self.sim.is_some() || now - self.health_at < 60.0 {
             return;
@@ -1204,6 +1189,7 @@ impl Core {
             .set("game_idle", if p.last_game_ts > 0.0 { Some(now - p.last_game_ts) } else { None })
             .set("frames", p.decoder.frames_total)
             .set("resyncs", p.decoder.resyncs())
+            .set("stall_heals", p.stall_heals)
             .set("events", e.events_seen)
             .set("dropped", st.dropped)
             .set("defs", st.defs_name.as_str())
