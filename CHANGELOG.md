@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.6
+
+- **Boss objects no longer show as damage dealers:** objects a boss places, such as Faithful Rajit's **Recovery Totem**, used to get their own row in the meter (and lowered everyone's share %). The meter now knows they belong to the boss and leaves them out. (Game definitions 0.6.15.)
+
 ## 0.3.5
 
 - **Unknown monster:** the boss card now always says **📍 Teleport away and back to identify** (hover for why). The game only names a monster when it first comes into range, and big bosses are announced from far away, so a meter started near a boss can't know which one it is until you leave the region and return.
