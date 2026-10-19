@@ -88,11 +88,12 @@
       ${F("", `<div class="row-btns">${chk("alerts.at_start", "Also when it starts")}${chk("alerts.sound", "Play a sound")}${chk("alerts.show_next", "Show next events under the meter")}</div>`)}
       ${F("Sound volume", `<span class="inline"><input type="range" data-k="alerts.volume" min="0" max="100" step="5" style="flex:1"><span class="num muted" data-vol></span></span>`, "A short chime: two notes for ‘starting soon’, three rising notes when it starts.")}
       ${F("Banner stays (s)", num("alerts.banner_secs", 3, 120))}
-      ${F("Show alerts", sel("alerts.position", [["above_meter", "Above the meter"], ["below_meter", "Below the meter"], ["screen_top_right", "Top right, beside the minimap"], ["screen_top_center", "Top centre of the screen"], ["screen_top_left", "Top left of the screen"]]), "Alerts never cover the meter and clicks pass through them.")}
-      ${F("Nudge (x, y px)", `<span class="inline">${num("alerts.offset_x", -3000, 3000)}${num("alerts.offset_y", -3000, 3000)}</span>`, "Fine-tune the spot, e.g. x -40 moves alerts 40 px left.")}
+      ${F("Show alerts", sel("alerts.position", [["custom", "Where I dragged them"], ["above_meter", "Above the meter"], ["below_meter", "Below the meter"], ["screen_top_right", "Top right, beside the minimap"], ["screen_top_center", "Top centre of the screen"], ["screen_top_left", "Top left of the screen"]]), "To move them: with the meter unlocked, drag any banner (or a test alert) where you want it. The spot is kept as a share of the screen, so it stays put at any resolution. While the meter is locked, banners are click-through.")}
+      ${F("Banner size", sel("alerts.size", [["normal", "Normal"], ["compact", "Compact (one line)"]]))}
+      ${F("During fights", chk("alerts.hold_in_fight", "Hold banners until the fight ends (the chime still plays)"), "So nothing pops up in the middle of a boss. Events that start during the fight show as soon as it's over.")}
       ${F("Alert me for", `<div class="row-btns" id="evList"><span class="muted">Loading events…</span></div>`, "Hourly events (Shugo Festival, Dimensional Invasion) are off by default.")}
       ${F("Schedule feed", txt("alerts.feed_url"), `<span id="evStatus"></span>`)}
-      ${F("", `<button class="btn" id="bTestAlert">Show a test alert</button>`)}
+      ${F("", `<button class="btn" id="bTestAlert">Show a test alert</button>`, "It stays 30 seconds: drag it where you want event alerts.")}
     </div>
     <h2>Server</h2><div class="f">
       ${F("Server name", txt("server_name", "detected automatically"), "Shown at the bottom of the meter. Leave empty: the meter reads your server from the game (Beritra is built in).")}
@@ -285,7 +286,16 @@
         show("bad", "✕ Couldn't reach the server.", "Check your internet connection and the endpoint.");
       }
     };
-    document.getElementById("bTestAlert").onclick = async () => { await D.call("test_alert"); D.toast("Test alert sent — save first if you changed the position"); };
+    document.getElementById("bTestAlert").onclick = async () => { await D.call("test_alert"); D.toast("Test alert shown: unlock the meter and drag it where you want alerts"); };
+    // A banner dragged while Settings is open sets "Where I dragged them";
+    // follow it here so Save doesn't put the old choice back.
+    const posSel = document.querySelector('[data-k="alerts.position"]');
+    let posTouched = false;
+    posSel.addEventListener("change", () => (posTouched = true));
+    setInterval(async () => {
+      if (posTouched) return;
+      try { const n = await D.call("get_settings"); if (n.alerts.position !== posSel.value) { posSel.value = n.alerts.position; s.alerts.position = n.alerts.position; } } catch {}
+    }, 1500);
     document.getElementById("bRestart").onclick = async () => { await D.call("restart_capture"); D.toast("Capture restarted"); };
     document.getElementById("bReport").onclick = async () => {
       try { const p = await D.call("report_problem", { note: "settings" }); D.toast("Saved " + p.split(/[\\/]/).pop()); } catch (e) { D.toast(String(e)); }

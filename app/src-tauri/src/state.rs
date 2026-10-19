@@ -130,8 +130,12 @@ pub struct Core {
     pub bests: Bests,
     /// "New personal best" shown under the meter after a kill.
     pub pb_notice: Option<Value>,
-    /// The alert banner is being dragged into place (Settings → Move alerts).
-    pub placing: bool,
+    /// Banner rectangles in the alert window (CSS px: x, y, w, h), so the
+    /// window only catches the mouse over a banner, and only while unlocked.
+    pub toast_rects: Vec<(f64, f64, f64, f64)>,
+    /// A banner is being dragged: (started, last window position, when it
+    /// last moved).
+    pub alert_drag: Option<(f64, Option<(i32, i32)>, f64)>,
     /// Banners held back during a fight (Settings → During fights).
     held: Vec<meter_core::schedule::Alert>,
     /// Capture-gap counter (dropped packets + decoder resyncs) at the start
@@ -347,7 +351,8 @@ impl Core {
             bests: Bests::default(),
             pb_notice: None,
             gap_base: None,
-            placing: false,
+            toast_rects: Vec::new(),
+            alert_drag: None,
             held: Vec::new(),
             update_error: None,
             update_wake: false,
@@ -1264,8 +1269,8 @@ impl Core {
             .set("banner_secs", a.banner_secs)
             .set("position", a.position.as_str())
             .set("size", a.size.as_str())
-            .set("placing", self.placing)
             .set("held", self.held.len())
+            .set("movable", !self.settings.click_through)
             .set("anchor", self.toast_anchor)
             .set("error", self.events.error.clone())
             // Keys per event id, once the game's key counter is decoded.

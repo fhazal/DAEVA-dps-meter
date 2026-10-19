@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="common.css">
 <style>
   /* Click-through window that only ever shows event banners. */
-  .stack { position: fixed; inset: 0; padding: 2px; display: flex; flex-direction: column; gap: 5px; }
+  .stack { position: fixed; inset: 0; padding: 5px; display: flex; flex-direction: column; gap: 5px; }
   .stack.bottom { justify-content: flex-end; }
   /* Event card: icon, name and line on top, a status word on the right
      (time while it's coming up, "Start" when it begins), and for events
@@ -33,6 +33,19 @@
   .alert .keys svg { width: 18px; height: 18px; }
   .alert .life { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: rgba(255,255,255,0.04); }
   .alert .life i { display: block; height: 100%; width: 100%; background: var(--k); opacity: .6; transform-origin: left; animation: drain linear forwards; }
+  /* Unlocked meter: a banner can be grabbed and dragged anywhere. */
+  .alert.hover { outline: 2px solid rgba(232,176,75,0.85); outline-offset: 2px; cursor: grab; }
+  .alert .grip { display: none; position: absolute; right: 10px; top: 7px; font-size: 11px; font-weight: 700; color: #1a1408;
+    background: #e8b04b; border-radius: 6px; padding: 1px 7px; box-shadow: 0 2px 8px rgba(0,0,0,0.4); pointer-events: none; }
+  .alert.hover .grip { display: block; }
+  /* Compact: one slim line (Settings → Event alerts → Banner size). */
+  .alert.compact .top { grid-template-columns: 22px 1fr auto; padding: 7px 12px; gap: 0 10px; }
+  .alert.compact .ic { grid-row: auto; width: 22px; height: 22px; font-size: 18px; }
+  .alert.compact .ic img { width: 22px; height: 22px; }
+  .alert.compact .t { font-size: 13px; }
+  .alert.compact .tag { grid-row: auto; font-size: 12.5px; }
+  .alert.compact .b { display: none; }
+  .alert.compact .kc { color: #e8b04b; font-weight: 700; font-size: 12.5px; margin-left: 6px; }
   @keyframes inn { from { opacity: 0; transform: translateY(-10px) scale(.97); } }
   @keyframes drain { to { transform: scaleX(0); } }
 </style>
@@ -47,29 +60,53 @@
   const shown = new Set();
   const KEYED = new Set(["shugo_festival"]);
   const KEY_SVG = '<svg viewBox="0 0 24 24"><g fill="none" stroke="#e8b04b" stroke-width="2.2" stroke-linecap="round"><circle cx="7" cy="7" r="3.6"/><path d="M9.6 9.6 20 20M15.5 15.5l2.4-2.4M18 18l2-2"/></g></svg>';
+  let movable = false, lastRects = "";
+  // Tell the meter where the banners are, so the window only catches the
+  // mouse over them (and only while the meter is unlocked).
+  function sendRects() {
+    const r = [...box.querySelectorAll(".alert:not(.out)")].map((el) => { const b = el.getBoundingClientRect(); return [b.left, b.top, b.width, b.height]; });
+    const j = JSON.stringify(r);
+    if (j !== lastRects) { lastRects = j; D.call("toast_rects", { rects: r }).catch(() => {}); }
+  }
+  box.addEventListener("mouseover", (e) => { const el = e.target.closest && e.target.closest(".alert"); if (el && movable) el.classList.add("hover"); });
+  box.addEventListener("mouseout", (e) => { const el = e.target.closest && e.target.closest(".alert"); if (el && !el.contains(e.relatedTarget)) el.classList.remove("hover"); });
+  box.addEventListener("mousedown", (e) => {
+    const el = e.target.closest && e.target.closest(".alert");
+    if (!el || !movable || e.button !== 0) return;
+    e.preventDefault();
+    D.call("alert_drag", { top: el.getBoundingClientRect().top }).catch(() => {});
+  });
   async function poll() {
     try {
       const a = await D.callJSON("get_alerts");
+      movable = !!a.movable;
+      if (!movable) box.querySelectorAll(".alert.hover").forEach((el) => el.classList.remove("hover"));
       box.className = "stack " + (a.anchor === "top" ? "top" : "bottom");
       if (a.enabled) {
         for (const al of a.recent || []) {
           if (shown.has(al.key)) continue;
           shown.add(al.key);
           const el = document.createElement("div");
-          el.className = "alert " + al.kind;
-          const secs = Math.max(3, a.banner_secs || 12);
+          const compact = a.size === "compact";
+          el.className = "alert " + al.kind + (compact ? " compact" : "");
+          // A test banner stays longer, so there's time to drag it into place.
+          const secs = al.id === "test" ? Math.max(30, a.banner_secs || 12) : Math.max(3, a.banner_secs || 12);
           const at = new Date(al.starts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
           const tag = al.kind === "start" ? "Start" : at;
           // Events entered with keys show how many you hold.
           const keyed = KEYED.has(al.id);
           const n = a.keys && a.keys[al.id];
           const keys = keyed ? `<div class="keys"><span class="lbl">Keys held</span><span class="val${n == null ? " none" : ""}">${KEY_SVG}${n == null ? "(Log in once with the meter on)" : Number(n).toLocaleString()}</span></div>` : "";
-          el.innerHTML = `<div class="top"><span class="ic">${D.eventIcon(al.id, al.emoji, 44)}</span><span class="t">${D.esc(al.title)}</span><span class="tag">${D.esc(tag)}</span><span class="b">${D.esc(al.body)}</span></div>${keys}<span class="life"><i style="animation-duration:${secs}s"></i></span>`;
+          const grip = '<span class="grip">✥ Drag to move</span>';
+          el.innerHTML = compact
+            ? `<div class="top"><span class="ic">${D.eventIcon(al.id, al.emoji, 22)}</span><span class="t">${D.esc(al.title)}${keyed && n != null ? `<span class="kc">🔑 ${Number(n).toLocaleString()}</span>` : ""}</span><span class="tag">${D.esc(tag)}</span></div><span class="life"><i style="animation-duration:${secs}s"></i></span>${grip}`
+            : `<div class="top"><span class="ic">${D.eventIcon(al.id, al.emoji, 44)}</span><span class="t">${D.esc(al.title)}</span><span class="tag">${D.esc(tag)}</span><span class="b">${D.esc(al.body)}</span></div>${keys}<span class="life"><i style="animation-duration:${secs}s"></i></span>${grip}`;
           if (a.anchor === "top") box.prepend(el); else box.appendChild(el);
           while (box.children.length > 3) (a.anchor === "top" ? box.lastElementChild : box.firstElementChild).remove();
-          setTimeout(() => { el.classList.add("out"); setTimeout(() => el.remove(), 450); }, Math.max(3, a.banner_secs || 12) * 1000);
+          setTimeout(() => { el.classList.add("out"); setTimeout(() => { el.remove(); sendRects(); }, 450); }, secs * 1000);
         }
       }
+      sendRects();
     } catch (e) { console.warn(e); }
     setTimeout(poll, 400);
   }

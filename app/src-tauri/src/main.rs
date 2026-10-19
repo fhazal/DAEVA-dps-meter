@@ -174,6 +174,34 @@ fn get_names(st: St<'_>) -> String {
     st.lock().names_view().to_string()
 }
 
+/// Where the banners are in the alert window (for hover and dragging).
+#[tauri::command]
+fn toast_rects(st: St<'_>, rects: Vec<[f64; 4]>) {
+    st.lock().toast_rects = rects.iter().map(|r| (r[0], r[1], r[2], r[3])).collect();
+}
+
+/// Starts dragging a banner. The alert window first shifts so the banner
+/// sits at its top edge (custom spots stack downwards), then follows the
+/// mouse; the positioner saves the spot when it stops moving.
+#[tauri::command]
+fn alert_drag(st: St<'_>, window: WebviewWindow, top: f64) -> Result<(), String> {
+    if window.label() != "toast" {
+        return Err("not the alert window".into());
+    }
+    let scale = window.scale_factor().unwrap_or(1.0);
+    if let Ok(p) = window.outer_position() {
+        let y = p.y + ((top - 5.0) * scale) as i32;
+        let _ = window.set_position(tauri::PhysicalPosition::new(p.x, y));
+    }
+    {
+        let mut c = st.lock();
+        c.toast_anchor = "top";
+        let now = state::now_unix();
+        c.alert_drag = Some((now, None, now));
+    }
+    window.start_dragging().map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn test_alert(st: St<'_>) {
     st.lock().test_alert();
@@ -415,41 +443,101 @@ fn start_hotkeys(app: &AppHandle, shared: &Arc<Shared>) {
 
 // ---------------------------------------------------------------- main
 
-/// Keeps the alert window next to the meter (or at the chosen screen spot).
+/// Keeps the alert window next to the meter, at a fixed screen spot, or where
+/// the user dragged it; and makes it catch the mouse only over a banner while
+/// the meter is unlocked (locked = fully click-through, as in fights).
 fn toast_positioner(handle: AppHandle, sh: Arc<Shared>) {
     let mut last: Option<(i32, i32, u32)> = None;
+    let mut ignoring: Option<bool> = None;
+    let mut tick: u32 = 0;
     loop {
-        std::thread::sleep(std::time::Duration::from_millis(200));
+        std::thread::sleep(std::time::Duration::from_millis(80));
+        tick = tick.wrapping_add(1);
         let (Some(t), Some(m)) = (handle.get_webview_window("toast"), handle.get_webview_window("main")) else { continue };
-        let (pos, ox, oy) = {
-            let c = sh.lock();
-            let a = &c.settings.alerts;
-            (a.position.clone(), a.offset_x, a.offset_y)
-        };
-        let (Ok(mp), Ok(ms), Ok(ts)) = (m.outer_position(), m.outer_size(), t.outer_size()) else { continue };
         let scale = t.scale_factor().unwrap_or(1.0);
         let px = |v: f64| (v * scale) as i32;
-        let mon = m.current_monitor().ok().flatten().or_else(|| m.primary_monitor().ok().flatten());
-        let (sx, sy, sw) = mon.map(|x| (x.position().x, x.position().y, x.size().width as i32)).unwrap_or((0, 0, 1920));
+        let (Ok(tp), Ok(ts)) = (t.outer_position(), t.outer_size()) else { continue };
+
+        // Mouse: only over a banner, only while the meter is unlocked.
+        let (locked, rects, dragging) = {
+            let c = sh.lock();
+            (c.settings.click_through, c.toast_rects.clone(), c.alert_drag.is_some())
+        };
+        let over = !locked
+            && winsys::cursor_pos().map_or(false, |(cx, cy)| {
+                rects.iter().any(|(x, y, w, h)| {
+                    let (l, tt) = (tp.x + px(*x), tp.y + px(*y));
+                    cx >= l && cx < l + px(*w) && cy >= tt && cy < tt + px(*h)
+                })
+            });
+        let ignore = !(over || dragging);
+        if ignoring != Some(ignore) || tick % 25 == 0 {
+            if t.set_ignore_cursor_events(ignore).is_ok() {
+                ignoring = Some(ignore);
+            }
+        }
+
+        // Dragging: leave the window alone; save the spot once it rests.
+        if dragging {
+            let now = state::now_unix();
+            let mut c = sh.lock();
+            let Some((started, lastp, moved_at)) = c.alert_drag else { continue };
+            let here = (tp.x, tp.y);
+            if lastp != Some(here) {
+                c.alert_drag = Some((started, Some(here), now));
+            } else if (lastp.is_some() && now - moved_at > 0.8) || now - started > 20.0 {
+                c.alert_drag = None;
+                if let Some(mon) = t.current_monitor().ok().flatten() {
+                    let (mx, my) = (mon.position().x, mon.position().y);
+                    let (mw, mh) = (mon.size().width as i32, mon.size().height as i32);
+                    let fx = ((tp.x - mx) as f64 / (mw - ts.width as i32).max(1) as f64).clamp(0.0, 1.0);
+                    let fy = ((tp.y - my) as f64 / (mh - ts.height as i32).max(1) as f64).clamp(0.0, 1.0);
+                    c.settings.alerts.custom = Some((fx, fy));
+                    c.settings.alerts.custom_monitor = mon.name().cloned().unwrap_or_default();
+                    c.settings.alerts.position = "custom".into();
+                    c.save_settings();
+                }
+                last = None;
+            }
+            continue;
+        }
+
+        let (pos, ox, oy, custom, cmon) = {
+            let c = sh.lock();
+            let a = &c.settings.alerts;
+            (a.position.clone(), a.offset_x, a.offset_y, a.custom, a.custom_monitor.clone())
+        };
+        let (Ok(mp), Ok(ms)) = (m.outer_position(), m.outer_size()) else { continue };
+        let meter_mon = m.current_monitor().ok().flatten().or_else(|| m.primary_monitor().ok().flatten());
+        let (sx, sy, sw) = meter_mon.as_ref().map(|x| (x.position().x, x.position().y, x.size().width as i32)).unwrap_or((0, 0, 1920));
         let on_meter = pos == "above_meter" || pos == "below_meter";
         // Same width as the meter when attached to it, otherwise 360 px.
         let width = if on_meter { ms.width.max(px(260.0) as u32) } else { px(360.0) as u32 };
         let (tw, th) = (width as i32, ts.height as i32);
         let gap = px(6.0);
         let below = (mp.x, mp.y + ms.height as i32 + gap);
-        let (mut x, mut y, anchor) = match pos.as_str() {
-            "below_meter" => (below.0, below.1, "top"),
-            "screen_top_center" => (sx + (sw - tw) / 2, sy + px(60.0), "top"),
+        let (mut x, mut y, anchor) = match (pos.as_str(), custom) {
+            ("custom", Some((fx, fy))) => {
+                // The monitor it was placed on (by name), else the meter's.
+                let mons = t.available_monitors().unwrap_or_default();
+                let mon = mons.iter().find(|x| !cmon.is_empty() && x.name().map_or(false, |n| *n == cmon)).cloned().or(meter_mon.clone());
+                let (mx, my, mw, mh) = mon.map(|x| (x.position().x, x.position().y, x.size().width as i32, x.size().height as i32)).unwrap_or((0, 0, 1920, 1080));
+                (mx + ((mw - tw).max(0) as f64 * fx) as i32, my + ((mh - th).max(0) as f64 * fy) as i32, "top")
+            }
+            ("below_meter", _) => (below.0, below.1, "top"),
+            ("screen_top_center", _) => (sx + (sw - tw) / 2, sy + px(60.0), "top"),
             // AION 2's minimap sits top-right; stay just to its left.
-            "screen_top_right" => (sx + sw - tw - px(300.0), sy + px(16.0), "top"),
-            "screen_top_left" => (sx + px(16.0), sy + px(16.0), "top"),
+            ("screen_top_right", _) => (sx + sw - tw - px(300.0), sy + px(16.0), "top"),
+            ("screen_top_left", _) => (sx + px(16.0), sy + px(16.0), "top"),
             _ => {
                 let above = mp.y - th - gap;
                 if above >= sy { (mp.x, above, "bottom") } else { (below.0, below.1, "top") }
             }
         };
-        x += px(ox);
-        y += px(oy);
+        if pos != "custom" {
+            x += px(ox);
+            y += px(oy);
+        }
         sh.lock().toast_anchor = anchor;
         if last != Some((x, y, width)) {
             if ts.width != width {
@@ -654,6 +742,8 @@ fn main() {
             open_window,
             get_events,
             test_alert,
+            toast_rects,
+            alert_drag,
             set_name,
             get_names,
             open_lookup,

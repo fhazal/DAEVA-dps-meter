@@ -11,6 +11,9 @@
 - **HP check counts every hit seen:** including hits from before you joined in (which still don't count towards anyone's DPS), so a boss someone else pulled no longer shows ⚠ 96%.
 - **No hits after the kill:** a damage-over-time tick that lands after a monster died no longer counts, as in the game's Combat Analysis.
 - **HP check:** when a boss or elite dies, its card shows **✓ 99.8% of HP counted**, proof that the meter saw every hit. If hits were missed it says so (**⚠ 92.1%**) instead of quietly showing a lower DPS. Saved fights also record any gaps in the captured traffic.
+- **Move event alerts anywhere:** with the meter unlocked, hover a banner (a real one, or *Settings → Event alerts → Show a test alert*, which now stays 30 s) and drag it where you want it. The spot is kept as a share of the screen, so it stays in place at any resolution, and it's remembered per monitor. While the meter is locked (Ctrl+Shift+L) banners stay click-through, so they never catch a click in a fight. The fixed spots (above the meter by default) are still there.
+- **Compact banners:** *Banner size → Compact* shows each alert as one slim line. Normal stays the default.
+- **Hold banners during fights** (off by default): banners wait until the fight ends; the chime still plays.
 - **Extra columns:** choose up to 3 of Crit %, Back %, Perfect %, Hits, Max hit, Healing/s, Damage taken and Deaths in **Settings → Overlay**. They appear with a small header row.
 - **Personal bests:** beat your best DPS on a boss (kills of 30 s or more) and a 🏆 line appears under the meter. History has a **You** column with 🏆 on your record fights, and each fight shows *Your best on this boss*.
 - The copied Discord summary and the player detail window use the same clock as the overlay.
