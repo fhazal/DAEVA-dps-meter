@@ -367,7 +367,7 @@
     if (t.counted == null) return "";
     const c = t.counted, low = c < 0.97;
     const tip = low
-      ? `The meter saw ${D.pct(c, 1)} of this monster's health being removed, so some hits were missed${gaps ? ` (${gaps} gaps in the captured traffic)` : ""}. Damage dealt before you first hit it isn't counted either. DPS for this fight is likely a little low.`
+      ? `The hits the meter saw add up to ${D.pct(c, 1)} of this monster's health, so some were missed${gaps ? ` (${gaps} gaps in the captured traffic)` : ""}. DPS for this fight may be a little low.`
       : `Every hit was counted: the damage the meter saw adds up to this monster's full health${c > 1.005 ? ` (${D.pct(c, 1)}: it healed during the fight)` : ""}.`;
     return ` · <span class="chk${low ? " warn" : ""}" title="${D.esc(tip)}">${low ? "⚠" : "✓"} ${D.pct(Math.min(c, 1), 1)} of HP counted</span>`;
   }

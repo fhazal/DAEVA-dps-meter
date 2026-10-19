@@ -586,7 +586,10 @@ impl Engine {
                 }
                 let attacker = self.resolve_owner(*src);
                 self.learn_class(attacker, *skill);
-                {
+                // Everything that hit this target, in scope or not (the HP
+                // check), except boss mechanics and ticks after a kill.
+                let not_damage = !self.is_friendly(*tgt) && (fl & flags::NPC_ONLY != 0 || self.dead_at.get(tgt).map_or(false, |d| *ts > *d));
+                if !not_damage {
                     let t = self.actor(*tgt);
                     t.taken = t.taken.saturating_add(*amount);
                 }
@@ -749,7 +752,13 @@ impl Engine {
                 }
                 // A spawn (npc_id) is authoritative; otherwise only fill in an
                 // unknown kind, so guesses never flip a known player/NPC.
-                if *kind != ActorKind::Unknown && (a.kind == ActorKind::Unknown || npc_id.is_some() || *kind == ActorKind::Summon) {
+                // Exception: an actor guessed to be a monster (no spawn seen)
+                // that turns out to be a player, e.g. a party member whose
+                // first action was a 7-digit item or basic skill. Left as a
+                // monster, their damage vanished and heals on them counted as
+                // the healer's damage.
+                let player_after_guess = *kind == ActorKind::Player && a.kind == ActorKind::Npc && a.npc_id.is_none();
+                if *kind != ActorKind::Unknown && (a.kind == ActorKind::Unknown || npc_id.is_some() || *kind == ActorKind::Summon || player_after_guess) {
                     a.kind = *kind;
                 }
                 if npc_id.is_some() {
@@ -1007,7 +1016,11 @@ impl Engine {
         let hp = a.and_then(|a| a.hp).or(frozen.and_then(|x| x.0));
         let max_hp = a.and_then(|a| a.max_hp).or(frozen.and_then(|x| x.1))?;
         let dead = hp == Some(0) || (f.boss_killed && Some(t) == f.main_target());
-        (dead && max_hp > 0).then(|| *f.targets.get(&t).unwrap_or(&0) as f64 / max_hp as f64)
+        // All damage the meter saw on it, including hits from before you
+        // joined in (which don't count towards anyone's DPS here), so the
+        // check measures what was captured, not who was counted.
+        let seen = a.map(|a| a.taken).unwrap_or(0).max(*f.targets.get(&t).unwrap_or(&0));
+        (dead && max_hp > 0).then(|| seen as f64 / max_hp as f64)
     }
 
     /// Whether an NPC id is a boss or elite (definitions or monster rank).

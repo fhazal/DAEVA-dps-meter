@@ -70,11 +70,21 @@ pub struct Alerts {
     /// How long a banner stays up, seconds.
     pub banner_secs: f64,
     /// Where banners appear: "above_meter", "below_meter", "screen_top_center",
-    /// "screen_top_right" (left of the minimap), "screen_top_left".
+    /// "screen_top_right" (left of the minimap), "screen_top_left", or
+    /// "custom" (dragged into place, see `custom`).
     pub position: String,
-    /// Nudge, in screen pixels at 100% scaling.
+    /// Nudge, in screen pixels at 100% scaling (fixed spots only).
     pub offset_x: f64,
     pub offset_y: f64,
+    /// position "custom": where the user dragged the banner, as a share of
+    /// the monitor (0..1 across, 0..1 down) plus that monitor's name, so it
+    /// stays put at any resolution.
+    pub custom: Option<(f64, f64)>,
+    pub custom_monitor: String,
+    /// "normal" or "compact" (one line).
+    pub size: String,
+    /// Keep banners back while you're in a fight; show them when it ends.
+    pub hold_in_fight: bool,
 }
 
 impl Default for Alerts {
@@ -92,6 +102,10 @@ impl Default for Alerts {
             position: "above_meter".into(),
             offset_x: 0.0,
             offset_y: 0.0,
+            custom: None,
+            custom_monitor: String::new(),
+            size: "normal".into(),
+            hold_in_fight: false,
         }
     }
 }

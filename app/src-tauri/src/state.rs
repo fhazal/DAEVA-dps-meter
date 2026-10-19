@@ -130,6 +130,10 @@ pub struct Core {
     pub bests: Bests,
     /// "New personal best" shown under the meter after a kill.
     pub pb_notice: Option<Value>,
+    /// The alert banner is being dragged into place (Settings → Move alerts).
+    pub placing: bool,
+    /// Banners held back during a fight (Settings → During fights).
+    held: Vec<meter_core::schedule::Alert>,
     /// Capture-gap counter (dropped packets + decoder resyncs) at the start
     /// of the current fight: (fight id, counter).
     gap_base: Option<(u64, u64)>,
@@ -343,6 +347,8 @@ impl Core {
             bests: Bests::default(),
             pb_notice: None,
             gap_base: None,
+            placing: false,
+            held: Vec::new(),
             update_error: None,
             update_wake: false,
         };
@@ -374,7 +380,10 @@ impl Core {
         }
     }
 
-    pub fn apply_settings(&mut self, s: Settings) {
+    pub fn apply_settings(&mut self, mut s: Settings) {
+        // The dragged alert spot is set by Move alerts, not by the form.
+        s.alerts.custom = self.settings.alerts.custom;
+        s.alerts.custom_monitor = self.settings.alerts.custom_monitor.clone();
         let demo_changed = s.demo != self.settings.demo;
         self.pipeline.engine.cfg = engine_cfg(&s);
         if s.alerts.feed_url != self.settings.alerts.feed_url || s.alerts.enabled != self.settings.alerts.enabled {
@@ -467,7 +476,19 @@ impl Core {
                 let kind = if fresh.iter().any(|a| a.kind == "start") { "start" } else { "soon" };
                 winsys::play_wav(meter_core::chime::chime_wav(kind, (self.settings.alerts.volume / 100.0) as f32));
             }
+            let hold = self.settings.alerts.hold_in_fight && self.in_fight();
             for a in fresh {
+                if hold {
+                    self.held.push(a);
+                } else {
+                    self.events.push(a);
+                }
+            }
+        }
+        // Held banners appear as soon as the fight is over.
+        if !self.held.is_empty() && !(self.settings.alerts.hold_in_fight && self.in_fight()) {
+            for mut a in std::mem::take(&mut self.held) {
+                a.raised = now;
                 self.events.push(a);
             }
         }
@@ -895,6 +916,11 @@ impl Core {
         self.status.last_save_error = self.settings.save(&self.paths.settings).err().map(|e| e.to_string());
     }
 
+    /// A fight is running (not yet ended by the idle timeout or a kill).
+    pub fn in_fight(&self) -> bool {
+        self.pipeline.engine.current.as_ref().map_or(false, |f| !f.finished)
+    }
+
     /// Dropped packets plus decoder resyncs so far (both mean missed data).
     fn gap_counter(&self) -> u64 {
         self.status.dropped + self.pipeline.decoder.resyncs()
@@ -1237,6 +1263,9 @@ impl Core {
             .set("show_next", a.show_next)
             .set("banner_secs", a.banner_secs)
             .set("position", a.position.as_str())
+            .set("size", a.size.as_str())
+            .set("placing", self.placing)
+            .set("held", self.held.len())
             .set("anchor", self.toast_anchor)
             .set("error", self.events.error.clone())
             // Keys per event id, once the game's key counter is decoded.
