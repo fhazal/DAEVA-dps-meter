@@ -126,6 +126,74 @@ pub struct Core {
     pub update_error: Option<String>,
     /// Set by "Check now".
     pub update_wake: bool,
+    /// Best own DPS per character and boss, from saved fights.
+    pub bests: Bests,
+    /// "New personal best" shown under the meter after a kill.
+    pub pb_notice: Option<Value>,
+    /// Capture-gap counter (dropped packets + decoder resyncs) at the start
+    /// of the current fight: (fight id, counter).
+    gap_base: Option<(u64, u64)>,
+}
+
+/// Your best DPS per (character, boss, DPS clock): (dps, started_unix, fights).
+#[derive(Default)]
+pub struct Bests {
+    map: HashMap<(String, u64, String), (f64, f64, u32)>,
+}
+
+/// Fights shorter than this on the boss don't count towards personal bests.
+const PB_MIN_SECS: f64 = 30.0;
+
+impl Bests {
+    /// Key for a History row, or None when it can't be a personal best
+    /// (no kill, not a boss, too short, you weren't in it).
+    fn key(row: &Value) -> Option<(String, u64, String)> {
+        let name = row.str_or("self_name", "");
+        let clock = row.str_or("clock", "");
+        let npc = row.get("clock_npc").and_then(|x| x.as_u64())?;
+        let ok = !name.is_empty() && clock == "boss" && row.bool_or("boss_killed", false) && row.f64_or("clock_secs", 0.0) >= PB_MIN_SECS && row.f64_or("mine", 0.0) > 0.0;
+        ok.then(|| (name.to_string(), npc, clock.to_string()))
+    }
+    /// Adds a fight; returns the previous best when this one beat it.
+    pub fn add(&mut self, row: &Value) -> Option<f64> {
+        let k = Self::key(row)?;
+        let (dps, at) = (row.f64_or("mine", 0.0), row.f64_or("started_unix", 0.0));
+        match self.map.get_mut(&k) {
+            Some(b) => {
+                b.2 += 1;
+                if dps > b.0 {
+                    let prev = b.0;
+                    b.0 = dps;
+                    b.1 = at;
+                    Some(prev)
+                } else {
+                    None
+                }
+            }
+            None => {
+                self.map.insert(k, (dps, at, 1));
+                None
+            }
+        }
+    }
+    pub fn best_for(&self, row: &Value) -> Option<(f64, f64, u32)> {
+        self.map.get(&Self::key(row)?).copied()
+    }
+    /// True when this row is the record holder.
+    pub fn is_best(&self, row: &Value) -> bool {
+        self.best_for(row).map_or(false, |b| (b.1 - row.f64_or("started_unix", -1.0)).abs() < 0.5)
+    }
+    /// Marks the record holders in a list of History rows.
+    pub fn mark(&self, list: &mut Value) {
+        if let Value::Arr(items) = list {
+            for it in items.iter_mut() {
+                let pb = self.is_best(it);
+                if let Value::Obj(m) = it {
+                    m.insert("pb".into(), Value::from(pb));
+                }
+            }
+        }
+    }
 }
 
 #[derive(Default)]
@@ -202,7 +270,13 @@ fn decompressor() -> Decompressor {
 const FALLBACK_DEFS: &str = r#"{"name": "none", "framing": {"header": ["length:u16le", "opcode:u16le"]}, "messages": []}"#;
 
 fn engine_cfg(s: &Settings) -> EngineConfig {
-    EngineConfig { idle_timeout: s.idle_timeout.clamp(2.0, 120.0), merge_summons: s.merge_summons, end_on_target_death: s.end_on_target_death, ..Default::default() }
+    EngineConfig {
+        idle_timeout: s.idle_timeout.clamp(2.0, 120.0),
+        merge_summons: s.merge_summons,
+        end_on_target_death: s.end_on_target_death,
+        dps_clock: meter_core::engine::DpsClock::parse(&s.dps_clock),
+        ..Default::default()
+    }
 }
 
 impl Core {
@@ -266,6 +340,9 @@ impl Core {
             toast_anchor: "bottom",
             update_latest: None,
             update_checked: 0.0,
+            bests: Bests::default(),
+            pb_notice: None,
+            gap_base: None,
             update_error: None,
             update_wake: false,
         };
@@ -274,6 +351,7 @@ impl Core {
         c.events = EventFeed::new(&c.settings.alerts);
         c.pipeline.decoder.keep_recent = 200;
         c.prune_history();
+        c.load_bests();
         c
     }
 
@@ -371,6 +449,15 @@ impl Core {
         }
         if let Some(f) = self.pipeline.tick(now) {
             self.fight_finished(f);
+        }
+        self.track_gaps();
+        // The personal-best line stays until the next fight or 10 minutes.
+        let pb_stale = self.pb_notice.as_ref().map_or(false, |n| {
+            let id = n.get("fight_id").and_then(|x| x.as_u64());
+            now - n.f64_or("at", 0.0) > 600.0 || self.pipeline.engine.current.as_ref().map_or(false, |c| !c.finished && Some(c.id) != id)
+        });
+        if pb_stale {
+            self.pb_notice = None;
         }
         self.queue_loot();
         self.check_health(now);
@@ -808,8 +895,63 @@ impl Core {
         self.status.last_save_error = self.settings.save(&self.paths.settings).err().map(|e| e.to_string());
     }
 
+    /// Dropped packets plus decoder resyncs so far (both mean missed data).
+    fn gap_counter(&self) -> u64 {
+        self.status.dropped + self.pipeline.decoder.resyncs()
+    }
+
+    /// Capture gaps since the given fight started (0 when unknown).
+    pub fn fight_gaps(&self, fight_id: u64) -> u64 {
+        match self.gap_base {
+            Some((id, base)) if id == fight_id => self.gap_counter().saturating_sub(base),
+            _ => 0,
+        }
+    }
+
+    fn track_gaps(&mut self) {
+        if let Some(id) = self.pipeline.engine.current.as_ref().filter(|f| !f.finished).map(|f| f.id) {
+            if self.gap_base.map_or(true, |(b, _)| b != id) {
+                self.gap_base = Some((id, self.gap_counter()));
+            }
+        }
+    }
+
+    /// Personal bests from the fights saved on disk (oldest first).
+    fn load_bests(&mut self) {
+        let mut files: Vec<(PathBuf, SystemTime)> = std::fs::read_dir(&self.paths.history)
+            .map(|rd| rd.flatten().filter_map(|e| Some((e.path(), e.metadata().ok()?.modified().ok()?))).collect())
+            .unwrap_or_default();
+        files.retain(|(p, _)| p.extension().map_or(false, |x| x == "json"));
+        files.sort_by(|a, b| a.1.cmp(&b.1));
+        for (p, _) in files {
+            if let Some(v) = std::fs::read_to_string(&p).ok().and_then(|s| json::parse(&s).ok()) {
+                self.bests.add(&meter_core::engine::history_row(&v));
+            }
+        }
+    }
+
     pub fn fight_finished(&mut self, f: Fight) {
-        let rec = self.pipeline.engine.fight_record(&f);
+        let mut rec = self.pipeline.engine.fight_record(&f);
+        let gaps = self.fight_gaps(f.id);
+        if let Value::Obj(m) = &mut rec {
+            m.insert("gaps".into(), Value::from(gaps));
+        }
+        if self.sim.is_none() {
+            let row = meter_core::engine::history_row(&rec);
+            if let Some(prev) = self.bests.add(&row) {
+                if self.settings.personal_bests {
+                    self.pb_notice = Some(
+                        Obj::new()
+                            .set("fight_id", f.id)
+                            .set("target", row.str_or("target", "the boss"))
+                            .set("dps", row.f64_or("mine", 0.0))
+                            .set("prev", prev)
+                            .set("at", now_unix())
+                            .build(),
+                    );
+                }
+            }
+        }
         if self.sim.is_none() {
             let name = format!("fight-{}-{}.json", f.started_unix as i64, f.id);
             if let Err(e) = std::fs::write(self.paths.history.join(name), rec.to_string()) {
@@ -1064,6 +1206,8 @@ impl Core {
             .set("update_url", self.update_available().map(|(_, u)| u))
             .set("version", env!("CARGO_PKG_VERSION"))
             .set("warning", self.warning.clone())
+            .set("pb", self.pb_notice.clone())
+            .set("fight_gaps", e.display_fight().map(|f| self.fight_gaps(f.id)))
             .build();
         let ui = Obj::new()
             .set("opacity", s.opacity)
@@ -1077,6 +1221,8 @@ impl Core {
             .set("anonymize_others", s.anonymize_others)
             .set("click_through", s.click_through)
             .set("show_research", s.show_research)
+            .set("columns", Value::Arr(s.columns.iter().take(3).map(|c| Value::from(c.as_str())).collect()))
+            .set("dps_clock", s.dps_clock.as_str())
             .build();
         let alerts = self.alerts_view(now);
         Obj::new().set("status", status).set("ui", ui).set("fight", fight).set("research", rec).set("alerts", alerts).build()
@@ -1204,20 +1350,13 @@ impl Core {
             .filter_map(|(p, _)| {
                 let src = fix_names(&std::fs::read_to_string(p).ok()?, &self.pipeline.engine.names);
                 let v = json::parse(&src).ok()?;
-                let top = v.get("players").and_then(|a| a.as_arr()).and_then(|a| a.first()).map(|r| r.str_or("name", "?").to_string());
-                Some(
-                    Obj::new()
-                        .set("file", p.file_name()?.to_string_lossy().to_string())
-                        .set("started_unix", v.f64_or("started_unix", 0.0))
-                        .set("duration", v.f64_or("duration", 0.0))
-                        .set("target", v.get("target").and_then(|t| t.get("name")).and_then(|n| n.as_str()).map(String::from))
-                        .set("total", v.f64_or("total", 0.0))
-                        .set("dps", v.f64_or("dps", 0.0))
-                        .set("players", v.get("players").and_then(|a| a.as_arr()).map_or(0, |a| a.len()))
-                        .set("top", top)
-                        .set("boss_killed", v.bool_or("boss_killed", false))
-                        .build(),
-                )
+                let mut row = meter_core::engine::history_row(&v);
+                let pb = self.bests.is_best(&row);
+                if let Value::Obj(m) = &mut row {
+                    m.insert("file".into(), Value::from(p.file_name()?.to_string_lossy().to_string()));
+                    m.insert("pb".into(), Value::from(pb));
+                }
+                Some(row)
             })
             .collect();
         Value::Arr(items)

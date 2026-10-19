@@ -17,6 +17,8 @@
   .ok { color: var(--good); }
   .dotc { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
   tr.sel td { background: var(--accent-soft); }
+  .pb { font-size: 12px; }
+  .bestline { margin: 4px 0 10px; font-size: 12px; color: var(--muted); } .bestline b { color: #ffd166; }
 </style>
 </head>
 <body>
@@ -70,10 +72,10 @@
       document.getElementById("list").innerHTML = `<p class="muted">${tab === "session" ? "No finished fights yet this session." : "No saved fights yet. Finished fights are saved automatically."}</p>`;
       return;
     }
-    document.getElementById("list").innerHTML = `<table class="grid"><thead><tr><th>When</th><th>Target</th><th>Time</th><th>Party DPS</th><th>Total</th><th>Top</th><th></th></tr></thead><tbody>${rows.map((f) => `
+    document.getElementById("list").innerHTML = `<table class="grid"><thead><tr><th>When</th><th>Target</th><th>Time</th><th>Party DPS</th><th>Total</th><th>You</th><th>Top</th><th></th></tr></thead><tbody>${rows.map((f) => `
       <tr class="click${String(key(f)) === String(selected) ? " sel" : ""}" data-k="${D.esc(key(f))}">
         <td>${D.when(f.started_unix)}</td><td style="text-align:left">${D.esc(f.target || "—")}</td><td>${D.dur(f.duration)}</td>
-        <td>${D.fmt(f.dps)}</td><td>${D.fmt(f.total)}</td><td>${D.esc(f.top || "")}</td><td>${f.boss_killed ? '<span class="ok">✓</span>' : ""}</td></tr>`).join("")}</tbody></table>`;
+        <td>${D.fmt(f.dps)}</td><td>${D.fmt(f.total)}</td><td>${f.mine ? D.fmt(f.mine) + (f.pb ? ' <span class="pb" title="Your personal best on this boss">🏆</span>' : "") : "–"}</td><td>${D.esc(f.top || "")}</td><td>${f.boss_killed ? '<span class="ok">✓</span>' : ""}</td></tr>`).join("")}</tbody></table>`;
     document.querySelectorAll("#list tr.click").forEach((tr) => (tr.onclick = () => { selected = tr.dataset.k; renderList(); openFight(selected); }));
   }
 
@@ -84,6 +86,7 @@
       const el = document.getElementById("fight");
       el.innerHTML = `<div class="fight">
         <div class="hd"><span class="t">${D.esc(rec.target ? rec.target.name : "Fight")}</span><span class="muted">${D.dur(rec.duration)} · ${D.fmt(rec.total)} dmg · ${D.fmt(rec.dps)}/s</span><span class="sp"></span><button class="btn" id="bCopyF">Copy summary</button></div>
+        ${rec.best ? `<div class="bestline">🏆 Your best on this boss: <b>${D.fmt(rec.best.dps)}/s</b> · ${D.when(rec.best.started_unix)}${rec.best.this ? " · <b>this fight</b>" : ""} · ${rec.best.count} ${rec.best.count === 1 ? "fight" : "fights"} recorded</div>` : ""}
         <table class="grid"><thead><tr><th>Player</th><th>DPS</th><th>Damage</th><th>Share</th><th>Crit</th><th>Max hit</th></tr></thead><tbody>
         ${rec.players.map((p) => `<tr class="click" data-id="${p.id}"><td>${D.classIcon(p.class, 13) || `<span class="dotc" style="background:${D.classColor(p.class, p.name)}"></span>`} ${D.esc(p.name)} <span class="muted">${D.esc(p.class || "")}</span></td><td>${D.fmt(p.dps)}</td><td>${D.fmt(p.dmg)}</td><td>${D.pct(p.share, 1)}</td><td>${D.pct(p.crit_rate)}</td><td>${D.fmt(p.max_hit)}</td></tr>`).join("")}
         </tbody></table>

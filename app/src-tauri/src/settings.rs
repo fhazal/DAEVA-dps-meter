@@ -115,6 +115,14 @@ pub struct Settings {
     pub click_through: bool,
     pub always_on_top: bool,
     pub idle_timeout: f64,
+    /// What DPS is divided by: "boss" (first hit on the boss → kill),
+    /// "personal" (each player's first → last hit) or "fight" (whole fight).
+    pub dps_clock: String,
+    /// Extra overlay columns, in order (at most 3): crit, back, perfect,
+    /// hits, max, hps, taken, deaths.
+    pub columns: Vec<String>,
+    /// Show "New personal best" under the meter after a boss kill.
+    pub personal_bests: bool,
     pub merge_summons: bool,
     pub end_on_target_death: bool,
     /// Executable names to look for (substring, case-insensitive).
@@ -175,6 +183,9 @@ impl Default for Settings {
             click_through: false,
             always_on_top: true,
             idle_timeout: 8.0,
+            dps_clock: "boss".into(),
+            columns: vec![],
+            personal_bests: true,
             merge_summons: true,
             end_on_target_death: true,
             process_names: vec!["aion2".into()],

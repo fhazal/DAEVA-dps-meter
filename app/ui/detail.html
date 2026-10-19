@@ -206,7 +206,7 @@
 
   async function init() {
     p = await D.params();
-    target = null;
+    target = p.target ?? null; // the overlay's boss when the DPS clock is boss time
     record = null;
     clearInterval(timer);
     await D.loadArt();

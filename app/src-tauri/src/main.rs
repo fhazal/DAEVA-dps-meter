@@ -36,22 +36,33 @@ fn get_detail(st: St<'_>, fight_id: Option<u64>, actor_id: u64, target: Option<u
 #[tauri::command]
 fn get_history(st: St<'_>) -> String {
     let c = st.lock();
-    meter_core::json::Obj::new().set("session", c.pipeline.engine.history_list()).set("saved", c.saved_fights()).build().to_string()
+    let mut session = c.pipeline.engine.history_list();
+    c.bests.mark(&mut session);
+    meter_core::json::Obj::new().set("session", session).set("saved", c.saved_fights()).build().to_string()
 }
 
 #[tauri::command]
 fn get_fight_record(st: St<'_>, fight_id: Option<u64>, file: Option<String>) -> Result<String, String> {
     let c = st.lock();
-    if let Some(file) = file {
-        return state::read_saved_fight(&c.paths.history, &file, &c.pipeline.engine.names);
+    let mut rec = if let Some(file) = file {
+        let src = state::read_saved_fight(&c.paths.history, &file, &c.pipeline.engine.names)?;
+        meter_core::json::parse(&src).map_err(|e| e.to_string())?
+    } else {
+        let e = &c.pipeline.engine;
+        let f = match fight_id {
+            Some(id) => e.fight(id),
+            None => e.display_fight(),
+        }
+        .ok_or("fight not found")?;
+        e.fight_record(f)
+    };
+    // "Your best on this boss" line in History.
+    let row = meter_core::engine::history_row(&rec);
+    if let (Some((dps, at, count)), meter_core::json::Value::Obj(m)) = (c.bests.best_for(&row), &mut rec) {
+        let best = meter_core::json::Obj::new().set("dps", dps).set("started_unix", at).set("this", c.bests.is_best(&row)).set("count", count).build();
+        m.insert("best".into(), best);
     }
-    let e = &c.pipeline.engine;
-    let f = match fight_id {
-        Some(id) => e.fight(id),
-        None => e.display_fight(),
-    }
-    .ok_or("fight not found")?;
-    Ok(e.fight_record(f).to_string())
+    Ok(rec.to_string())
 }
 
 fn copy_summary_inner(shared: &Shared, fight_id: Option<u64>) -> Result<String, String> {

@@ -67,6 +67,23 @@
   .rows { padding: 4px 4px 6px; }
   .row { position: relative; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; height: 26px; padding: 0 8px 0 10px; border-radius: 6px; cursor: pointer; overflow: hidden; }
   .row + .row { margin-top: 2px; }
+  .odo { display: inline-block; text-align: right; font-variant-numeric: tabular-nums; transition: color .35s ease, text-shadow .35s ease; }
+  .odo.main { min-width: 62px; }
+  .odo.main.up { color: #b8f5c8; text-shadow: 0 0 8px rgba(120,230,150,.45); }
+  .odo.main.down { color: #ffd0cc; }
+  .rows.cols .row { grid-template-columns: 1fr var(--xc) auto; }
+  .xcs { display: grid; grid-auto-flow: column; grid-auto-columns: 44px; text-align: right; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .xcs b { color: var(--text); font-weight: 600; }
+  .colhead { display: grid; grid-template-columns: 1fr var(--xc) auto; gap: 8px; padding: 2px 12px 0 10px; font-size: 9.5px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+  .colhead .xcs { font-size: 9.5px; }
+  .colhead .vh { width: 150px; text-align: right; }
+  .rows.cols .val { width: 150px; }
+  .colhead { padding-right: 8px; }
+  .chk { color: var(--good); font-weight: 600; } .chk.warn { color: var(--warn); }
+  .pbline { flex: none; display: flex; align-items: center; gap: 8px; padding: 5px 10px; font-size: 11px; color: #ffe6a8; background: rgba(232,176,75,.14); border-top: 1px solid rgba(232,176,75,.35); }
+  .pbline b { color: #ffd166; }
+  .pbline .up { color: var(--good); font-weight: 600; }
+  .pbline .x { margin-left: auto; background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 11px; padding: 0 2px; }
   .row:hover { background: rgba(255,255,255,0.05); }
   .row .fill { position: absolute; left: 0; top: 0; bottom: 0; opacity: 0.22; border-radius: 6px; transition: width .3s ease; }
   .row .edge { position: absolute; left: 0; top: 4px; bottom: 4px; width: 3px; border-radius: 2px; }
@@ -158,6 +175,7 @@
   <div class="target" id="target" hidden></div>
   <div class="scroll"><div class="rows" id="rows"></div></div>
   <div class="zonetip" id="zonetip" hidden><span>📍 <b>Teleport or change zone once</b> so Daeva Meter can read names, monster health, Odyle and keys.</span><button class="x" id="zonetipX" title="Hide">✕</button></div>
+  <div class="pbline" id="pbline" hidden></div>
   <div class="updline" id="updline" hidden></div>
   <div class="nextev" id="nextev" hidden></div>
   <div class="foot" id="foot"><div class="footc" id="footc"></div><i class="sep"></i><button class="icon-btn lockb" id="bLock" title="Click-through (Ctrl+Shift+L)"></button></div>
@@ -265,7 +283,7 @@
     const ping = `<b class="ping ${pc}" title="Latency to the game server (measured passively)"><span class="sig">${sig}</span>${s.ping_ms == null ? "-- ms" : Math.round(s.ping_ms) + " ms"}</b>`;
     const odyle = s.odyle != null ? `<span class="fx${s.odyle_stale ? " stale" : ""}" title="${s.odyle_stale ? "Last seen: " : ""}Odyle ${Number(s.odyle).toLocaleString()}${s.odyle_bonus ? ` (+${Number(s.odyle_bonus).toLocaleString()} from Odyle Energy)` : ""} · from the game, updated whenever it changes"><svg class="ody" viewBox="0 0 16 16"><path d="M8 1l4.5 5L8 15 3.5 6z" fill="#7cc4ff"/><path d="M8 1l4.5 5H3.5z" fill="#d6efff"/></svg><b>${Number(s.odyle).toLocaleString()}</b>${s.odyle_bonus ? `<span class="dl"> (+${Number(s.odyle_bonus).toLocaleString()})</span>` : ""}</span><i class="sep"></i>` : "";
     $("zonetip").hidden = !s.needs_zone || zoneTipHidden;
-    renderUpdate(s);
+    renderUpdate(s); renderPB(s);
     $("footc").innerHTML = `<span class="${isSrv ? "srv" : ""}" title="${D.esc(text)}">${isSrv ? '<i class="srv-dot"></i>' : ""}${D.esc(footL)}</span><span class="fr">${s.uploads_pending ? `<span>↑${s.uploads_pending}</span><i class="sep"></i>` : ""}${odyle}${ping}</span>`;
     $("foot").title = "Daeva Meter " + (s.version || "");
     renderAlerts(snap.alerts);
@@ -318,6 +336,18 @@
   let zoneTipHidden = false;
   // New version on GitHub: Download opens the release page; ✕ hides this version.
   let updShown = "";
+  let pbHidden = null, pbShown = null;
+  function renderPB(s) {
+    gaps = s.fight_gaps || 0;
+    const pb = s.pb && s.pb.fight_id !== pbHidden ? s.pb : null;
+    $("pbline").hidden = !pb;
+    if (!pb) { pbShown = null; return; }
+    const sig = pb.fight_id + ":" + pb.dps;
+    if (sig === pbShown) return;
+    pbShown = sig;
+    $("pbline").innerHTML = `<span title="Your DPS on this boss beat your best saved fight (same DPS clock, at least 30 s on the boss).">🏆 <b>New personal best</b> on ${D.esc(pb.target)} · <b>${D.fmt(pb.dps)}/s</b> <span class="up">▲ ${D.pct(pb.dps / pb.prev - 1, 0)}</span> <span style="color:var(--muted)">(was ${D.fmt(pb.prev)})</span></span><button class="x" id="pbX" title="Hide">✕</button>`;
+    $("pbX").onclick = () => { pbHidden = pb.fight_id; $("pbline").hidden = true; pbShown = null; };
+  }
   function renderUpdate(s) {
     const v = s.update_version || "";
     $("updline").hidden = !v;
@@ -330,6 +360,17 @@
   $("zonetipX").onclick = () => { zoneTipHidden = true; $("zonetip").hidden = true; };
   let editing = null; // template being named; pauses target redraws
   let lastTargetHtml = "";
+  // HP check: once a monster dies, how much of its health the meter saw.
+  // Over 100% happens when it healed; under 97% means hits were missed.
+  let gaps = 0;
+  function hpCheck(t) {
+    if (t.counted == null) return "";
+    const c = t.counted, low = c < 0.97;
+    const tip = low
+      ? `The meter saw ${D.pct(c, 1)} of this monster's health being removed, so some hits were missed${gaps ? ` (${gaps} gaps in the captured traffic)` : ""}. Damage dealt before you first hit it isn't counted either. DPS for this fight is likely a little low.`
+      : `Every hit was counted: the damage the meter saw adds up to this monster's full health${c > 1.005 ? ` (${D.pct(c, 1)}: it healed during the fight)` : ""}.`;
+    return ` · <span class="chk${low ? " warn" : ""}" title="${D.esc(tip)}">${low ? "⚠" : "✓"} ${D.pct(Math.min(c, 1), 1)} of HP counted</span>`;
+  }
   function renderTarget(f) {
     const t = f.target;
     if (editing) return;
@@ -364,7 +405,7 @@
     // Fresh install: the monster data (type, family, picture) is still downloading.
     const loadingData = !rank && !t.family && !dead && lastSnap && lastSnap.status && lastSnap.status.monster_data === "loading";
     const right = needTp ? `<span class="tp-hint" title="The meter started while this monster was already nearby, so the game hasn't said which one it is. Teleport to another region and come back (or start the meter before heading to a boss).">📍 Teleport away and back to identify</span>` : loadingData ? `<span class="md-loading" title="Downloading the monster list (type, family and picture). This only happens once."><i class="md-spin"></i>Loading monster data…</span>` : rank ? `${fam}<span class="rank">${D.esc(rank)}</span>` : t.family && !dead ? `${fam}Fight <b>${D.dur(secs)}</b>` : dead ? `Damage <b>${D.fmt(onTarget)}</b>` : `Fight <b>${D.dur(secs)}</b>`;
-    const bot = `<div class="tc-bot"><span>${dead ? `Killed in <b class="good">${D.dur(secs)}</b>` : killIn ? `Kill in <b class="good">${killIn}</b>` : `Damage <b>${D.fmt(onTarget)}</b>`}</span><span>${right}</span></div>`;
+    const bot = `<div class="tc-bot"><span>${dead ? `Killed in <b class="good">${D.dur(secs)}</b>${hpCheck(t)}` : killIn ? `Kill in <b class="good">${killIn}</b>` : `Damage <b>${D.fmt(onTarget)}</b>`}</span><span>${right}</span></div>`;
     const nameit = t.named === false && t.npc_id ? `<span class="nameit" data-npc="${t.npc_id}" title="Looking it up on aion2.gaming.tools… or type the name yourself (saved for good)">✎ name it</span><span class="nameit" data-lk="${t.npc_id}" title="Open on aion2.gaming.tools">🔎</span>` : "";
     const unknownTip = t.name === "Unknown monster" ? ` title="This monster was already nearby when the meter started, so the game never said which one it is. It gets its name after you change zone or it comes back into view."` : "";
     const portrait = D.npcIcon(t.npc_id, 24) || '<span class="tc-ic"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.5C4.5 1.5 2 4 2 7c0 1.9 1 3.3 2.3 4.1V13c0 .6.4 1 1 1h.7v-1.5h1V14h2v-1.5h1V14h.7c.6 0 1-.4 1-1v-1.9C13 10.3 14 8.9 14 7c0-3-2.5-5.5-6-5.5zM5.6 9.2a1.3 1.3 0 1 1 0-2.6 1.3 1.3 0 0 1 0 2.6zm4.8 0a1.3 1.3 0 1 1 0-2.6 1.3 1.3 0 0 1 0 2.6z"/></svg></span>';
@@ -399,31 +440,70 @@
     i.onblur = () => setTimeout(() => { if (editing === npc && document.activeElement !== i) done(); }, 150);
   }
 
+  function clockRule(f) {
+    if (f.clock === "boss") return `DPS clock: boss time, damage on ${f.clock_target_name || "the boss"} ÷ ${D.dur(f.clock_secs)} from the first hit on it`;
+    if (f.clock === "personal") return "DPS clock: your time, each player's damage ÷ their own first-to-last hit";
+    return `DPS clock: whole fight, all damage ÷ ${D.dur(f.clock_secs || f.duration)}`;
+  }
+  const COLS = { crit: ["Crit", (p) => D.pct(p.crit_rate)], back: ["Back", (p) => D.pct(p.back_rate)], perfect: ["Perf", (p) => D.pct(p.perfect_rate)], hits: ["Hits", (p) => p.hits], max: ["Max", (p) => D.fmt(p.max_hit)], hps: ["HPS", (p) => D.fmt(p.hps)], taken: ["Taken", (p) => D.fmt(p.taken)], deaths: ["Died", (p) => p.deaths ? `<b style="color:var(--bad,#e5675f)">${p.deaths}</b>` : "–"] };
+  const cols = () => (ui.columns || []).filter((c) => COLS[c]);
+  const xc = (p) => cols().length ? `<span class="xcs">${cols().map((c) => `<span>${COLS[c][1](p)}</span>`).join("")}</span>` : "";
+  // ---- Live "digital dash" numbers: every figure counts smoothly to its new value
+  const odoShown = {}; const trend = {};
+  const FMT = { rate: (v) => D.fmt(v) + "/s", num: (v) => D.fmt(v), pct: (v) => D.pct(v), pct1: (v) => D.pct(v, 1) };
+  const odo = (k, v, f, cls) => `<span class="odo${cls ? " " + cls : ""}${trend[k] ? " " + trend[k] : ""}" data-k="${k}" data-v="${v}" data-f="${f}">${FMT[f](odoShown[k] ?? v)}</span>`;
+  const anims = {};
+  function runOdos() {
+    document.querySelectorAll(".odo").forEach((el) => {
+      const k = el.dataset.k, to = Number(el.dataset.v), f = el.dataset.f;
+      const from = odoShown[k] ?? to;
+      if (Math.abs(to - from) < 1e-9) { odoShown[k] = to; return; }
+      const a = anims[k] = { from, to, t0: performance.now(), el };
+      const up = to > from; trend[k] = up ? "up" : "down";
+      el.classList.remove("up", "down"); void el.offsetWidth; el.classList.add(up ? "up" : "down");
+      const step = (now) => {
+        if (anims[k] !== a) return;
+        const t = Math.min(1, (now - a.t0) / 320), e = 1 - Math.pow(1 - t, 3);
+        odoShown[k] = a.from + (a.to - a.from) * e;
+        const live = document.querySelector(`.odo[data-k="${k}"]`) || a.el;
+        live.textContent = FMT[f](odoShown[k]);
+        if (t < 1) requestAnimationFrame(step); else trend[k] = "";
+      };
+      requestAnimationFrame(step);
+    });
+  }
   function renderRows(f, m) {
     const list = ui.show_players === "me" ? f.players.filter((p) => p.is_self)
       : ui.show_players === "party" ? f.players.filter((p) => p.in_party || p.is_self)
       : f.players;
     const rows = list.slice(0, Math.max(1, ui.rows || 8));
     const top = Math.max(1, ...rows.map((p) => (m === "dps" ? p.dps : p.dmg)));
-    $("rows").innerHTML = rows.map((p, i) => {
+    const fk = f.fight_id + "_";
+    for (const k of Object.keys(odoShown)) if (!k.startsWith(fk)) { delete odoShown[k]; delete trend[k]; delete anims[k]; }
+    const cc = cols();
+    $("rows").classList.toggle("cols", cc.length > 0);
+    $("rows").style.setProperty("--xc", cc.length * 44 + "px");
+    const head = cc.length ? `<div class="colhead" style="--xc:${cc.length * 44}px"><span>Player</span><span class="xcs">${cc.map((c) => `<span>${COLS[c][0]}</span>`).join("")}</span><span class="vh">${m === "dps" ? "DPS" : m === "dmg" ? "Damage" : "Share"}</span></div>` : "";
+    $("rows").innerHTML = head + rows.map((p, i) => {
       const v = m === "dps" ? p.dps : p.dmg;
       const color = D.classColor(p.class, p.name);
       // Main number per the metric switch, plus the other figure in grey
       // (DPS view shows total damage and vice versa) and the share.
-      const main = m === "share" ? D.pct(p.share, 1) : m === "dps" ? D.fmt(p.dps) + "/s" : D.fmt(p.dmg);
-      const other = m === "dps" ? D.fmt(p.dmg) : D.fmt(p.dps) + "/s";
-      const sub = m === "share" ? `<span class="sub">${D.fmt(p.dps)}/s</span>` : `<span class="sub">${other}</span><small>${D.pct(p.share)}</small>`;
+      const main = m === "share" ? odo(fk + "sh" + p.id, p.share, "pct1", "main") : m === "dps" ? odo(fk + "dps" + p.id, p.dps, "rate", "main") : odo(fk + "dmg" + p.id, p.dmg, "num", "main");
+      const other = m === "dps" ? odo(fk + "dmg" + p.id, p.dmg, "num") : odo(fk + "dps" + p.id, p.dps, "rate");
+      const sub = m === "share" ? `<span class="sub">${odo(fk + "dps" + p.id, p.dps, "rate")}</span>` : `<span class="sub">${other}</span><small>${odo(fk + "sh" + p.id, p.share, "pct")}</small>`;
       const heal = ui.show_heal && p.heal ? `<span class="sub">♥ ${D.fmt(p.hps)}/s</span>` : "";
-      const tip = `${p.name}${p.class ? " (" + p.class + ")" : ""}\nDamage ${D.fmt(p.dmg)} · ${D.fmt(p.dps)}/s\nCrit ${D.pct(p.crit_rate)} · Back ${D.pct(p.back_rate)} · Hits ${p.hits}\nMax hit ${D.fmt(p.max_hit)} (${p.max_hit_skill})${p.heal ? "\nHealing " + D.fmt(p.heal) : ""}${p.deaths ? "\nDeaths " + p.deaths : ""}`;
+      const tip = `${p.name}${p.class ? " (" + p.class + ")" : ""}\nDamage ${D.fmt(p.dmg)} · ${D.fmt(p.dps)}/s\n${clockRule(f)}\nCrit ${D.pct(p.crit_rate)} · Back ${D.pct(p.back_rate)} · Hits ${p.hits}\nMax hit ${D.fmt(p.max_hit)} (${p.max_hit_skill})${p.heal ? "\nHealing " + D.fmt(p.heal) : ""}${p.deaths ? "\nDeaths " + p.deaths : ""}`;
       return `<div class="row${p.is_self ? " self" : ""}" data-id="${p.id}" title="${D.esc(tip)}">
         <i class="fill" style="width:${((v / top) * 100).toFixed(1)}%;background:${color}"></i>
         <i class="edge" style="background:${color}"></i>
         <span class="who">${D.classIcon(p.class, 16)}<span class="nm">${D.esc(displayName(p, i))}</span></span>
-        <span class="val">${main}${heal}${sub}</span>
+        ${xc(p)}<span class="val">${main}${heal}${sub}</span>
       </div>`;
     }).join("");
+    runOdos();
     document.querySelectorAll(".row").forEach((r) => {
-      r.onclick = () => D.call("open_window", { kind: "detail", params: JSON.stringify({ fight_id: lastFight.fight_id, actor_id: Number(r.dataset.id) }) });
+      r.onclick = () => D.call("open_window", { kind: "detail", params: JSON.stringify({ fight_id: lastFight.fight_id, actor_id: Number(r.dataset.id), target: lastFight.clock_target ?? null }) });
     });
   }
 
