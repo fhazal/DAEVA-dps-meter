@@ -6,7 +6,7 @@
 // updates after a game patch never need a new build.
 {
   "name": "AION 2 (global)",
-  "version": "0.6.14",
+  "version": "0.6.15",
   "process_names": ["aion2"],
   // Server ports, if they turn out to be fixed. Auto-detection by process
   // already finds the server, so this can stay empty.
@@ -103,9 +103,15 @@
                 {"name": "pname", "type": "str", "if": "b==256"},
                 // Summoned spirits (b==16): after eight ff bytes and an 8-byte
                 // stamp comes the summoner's entity id.
-                {"name": "m16", "type": "seek", "pattern": "ff ff ff ff ff ff ff ff", "if": "b==16"},
-                {"name": "s16", "type": "skip", "len": 16, "if": "b==16"},
-                {"name": "owner", "type": "varint", "if": "b==16"},
+                {"name": "m16", "type": "seek", "pattern": "ff ff ff ff ff ff ff ff", "if": "b==16&&a!=28"},
+                {"name": "s16", "type": "skip", "len": 16, "if": "b==16&&a!=28"},
+                {"name": "owner", "type": "varint", "if": "b==16&&a!=28"},
+                // a==28: an object placed by a monster (e.g. Faithful Rajit's
+                // Recovery Totem, 2920205). Its owner is the u32 just before
+                // "00 2d 00 00 00" near the end; the varint above would be the
+                // object's own id, which made it show as a damage dealer.
+                {"name": "m28", "type": "seek", "pattern": "00 2d 00 00 00", "back": 4, "if": "b==16&&a==28"},
+                {"name": "owner28", "type": "u32le", "if": "b==16&&a==28"},
                 // Skill objects (b==0) carry their summoner's name after
                 // "06 00 00 00 00 00" and the summoner's server number.
                 {"name": "m0", "type": "seek", "pattern": "06 00 00 00 00 00", "if": "b==0&&npc0>2000000&&npc0<3000000"},
@@ -116,7 +122,8 @@
        {"event": "actor", "when": "b&32", "id": "id", "kind": "'npc'", "npc_id": "npc"},
        // b==16: a player's spirit/pet/object (templates 292xxxx, e.g. an
        // Elementalist spirit). Name it from its template, not "Player #12345".
-       {"event": "actor", "when": "b==16", "id": "id", "kind": "'summon'", "npc_id": "npc", "owner": "owner"},
+       {"event": "actor", "when": "b==16&&a!=28", "id": "id", "kind": "'summon'", "npc_id": "npc", "owner": "owner"},
+       {"event": "actor", "when": "b==16&&a==28", "id": "id", "kind": "'summon'", "npc_id": "npc", "owner": "owner28"},
        // b==0 (a=95): skill objects such as Sorcerer summons, same idea.
        {"event": "actor", "when": "b==0&&npc0>2000000&&npc0<3000000", "id": "id", "kind": "'summon'", "npc_id": "npc0", "name": "oname"},
        // Max HP only where the layout is verified. The spawn's own "hp" field
