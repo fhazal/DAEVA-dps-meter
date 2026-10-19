@@ -112,7 +112,7 @@ All of them work while the game has focus and can be changed in Settings. Resear
 1. Install **[Npcap](https://npcap.com/#download)** with the default options. Leave *"Restrict Npcap driver's access to Administrators only"* **unticked**.
 2. Download the latest installer (`Daeva.Meter_…_x64-setup.exe`) from **[Releases](https://github.com/fhazal/DAEVA-dps-meter/releases/latest)** and run it. It isn't code-signed yet, so Windows SmartScreen may warn you: choose **More info → Run anyway**. See our **[Code signing policy](CODE_SIGNING.md)**.
 
-   Free code signing provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org) · [Code signing policy](CODE_SIGNING.md)
+   Code signing: we plan to apply for free signing from [SignPath Foundation](https://signpath.org). Until then, installers are unsigned. See our [Code signing policy](CODE_SIGNING.md).
 3. Start AION 2 in **borderless or windowed** mode, then Daeva Meter. The dot top-left turns green while it's capturing.
 
 > [!TIP]

@@ -1,6 +1,6 @@
 # Code signing policy
 
-Free code signing provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+> **Status:** not yet signed. We plan to apply to [SignPath Foundation](https://signpath.org) for free code signing; until then the installer is unsigned and Windows SmartScreen may warn you (choose **More info → Run anyway**). This policy describes how signing will work once approved.
 
 Daeva Meter's Windows installer (`Daeva.Meter_<version>_x64-setup.exe`) is digitally signed so you can check that it really comes from this project and hasn't been changed since it was built.
 
