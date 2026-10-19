@@ -329,6 +329,9 @@ pub struct Fight {
     pub focus: Option<u64>,
     /// First and last time each target was hit.
     pub tspan: HashMap<u64, (f64, f64)>,
+    /// Damage on each target per second of the fight (for pausing the boss
+    /// clock while nobody can hit the boss).
+    pub tsec: HashMap<u64, Vec<u64>>,
     /// Targets' (hp, max_hp, template) frozen when the fight ends, so the
     /// card still shows them after a zone change clears the actors.
     pub tinfo: HashMap<u64, (Option<u64>, Option<u64>, Option<u32>)>,
@@ -453,6 +456,9 @@ pub struct Engine {
     /// already hurt reports its current HP as "max"; the template's real
     /// maximum is the highest one seen.
     pub npc_max_hp: HashMap<u32, u64>,
+    /// Monsters that died, and when: later hits (a damage-over-time tick
+    /// after the kill) don't count, as in the game's own Combat Analysis.
+    dead_at: HashMap<u64, f64>,
 }
 
 impl Engine {
@@ -481,6 +487,7 @@ impl Engine {
             fresh_view: false,
             self_live: false,
             npc_max_hp: HashMap::new(),
+            dead_at: HashMap::new(),
         }
     }
 
@@ -618,6 +625,11 @@ impl Engine {
                     }
                     return finished;
                 }
+                // A boss mechanic reported like a damage-over-time tick (it
+                // heals the boss), or a tick that lands after the kill.
+                if fl & flags::NPC_ONLY != 0 || self.dead_at.get(tgt).map_or(false, |d| *ts > *d) {
+                    return finished;
+                }
                 // Scope: your damage, damage on targets you've hit, and all
                 // damage from players who joined you on one of your targets
                 // (your party in practice).
@@ -653,6 +665,14 @@ impl Engine {
                 *fight.targets.entry(*tgt).or_default() += amount;
                 let span = fight.tspan.entry(*tgt).or_insert((*ts, *ts));
                 span.1 = span.1.max(*ts);
+                let sec = ((*ts - fight.start).max(0.0)) as usize;
+                if sec < 3600 {
+                    let v = fight.tsec.entry(*tgt).or_default();
+                    if v.len() <= sec {
+                        v.resize(sec + 1, 0);
+                    }
+                    v[sec] += amount;
+                }
                 if fight.self_id.is_some() && fight.self_id == Some(attacker) {
                     fight.focus = Some(*tgt);
                 }
@@ -698,6 +718,9 @@ impl Engine {
                 self.record_heal(*ts, healer, *tgt, key, *amount, *fl);
             }
             GameEvent::Death { ts, target, killer } => {
+                if !self.actors.get(target).map_or(false, |a| matches!(a.kind, ActorKind::Player | ActorKind::Summon)) {
+                    self.dead_at.insert(*target, *ts);
+                }
                 let main = self.current.as_ref().and_then(|f| f.main_target());
                 if let Some(f) = self.current.as_mut() {
                     f.deaths.push((*ts, *target, *killer));
@@ -714,6 +737,9 @@ impl Engine {
                 }
             }
             GameEvent::Actor { id, name, class, kind, npc_id, owner, max_hp } => {
+                if npc_id.is_some() {
+                    self.dead_at.remove(id); // a new spawn
+                }
                 let a = self.actor(*id);
                 if name.is_some() {
                     a.name = name.clone();
@@ -795,6 +821,9 @@ impl Engine {
                     let a = self.actors.get(id);
                     a.and_then(|a| a.npc_id).and_then(|n| self.npc_max_hp.get(&n).copied())
                 };
+                if *hp > 0 {
+                    self.dead_at.remove(id);
+                }
                 let a = self.actor(*id);
                 if a.hp.map_or(true, |old| *hp > old) {
                     // Healed or reset (training dummies refill at 1 HP).
@@ -904,6 +933,7 @@ impl Engine {
                 allies: Default::default(),
                 focus: None,
                 tspan: Default::default(),
+                tsec: Default::default(),
                 tinfo: Default::default(),
             });
         }
@@ -968,6 +998,12 @@ impl Engine {
     pub fn hp_counted(&self, f: &Fight, t: u64) -> Option<f64> {
         let a = self.actors.get(&t);
         let frozen = f.tinfo.get(&t).copied();
+        // Only bosses and elites: in the open world other players often hit
+        // trash before you do, so a check there would only confuse.
+        let npc = a.and_then(|a| a.npc_id).or(frozen.and_then(|x| x.2))?;
+        if !self.npc_is_boss(npc) {
+            return None;
+        }
         let hp = a.and_then(|a| a.hp).or(frozen.and_then(|x| x.0));
         let max_hp = a.and_then(|a| a.max_hp).or(frozen.and_then(|x| x.1))?;
         let dead = hp == Some(0) || (f.boss_killed && Some(t) == f.main_target());
@@ -1153,19 +1189,26 @@ impl Engine {
         // Details! or ACT. Trash and walking before the pull are left out.
         let boss = if self.cfg.dps_clock == DpsClock::Boss && target.is_none() { self.boss_target(f) } else { None };
         let window = boss.and_then(|b| f.tspan.get(&b).copied());
+        // Seconds of the fight timeline inside the boss fight, minus phases of
+        // 10 s or more when nobody damaged the boss (barriers, untargetable
+        // phases, run-backs): those count neither time nor damage.
+        let span = window.map(|(a, z)| (((a - f.start).max(0.0)) as usize, ((z - f.start).max(0.0)) as usize));
+        let live: Vec<bool> = match (boss, span) {
+            (Some(b), Some((i, j))) => boss_live_seconds(f.tsec.get(&b).map(|v| v.as_slice()).unwrap_or(&[]), i, j),
+            _ => vec![],
+        };
+        let paused = live.iter().filter(|x| !**x).count() as f64;
         let (clock, dur) = match (self.cfg.dps_clock, target, window) {
             (_, Some(t), _) => ("target", f.tspan.get(&t).map_or(f.duration(), |(a, z)| (z - a).max(1.0))),
-            (DpsClock::Boss, None, Some((a, z))) => ("boss", (z - a).max(1.0)),
+            (DpsClock::Boss, None, Some((a, z))) => ("boss", (z - a - paused).max(1.0)),
             (DpsClock::Personal, None, _) => ("personal", f.duration()),
             _ => ("fight", f.duration()),
         };
         let personal = clock == "personal";
         let own_dur = |s: &ActorStat| if personal { (s.last - s.first).max(1.0) } else { dur };
-        // Seconds of the fight timeline inside the boss fight.
-        let span = window.map(|(a, z)| (((a - f.start).max(0.0)) as usize, ((z - f.start).max(0.0)) as usize));
         let dmg_of = |s: &ActorStat| match (target, span) {
             (Some(t), _) => *s.by_target.get(&t).unwrap_or(&0),
-            (None, Some((i, j))) if clock == "boss" => s.timeline.iter().skip(i).take(j + 1 - i).sum(),
+            (None, Some((i, _))) if clock == "boss" => live.iter().enumerate().filter(|(_, l)| **l).map(|(k, _)| s.timeline.get(i + k).copied().unwrap_or(0)).sum(),
             _ => s.dmg,
         };
         let total: u64 = f.stats.values().map(dmg_of).sum();
@@ -1234,6 +1277,7 @@ impl Engine {
             .set("duration", f.duration())
             .set("clock", clock)
             .set("clock_secs", dur)
+            .set("clock_paused", if clock == "boss" { paused } else { 0.0 })
             .set("clock_target", if clock == "boss" { boss } else { None })
             .set("clock_npc", if clock == "boss" { boss.and_then(|t| self.actors.get(&t).and_then(|a| a.npc_id).or(f.tinfo.get(&t).and_then(|x| x.2))) } else { None })
             .set("clock_target_name", if clock == "boss" { boss.map(|t| self.fname(f, t)) } else { None })
@@ -1456,6 +1500,31 @@ impl Engine {
     }
 }
 
+/// Seconds stops counting after this long without damage on the boss.
+pub const BOSS_PAUSE_SECS: usize = 10;
+
+/// For each second from `i` to `j` of the fight: false inside a stretch of
+/// [`BOSS_PAUSE_SECS`] or more with no damage on the boss.
+pub fn boss_live_seconds(tsec: &[u64], i: usize, j: usize) -> Vec<bool> {
+    let n = j.saturating_sub(i) + 1;
+    let mut live = vec![true; n];
+    let mut k = 0;
+    while k < n {
+        if tsec.get(i + k).copied().unwrap_or(0) == 0 {
+            let start = k;
+            while k < n && tsec.get(i + k).copied().unwrap_or(0) == 0 {
+                k += 1;
+            }
+            if k - start >= BOSS_PAUSE_SECS {
+                live[start..k].iter_mut().for_each(|x| *x = false);
+            }
+        } else {
+            k += 1;
+        }
+    }
+    live
+}
+
 /// One History row from a fight table (live or loaded from a saved file).
 /// DPS figures follow the clock the fight was recorded with.
 pub fn history_row(t: &Value) -> Value {
@@ -1553,6 +1622,34 @@ mod tests {
     }
 
     #[test]
+    fn boss_mechanics_late_ticks_and_pauses() {
+        let names = Names::from_json(r#"{"bosses": ["777"]}"#).unwrap();
+        let mut e = Engine::new(EngineConfig::default(), names);
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(10_000) });
+        e.handle(&dmg(0.0, 1, 50, 18000000, 1000, 0));
+        // The boss heals itself off our hit: reported like a tick, not damage.
+        e.handle(&dmg(1.0, 1, 50, 18000000, 4000, flags::DOT | flags::NPC_ONLY));
+        e.handle(&dmg(2.0, 1, 50, 18000000, 1000, 0));
+        // Barrier: nobody can hit the boss for 30 s (an add takes damage).
+        e.handle(&GameEvent::Actor { id: 60, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(6), owner: None, max_hp: Some(500) });
+        e.handle(&dmg(10.0, 1, 60, 18000000, 500, 0));
+        e.handle(&dmg(33.0, 1, 50, 18000000, 1000, 0));
+        e.handle(&dmg(34.0, 1, 50, 18000000, 1000, 0));
+        e.handle(&GameEvent::Death { ts: 34.0, target: 50, killer: Some(1) });
+        e.handle(&dmg(34.5, 1, 50, 18000000, 700, flags::DOT)); // after the kill
+        let f = e.current.as_ref().unwrap();
+        assert_eq!(f.stats[&1].by_target[&50], 4000, "boss heal and late tick ignored");
+        let t = e.fight_table(f, None);
+        // 34 s on the boss minus the 30 s with no boss damage (3..32): 4 s,
+        // and the add's damage inside that pause doesn't count either.
+        assert_eq!(t.f64_or("clock_paused", 0.0), 30.0, "{}", t.to_string());
+        let me = &t.get("players").unwrap().as_arr().unwrap()[0];
+        assert_eq!(me.f64_or("dmg", 0.0), 4000.0);
+        assert_eq!(me.f64_or("dps", 0.0), 1000.0);
+    }
+
+    #[test]
     fn ranks_count_as_boss() {
         assert!(rank_is_boss_or_elite("Elite"));
         assert!(rank_is_boss_or_elite("HeroicMonster"));
@@ -1634,7 +1731,7 @@ mod naming_tests {
         assert!(n.skill_named(17010230 | DOT_KEY));
         assert_eq!(n.skill(17020000), "Skill 17020000");
         let mut e = Engine::new(EngineConfig::default(), n);
-        let mut f = Fight { id: 1, start: 0.0, end: 1.0, started_unix: 0.0, stats: Default::default(), targets: Default::default(), deaths: vec![], loot: vec![], zone: None, boss_killed: false, finished: true, self_id: None, names: Default::default(), allies: Default::default(), focus: None, tspan: Default::default(), tinfo: Default::default() };
+        let mut f = Fight { id: 1, start: 0.0, end: 1.0, started_unix: 0.0, stats: Default::default(), targets: Default::default(), deaths: vec![], loot: vec![], zone: None, boss_killed: false, finished: true, self_id: None, names: Default::default(), allies: Default::default(), focus: None, tspan: Default::default(), tsec: Default::default(), tinfo: Default::default() };
         f.names.insert(9, ("NPC 2400002".into(), None));
         e.history.push_back(f);
         e.rename_npc(2400002, "Black Claw Manduri Fighter");

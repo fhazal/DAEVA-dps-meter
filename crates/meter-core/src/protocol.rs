@@ -954,6 +954,7 @@ fn emit(e: &Emit, header: &Scope, scope: &Scope, ts: f64, out: &mut Vec<GameEven
             ("perfect_block", flags::PERFECT_BLOCK),
             ("double", flags::DOUBLE),
             ("front", flags::FRONT),
+            ("npc_only", flags::NPC_ONLY),
         ] {
             if num(k).unwrap_or(0) != 0 {
                 fl |= bit;

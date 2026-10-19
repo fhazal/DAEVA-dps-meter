@@ -6,7 +6,7 @@
 // updates after a game patch never need a new build.
 {
   "name": "AION 2 (global)",
-  "version": "0.6.15",
+  "version": "0.6.16",
   "process_names": ["aion2"],
   // Server ports, if they turn out to be fixed. Auto-detection by process
   // already finds the server, so this can stay empty.
@@ -145,10 +145,16 @@
      "emit": {"event": "actor", "id": "id", "kind": "'player'", "name": "name"}},
     // Periodic ticks: kind 10 = damage over time, kind 9 = heal over time
     // (kinds 11/48 are other resources). Abyss lists these as "(DOT)".
+    // A player's own damage over time has a 10-digit effect id built from
+    // the skill (17080240 -> 1708024011). Shorter effect ids are monster
+    // effects: their damage on players counts as damage taken, but on a boss
+    // they are mechanics (Thamon heals himself whenever he's hit, reported
+    // here with the attacker's skill), never player damage: npc_only.
     {"opcode": "0x3805", "name": "S_PERIODIC", "dir": "server",
      "fields": ["tgt:varint", "kind:u8", "src:varint", "tick:varint", "effect:u32le", "amount:varint", "skill:u32le"],
      "emit": [
-       {"event": "damage", "when": "kind==10", "src": "src", "tgt": "tgt", "skill": "skill", "amount": "amount", "dot": 1},
+       {"event": "damage", "when": "kind==10&&effect>=1000000000", "src": "src", "tgt": "tgt", "skill": "skill", "amount": "amount", "dot": 1},
+       {"event": "damage", "when": "kind==10&&effect<1000000000", "src": "src", "tgt": "tgt", "skill": "skill", "amount": "amount", "dot": 1, "npc_only": 1},
        {"event": "heal", "when": "kind==9", "src": "src", "tgt": "tgt", "skill": "skill", "amount": "amount", "dot": 1}
      ]},
     // Local player's combat power (sent on its own, no entity id).
