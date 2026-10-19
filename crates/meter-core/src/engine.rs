@@ -295,6 +295,10 @@ pub struct ActorInfo {
     /// Its first real health reading (0x8d00), to tell whether the meter
     /// watched it from (nearly) full health.
     pub first_hp: Option<u64>,
+    /// `taken` at the last health update, and how much health each stretch
+    /// of seen hits removed per point of damage (see `hp_scale`).
+    pub taken_at_hp: u64,
+    pub hp_ratios: Vec<f32>,
 }
 
 #[derive(Debug, Clone)]
@@ -340,6 +344,8 @@ pub struct Fight {
     pub tinfo: HashMap<u64, (Option<u64>, Option<u64>, Option<u32>)>,
     /// Frozen "watched from full health" per target (see `watched_whole`).
     pub twatch: HashMap<u64, bool>,
+    /// Frozen health-per-damage factor per target (see `hp_scale`).
+    pub tscale: HashMap<u64, f64>,
 }
 
 impl Fight {
@@ -510,6 +516,8 @@ impl Engine {
             taken: 0,
             taken_base: 0,
             first_hp: None,
+            taken_at_hp: 0,
+            hp_ratios: Vec::new(),
         })
     }
 
@@ -852,6 +860,22 @@ impl Engine {
                 if a.first_hp.is_none() && max_hp.is_none() {
                     a.first_hp = Some(*hp);
                 }
+                // How much health the hits seen since the last update removed,
+                // per point of their damage. In the open world the game takes
+                // 4.5x the damage it shows off a monster's health (dungeon
+                // bosses: 1x); the HP check needs that factor.
+                if max_hp.is_none() {
+                    if let Some(old) = a.hp {
+                        let seen = a.taken.saturating_sub(a.taken_at_hp);
+                        if *hp < old && *hp > 0 && seen > 0 {
+                            if a.hp_ratios.len() >= 512 {
+                                a.hp_ratios.remove(0);
+                            }
+                            a.hp_ratios.push((old - *hp) as f32 / seen as f32);
+                        }
+                    }
+                    a.taken_at_hp = a.taken;
+                }
                 if a.hp.map_or(true, |old| *hp > old) {
                     // Healed or reset (training dummies refill at 1 HP).
                     a.taken_base = a.taken;
@@ -963,6 +987,7 @@ impl Engine {
                 tsec: Default::default(),
                 tinfo: Default::default(),
                 twatch: Default::default(),
+                tscale: Default::default(),
             });
         }
         self.current.as_mut().unwrap()
@@ -1039,7 +1064,32 @@ impl Engine {
         // joined in (which don't count towards anyone's DPS here), so the
         // check measures what was captured, not who was counted.
         let seen = a.map(|a| a.taken).unwrap_or(0).max(*f.targets.get(&t).unwrap_or(&0));
-        (dead && max_hp > 0).then(|| seen as f64 / max_hp as f64)
+        let scale = self.hp_scale_of(f, t);
+        (dead && max_hp > 0).then(|| seen as f64 * scale / max_hp as f64)
+    }
+
+    /// The health a monster loses per point of damage shown, when that is
+    /// steady (open-world monsters: 4.5), else 1. Steady means most stretches
+    /// between health updates agree within 1%: where hits go missing (other
+    /// players' hits the game doesn't send) the ratio jumps around instead.
+    pub fn hp_scale(a: &ActorInfo) -> f64 {
+        let r = &a.hp_ratios;
+        if r.len() < 5 {
+            return 1.0;
+        }
+        let mut sorted: Vec<f32> = r.clone();
+        sorted.sort_by(|x, y| x.total_cmp(y));
+        let mid = sorted[sorted.len() / 2] as f64;
+        let close = r.iter().filter(|x| ((**x as f64) - mid).abs() <= mid * 0.01).count();
+        if mid >= 1.05 && close as f64 >= r.len() as f64 * 0.6 {
+            mid
+        } else {
+            1.0
+        }
+    }
+
+    fn hp_scale_of(&self, f: &Fight, t: u64) -> f64 {
+        f.tscale.get(&t).copied().or_else(|| self.actors.get(&t).map(Self::hp_scale)).unwrap_or(1.0)
     }
 
     /// Whether the meter saw this monster from (nearly) full health: its
@@ -1108,6 +1158,7 @@ impl Engine {
                 if let Some(w) = Self::watched_from_full(a) {
                     f.twatch.insert(*t, w);
                 }
+                f.tscale.insert(*t, Self::hp_scale(a));
             }
         }
         // remove pure "taken" entries with no activity to keep history tidy
@@ -1319,6 +1370,7 @@ impl Engine {
                 .set("id", t)
                 .set("counted", counted)
                 .set("watched", if counted.is_some() { self.watched_whole(f, t) } else { None })
+                .set("hp_scale", if counted.is_some() { Some(self.hp_scale_of(f, t)) } else { None })
                 .set("name", self.fname(f, t))
                 .set("npc_id", npc_id)
                 .set("named", npc_id.map_or(true, |n| self.names.npcs.contains_key(&n)))
@@ -1753,6 +1805,44 @@ mod tests {
         assert!(!late.bool_or("clock_watched", true), "{}", late.to_string());
     }
 
+    /// Open-world monsters lose 4.5x the damage shown (seen on Corrupted
+    /// Nornir, training scarecrows and the air-raid boss; the game's own
+    /// Combat Analysis shows the smaller number, so DPS stays as it is).
+    /// The HP check allows for a steady factor, not for a jumpy one (hits
+    /// really missing), and dungeon bosses stay 1:1.
+    #[test]
+    fn hp_check_allows_for_steady_health_scaling() {
+        let run = |factor: f64, jumpy: bool| {
+            let mut e = Engine::new(EngineConfig::default(), Names::from_json(r#"{"bosses": ["777"]}"#).unwrap());
+            e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+            e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(45_000) });
+            let mut hp: f64 = 45_000.0;
+            let mut t = 0.0;
+            let mut i = 0;
+            while hp > 0.0 {
+                let d = 1000 + (i % 3) * 250;
+                e.handle(&dmg(t, 1, 50, 18000000, d, 0));
+                // Unseen hits from other players make the ratio jump around.
+                let extra = if jumpy && i % 2 == 0 { 3000.0 + (i as f64) * 37.0 } else { 0.0 };
+                hp = (hp - d as f64 * factor - extra).max(0.0);
+                e.handle(&GameEvent::Hp { ts: t + 0.05, id: 50, hp: hp as u64, max_hp: None });
+                t += 1.0;
+                i += 1;
+            }
+            e.handle(&GameEvent::Death { ts: t, target: 50, killer: Some(1) });
+            let f = e.current.as_ref().unwrap();
+            let tg = e.fight_table(f, None);
+            let tg = tg.get("target").unwrap().clone();
+            (tg.f64_or("counted", -1.0), tg.f64_or("hp_scale", -1.0))
+        };
+        let (c, k) = run(4.5, false);
+        assert!((k - 4.5).abs() < 0.01 && c > 0.97 && c < 1.2, "open world (last hit overkills): {c} {k}");
+        let (c, k) = run(1.0, false);
+        assert!((k - 1.0).abs() < 1e-9 && c > 0.97 && c < 1.1, "dungeon: {c} {k}");
+        let (c, k) = run(1.0, true);
+        assert!((k - 1.0).abs() < 1e-9 && c < 0.6, "missing hits stay visible: {c} {k}");
+    }
+
     #[test]
     fn ranks_count_as_boss() {
         assert!(rank_is_boss_or_elite("Elite"));
@@ -1835,7 +1925,7 @@ mod naming_tests {
         assert!(n.skill_named(17010230 | DOT_KEY));
         assert_eq!(n.skill(17020000), "Skill 17020000");
         let mut e = Engine::new(EngineConfig::default(), n);
-        let mut f = Fight { id: 1, start: 0.0, end: 1.0, started_unix: 0.0, stats: Default::default(), targets: Default::default(), deaths: vec![], loot: vec![], zone: None, boss_killed: false, finished: true, self_id: None, names: Default::default(), allies: Default::default(), focus: None, tspan: Default::default(), tsec: Default::default(), tinfo: Default::default(), twatch: Default::default() };
+        let mut f = Fight { id: 1, start: 0.0, end: 1.0, started_unix: 0.0, stats: Default::default(), targets: Default::default(), deaths: vec![], loot: vec![], zone: None, boss_killed: false, finished: true, self_id: None, names: Default::default(), allies: Default::default(), focus: None, tspan: Default::default(), tsec: Default::default(), tinfo: Default::default(), twatch: Default::default(), tscale: Default::default() };
         f.names.insert(9, ("NPC 2400002".into(), None));
         e.history.push_back(f);
         e.rename_npc(2400002, "Black Claw Manduri Fighter");
