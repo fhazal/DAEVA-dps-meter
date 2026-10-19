@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.9
+
+- **World bosses no longer look like a fault:** at an open-world boss the game only sends you the hits of players near you, so the HP check read something like *⚠ 3.9% of HP counted* even though every one of your own hits was recorded. When the meter watched the boss from (nearly) full health to the kill with no data lost, the card now says **🌐 All your hits seen** instead (hover for why). Dungeon bosses keep *✓ 99.8% of HP counted*, and a real problem (joined late, data lost) still shows ⚠.
+- **✅ on the DPS boards for world bosses too:** a fight is verified when the meter recorded the whole kill: seen from (nearly) full health to the kill with nothing lost, or every hit on the boss accounted for. Before, world-boss kills could never be verified. (Unverified fights always counted on the boards; ✅ is only a badge.)
+- **"Killed" stays killed:** after a world boss died, a stray hit by another player on a different monster cancelled the kill, so the fight was saved and shared as not killed.
+- Lost data during a fight now also counts a self-repair restart (0.3.8), and stays counted when a connection closes.
+
 ## 0.3.8
 
 - **The meter recovers by itself when it stops reading the game:** on a server switch (leaving the Beritra air raid, for example) the meter could lose its place in the game's data and stay deaf until restarted: you kept fighting and nothing registered. It already had a self-repair, but your own outgoing messages kept it believing all was well. It now watches only what the server sends: if the server keeps sending but none of it can be read for 15 seconds, the meter restarts reading on its own, so at most about 15 seconds are lost. Reports record how often this happened.

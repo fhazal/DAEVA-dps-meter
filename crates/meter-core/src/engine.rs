@@ -292,6 +292,9 @@ pub struct ActorInfo {
     /// `taken` when its health last went up (heal, reset): damage since
     /// then is what the current health reflects.
     pub taken_base: u64,
+    /// Its first real health reading (0x8d00), to tell whether the meter
+    /// watched it from (nearly) full health.
+    pub first_hp: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -335,6 +338,8 @@ pub struct Fight {
     /// Targets' (hp, max_hp, template) frozen when the fight ends, so the
     /// card still shows them after a zone change clears the actors.
     pub tinfo: HashMap<u64, (Option<u64>, Option<u64>, Option<u32>)>,
+    /// Frozen "watched from full health" per target (see `watched_whole`).
+    pub twatch: HashMap<u64, bool>,
 }
 
 impl Fight {
@@ -504,6 +509,7 @@ impl Engine {
             max_sure: false,
             taken: 0,
             taken_base: 0,
+            first_hp: None,
         })
     }
 
@@ -657,9 +663,16 @@ impl Engine {
                 if extends {
                     self.pending_end = None;
                 }
+                let boss_down = self.current.as_ref().filter(|f| f.boss_killed).and_then(|f| f.main_target()).map_or(false, |m| {
+                    let npc = self.actors.get(&m).and_then(|a| a.npc_id);
+                    npc.map_or(false, |n| self.npc_is_boss(n))
+                });
                 let fight = self.ensure_fight(*ts);
-                if fight.boss_killed && fight.targets.contains_key(tgt) == false {
+                if fight.boss_killed && extends && !fight.targets.contains_key(tgt) && !boss_down {
                     // moved on to a new mob: the kill flag described the old one
+                    // (a boss kill stands, and so does one when only someone
+                    // else's hit landed on another monster: a stray hit after
+                    // a world boss died used to cancel "killed")
                     fight.boss_killed = false;
                 }
                 if extends {
@@ -834,6 +847,11 @@ impl Engine {
                     self.dead_at.remove(id);
                 }
                 let a = self.actor(*id);
+                // Spawns report health as full whatever it really is, so
+                // only a real health update counts as the first reading.
+                if a.first_hp.is_none() && max_hp.is_none() {
+                    a.first_hp = Some(*hp);
+                }
                 if a.hp.map_or(true, |old| *hp > old) {
                     // Healed or reset (training dummies refill at 1 HP).
                     a.taken_base = a.taken;
@@ -944,6 +962,7 @@ impl Engine {
                 tspan: Default::default(),
                 tsec: Default::default(),
                 tinfo: Default::default(),
+                twatch: Default::default(),
             });
         }
         self.current.as_mut().unwrap()
@@ -1023,6 +1042,24 @@ impl Engine {
         (dead && max_hp > 0).then(|| seen as f64 / max_hp as f64)
     }
 
+    /// Whether the meter saw this monster from (nearly) full health: its
+    /// first health reading was at least 95% of a known maximum.
+    fn watched_from_full(a: &ActorInfo) -> Option<bool> {
+        let (first, max) = (a.first_hp?, a.max_hp?);
+        if !a.max_sure || max == 0 {
+            return None;
+        }
+        Some(first as f64 >= 0.95 * max as f64)
+    }
+
+    /// Whether the meter watched this target's whole fight: seen from
+    /// (nearly) full health. With a kill and no lost traffic that means
+    /// every one of your hits on it was recorded, even in the open world
+    /// where the game only sends the hits of players near you.
+    pub fn watched_whole(&self, f: &Fight, t: u64) -> Option<bool> {
+        f.twatch.get(&t).copied().or_else(|| self.actors.get(&t).and_then(Self::watched_from_full))
+    }
+
     /// Whether an NPC id is a boss or elite (definitions or monster rank).
     pub fn npc_is_boss(&self, npc: u32) -> bool {
         self.names.bosses.contains(&npc) || self.names.ranks.get(&npc).map_or(false, |r| rank_is_boss_or_elite(r))
@@ -1068,6 +1105,9 @@ impl Engine {
         for t in f.targets.keys() {
             if let Some(a) = self.actors.get(t) {
                 f.tinfo.insert(*t, (a.hp, a.max_hp, a.npc_id));
+                if let Some(w) = Self::watched_from_full(a) {
+                    f.twatch.insert(*t, w);
+                }
             }
         }
         // remove pure "taken" entries with no activity to keep history tidy
@@ -1271,6 +1311,7 @@ impl Engine {
             Obj::new()
                 .set("id", t)
                 .set("counted", counted)
+                .set("watched", if counted.is_some() { self.watched_whole(f, t) } else { None })
                 .set("name", self.fname(f, t))
                 .set("npc_id", npc_id)
                 .set("named", npc_id.map_or(true, |n| self.names.npcs.contains_key(&n)))
@@ -1296,6 +1337,8 @@ impl Engine {
             .set("clock_target_name", if clock == "boss" { boss.map(|t| self.fname(f, t)) } else { None })
             // HP check for the boss itself: its damage against its max HP, once dead.
             .set("clock_counted", if clock == "boss" { boss.and_then(|b| self.hp_counted(f, b)) } else { None })
+            // ...and whether the meter watched it from (nearly) full health.
+            .set("clock_watched", if clock == "boss" { boss.and_then(|b| self.watched_whole(f, b)) } else { None })
             .set("started_unix", f.started_unix)
             .set("total", total)
             .set("dps", total as f64 / dur)
@@ -1662,6 +1705,42 @@ mod tests {
         assert_eq!(me.f64_or("dps", 0.0), 1000.0);
     }
 
+    /// World boss (Addicted Hardirun): the game only sends the hits of
+    /// players near you, so the HP check reads a few percent. The meter
+    /// watched it from full health to the kill, so the fight is complete
+    /// for you. A spawn's "full" health doesn't count as watching: only a
+    /// real health update does. And a stray hit by someone else on another
+    /// monster after the kill no longer cancels "killed".
+    #[test]
+    fn open_world_boss_watched_from_full() {
+        let run = |first_hp: u64| {
+            let mut e = Engine::new(EngineConfig::default(), Names::from_json(r#"{"bosses": ["777"]}"#).unwrap());
+            e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+            e.handle(&GameEvent::Actor { id: 2, name: Some("Ally".into()), class: None, kind: ActorKind::Player, npc_id: None, owner: None, max_hp: None });
+            e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(100_000) });
+            e.handle(&GameEvent::Hp { ts: 0.0, id: 50, hp: 100_000, max_hp: Some(100_000) }); // spawn: always "full"
+            e.handle(&dmg(0.5, 1, 50, 18000000, 1000, 0));
+            e.handle(&GameEvent::Hp { ts: 0.5, id: 50, hp: first_hp, max_hp: None });
+            e.handle(&dmg(5.0, 2, 50, 18000000, 1000, 0)); // the ally joins on the boss
+            e.handle(&dmg(10.0, 1, 50, 18000000, 2000, 0));
+            e.handle(&GameEvent::Hp { ts: 19.9, id: 50, hp: 0, max_hp: None });
+            e.handle(&GameEvent::Death { ts: 20.0, target: 50, killer: None });
+            e.handle(&GameEvent::Actor { id: 60, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(6), owner: None, max_hp: Some(500) });
+            e.handle(&dmg(21.0, 2, 60, 18000000, 100, 0)); // the ally hits another monster
+            let f = e.current.as_ref().unwrap();
+            assert!(f.boss_killed, "a stray hit after the kill must not cancel it");
+            e.fight_table(f, None)
+        };
+        let t = run(99_000);
+        assert_eq!(t.str_or("clock", ""), "boss");
+        assert!((t.f64_or("clock_counted", 1.0) - 0.04).abs() < 1e-9, "{}", t.to_string());
+        assert!(t.bool_or("clock_watched", false), "{}", t.to_string());
+        assert!(t.get("target").unwrap().bool_or("watched", false));
+        // First seen at 60%: the meter joined late, so not watched.
+        let late = run(60_000);
+        assert!(!late.bool_or("clock_watched", true), "{}", late.to_string());
+    }
+
     #[test]
     fn ranks_count_as_boss() {
         assert!(rank_is_boss_or_elite("Elite"));
@@ -1744,7 +1823,7 @@ mod naming_tests {
         assert!(n.skill_named(17010230 | DOT_KEY));
         assert_eq!(n.skill(17020000), "Skill 17020000");
         let mut e = Engine::new(EngineConfig::default(), n);
-        let mut f = Fight { id: 1, start: 0.0, end: 1.0, started_unix: 0.0, stats: Default::default(), targets: Default::default(), deaths: vec![], loot: vec![], zone: None, boss_killed: false, finished: true, self_id: None, names: Default::default(), allies: Default::default(), focus: None, tspan: Default::default(), tsec: Default::default(), tinfo: Default::default() };
+        let mut f = Fight { id: 1, start: 0.0, end: 1.0, started_unix: 0.0, stats: Default::default(), targets: Default::default(), deaths: vec![], loot: vec![], zone: None, boss_killed: false, finished: true, self_id: None, names: Default::default(), allies: Default::default(), focus: None, tspan: Default::default(), tsec: Default::default(), tinfo: Default::default(), twatch: Default::default() };
         f.names.insert(9, ("NPC 2400002".into(), None));
         e.history.push_back(f);
         e.rename_npc(2400002, "Black Claw Manduri Fighter");

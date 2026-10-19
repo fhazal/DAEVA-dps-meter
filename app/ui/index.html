@@ -79,7 +79,7 @@
   .colhead .vh { width: 150px; text-align: right; }
   .rows.cols .val { width: 150px; }
   .colhead { padding-right: 8px; }
-  .chk { color: var(--good); font-weight: 600; } .chk.warn { color: var(--warn); }
+  .chk { color: var(--good); font-weight: 600; } .chk.warn { color: var(--warn); } .chk.ow svg { width: 11px; height: 11px; vertical-align: -1px; margin-right: 2px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
   .pbline { flex: none; display: flex; align-items: center; gap: 8px; padding: 5px 10px; font-size: 11px; color: #ffe6a8; background: rgba(232,176,75,.14); border-top: 1px solid rgba(232,176,75,.35); }
   .pbline b { color: #ffd166; }
   .pbline .up { color: var(--good); font-weight: 600; }
@@ -361,11 +361,18 @@
   let editing = null; // template being named; pauses target redraws
   let lastTargetHtml = "";
   // HP check: once a monster dies, how much of its health the meter saw.
-  // Over 100% happens when it healed; under 97% means hits were missed.
+  // Over 100% happens when it healed; under 97% means hits were missed,
+  // unless the meter watched it from full health with nothing lost: then
+  // it's an open-world boss, where the game only sends the hits of players
+  // near you, and all of yours were recorded.
   let gaps = 0;
   function hpCheck(t) {
     if (t.counted == null) return "";
     const c = t.counted, low = c < 0.97;
+    if (low && t.watched === true && !gaps) {
+      const tip = `Open-world boss: the game only sends you the hits of players near you, so the meter saw ${D.pct(c, 1)} of its health go. Every one of your own hits was recorded, from the pull to the kill, and your DPS is complete.`;
+      return ` · <span class="chk ow" title="${D.esc(tip)}">${D.icon("globe")} All your hits seen</span>`;
+    }
     const tip = low
       ? `The hits the meter saw add up to ${D.pct(c, 1)} of this monster's health, so some were missed${gaps ? ` (${gaps} gaps in the captured traffic)` : ""}. DPS for this fight may be a little low.`
       : `Every hit was counted: the damage the meter saw adds up to this monster's full health${c > 1.005 ? ` (${D.pct(c, 1)}: it healed during the fight)` : ""}.`;

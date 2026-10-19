@@ -923,7 +923,8 @@ impl Core {
 
     /// Dropped packets plus decoder resyncs so far (both mean missed data).
     fn gap_counter(&self) -> u64 {
-        self.status.dropped + self.pipeline.decoder.resyncs()
+        // A stall restart is lost data too.
+        self.status.dropped + self.pipeline.decoder.resyncs() + self.pipeline.stall_heals
     }
 
     /// Capture gaps since the given fight started (0 when unknown).

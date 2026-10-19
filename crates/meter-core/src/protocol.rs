@@ -804,6 +804,7 @@ pub struct Decoder {
     /// Frames read from the server's side only (the stall check: your own
     /// outgoing messages keep flowing even when the server stream is stuck).
     pub frames_server: u64,
+    resyncs_gone: u64,
 }
 
 impl Decoder {
@@ -818,20 +819,26 @@ impl Decoder {
             keep_bytes: 96,
             frames_total: 0,
             frames_server: 0,
+            resyncs_gone: 0,
         }
     }
 
     /// Drops all partial frames (used to recover from a stalled stream).
     pub fn reset_all(&mut self) {
+        self.resyncs_gone += self.framers.values().map(|f| f.resyncs).sum::<u64>();
         self.framers.clear();
     }
 
     pub fn reset_flow(&mut self, flow: &FlowKey) {
-        self.framers.remove(flow);
+        if let Some(f) = self.framers.remove(flow) {
+            self.resyncs_gone += f.resyncs;
+        }
     }
 
+    /// Resyncs so far, including streams that have since closed or been
+    /// reset (the count never goes down, so per-fight gap counts hold).
     pub fn resyncs(&self) -> u64 {
-        self.framers.values().map(|f| f.resyncs).sum()
+        self.resyncs_gone + self.framers.values().map(|f| f.resyncs).sum::<u64>()
     }
 
     pub fn push(&mut self, flow: FlowKey, from_server: bool, bytes: &[u8], gap: bool, ts: f64, out: &mut Vec<GameEvent>) {

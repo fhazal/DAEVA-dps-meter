@@ -43,6 +43,7 @@ The Daeva bot lives at `https://aion2.bajubesi.org/api/meter`, which is the mete
     "clock_npc": 2400419,
     "clock_target_name": "Frost Wyrm Matriarch",
     "clock_counted": 0.998,
+    "clock_watched": true,
     "gaps": 0,
     "total": 1563000,
     "dps": 20233,
@@ -108,7 +109,7 @@ Loot is only sent when the player enables it and the item meets their minimum gr
 - Real fights only: `demo: true` is ignored.
 - Fights of 20 s to 30 min against a **boss or elite** monster. The bot looks up `target.npc_id` in its own gaming.tools data; Common or unknown monsters don't count.
 - DPS is recomputed as damage ÷ duration. From meter 0.3.7, when `clock` is `"boss"`, players' `dmg` is their damage on all enemies during the boss fight (first hit on the boss → kill, adds included) and the bot divides by `clock_secs` and ranks the fight under `clock_npc` / `clock_target_name`. Damage far above `target.max_hp` is refused (`422`).
-- **Verified ✓**: the boss was killed, `clock_counted` (damage seen on the boss ÷ its max HP) is at least 0.97, and `gaps` (dropped packets or decoder resyncs during the fight) is 0.
+- **Verified ✓**: the boss was killed, `gaps` (dropped packets, decoder resyncs or stall restarts during the fight) is 0, and either `clock_counted` (damage seen on the boss ÷ its max HP) is at least 0.97 or `clock_watched` is true (meter 0.3.9+: the meter's first health reading of the boss was at least 95% of its max HP, so it saw the whole kill). The second covers open-world bosses, where the game only sends the hits of players near you.
 - Each character belongs to one Discord member (`409` if someone else uploads it).
 - With "Everyone in the fight", other players appear only if they have linked their own meter.
 - Several members uploading the same kill (same target, start within 15 s) count once.
