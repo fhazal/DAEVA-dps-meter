@@ -441,7 +441,8 @@
   }
 
   function clockRule(f) {
-    if (f.clock === "boss") return `DPS clock: boss time, damage on ${f.clock_target_name || "the boss"} ÷ ${D.dur(f.clock_secs)} from the first hit on it`;
+    if (f.clock === "boss") return `DPS clock: boss fight, damage on all enemies ÷ ${D.dur(f.clock_secs)} since the first hit on ${f.clock_target_name || "the boss"} (adds included)`;
+    if (f.clock === "target") return `DPS clock: damage on this target ÷ ${D.dur(f.clock_secs)} since the first hit on it`;
     if (f.clock === "personal") return "DPS clock: your time, each player's damage ÷ their own first-to-last hit";
     return `DPS clock: whole fight, all damage ÷ ${D.dur(f.clock_secs || f.duration)}`;
   }
@@ -503,7 +504,7 @@
     }).join("");
     runOdos();
     document.querySelectorAll(".row").forEach((r) => {
-      r.onclick = () => D.call("open_window", { kind: "detail", params: JSON.stringify({ fight_id: lastFight.fight_id, actor_id: Number(r.dataset.id), target: lastFight.clock_target ?? null }) });
+      r.onclick = () => D.call("open_window", { kind: "detail", params: JSON.stringify({ fight_id: lastFight.fight_id, actor_id: Number(r.dataset.id) }) });
     });
   }
 

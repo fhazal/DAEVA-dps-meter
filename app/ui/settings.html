@@ -98,7 +98,7 @@
       ${F("Server name", txt("server_name", "detected automatically"), "Shown at the bottom of the meter. Leave empty: the meter reads your server from the game (Beritra is built in).")}
     </div>
     <h2>Fights</h2><div class="f">
-      ${F("DPS clock", sel("dps_clock", [["boss", "Boss time: first hit on the boss → kill (recommended)"], ["personal", "Your time: your first hit → your last hit"], ["fight", "Whole fight, including trash"]]), "Meters disagree mostly because they divide by different times. The rule in use is shown when you hover a DPS number.")}
+      ${F("DPS clock", sel("dps_clock", [["boss", "Boss fight: first hit on the boss → kill, adds included (recommended)"], ["personal", "Your time: your first hit → your last hit"], ["fight", "Whole fight, including trash"]]), "Boss fight is how Details! and ACT count an encounter. Without a boss or elite, DPS uses the whole fight. Hover a DPS number to see the rule in use.")}
       ${F("Personal bests", chk("personal_bests", "Tell me when I beat my best DPS on a boss"), "Compared with your saved fights on the same boss, at least 30 s long. Only your own character counts.")}
       ${F("End fight after idle (s)", num("idle_timeout", 2, 120, 1))}
       ${F("", chk("end_on_target_death", "End fight when the main target dies"))}

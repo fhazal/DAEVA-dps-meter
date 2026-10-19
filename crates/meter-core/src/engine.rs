@@ -963,6 +963,17 @@ impl Engine {
         }
     }
 
+    /// HP check: once a monster is dead, the damage the meter saw on it as a
+    /// share of its max HP (1.0 = every hit counted).
+    pub fn hp_counted(&self, f: &Fight, t: u64) -> Option<f64> {
+        let a = self.actors.get(&t);
+        let frozen = f.tinfo.get(&t).copied();
+        let hp = a.and_then(|a| a.hp).or(frozen.and_then(|x| x.0));
+        let max_hp = a.and_then(|a| a.max_hp).or(frozen.and_then(|x| x.1))?;
+        let dead = hp == Some(0) || (f.boss_killed && Some(t) == f.main_target());
+        (dead && max_hp > 0).then(|| *f.targets.get(&t).unwrap_or(&0) as f64 / max_hp as f64)
+    }
+
     /// Whether an NPC id is a boss or elite (definitions or monster rank).
     pub fn npc_is_boss(&self, npc: u32) -> bool {
         self.names.bosses.contains(&npc) || self.names.ranks.get(&npc).map_or(false, |r| rank_is_boss_or_elite(r))
@@ -1136,20 +1147,26 @@ impl Engine {
 
     /// Overlay table for a fight. `target` restricts totals to one target.
     pub fn fight_table(&self, f: &Fight, target: Option<u64>) -> Value {
-        // The clock: boss time counts only damage on the boss, from the first
-        // hit on it to the last (the kill).
-        let boss = if self.cfg.dps_clock == DpsClock::Boss { self.boss_target(f) } else { None };
-        let scope = target.or(boss);
-        let (clock, dur) = match (self.cfg.dps_clock, scope) {
-            (DpsClock::Boss, Some(b)) => ("boss", f.tspan.get(&b).map_or(f.duration(), |(a, z)| (z - a).max(1.0))),
-            (DpsClock::Personal, _) => ("personal", f.duration()),
+        // The clock. Boss fight (the default when a boss or elite is in the
+        // fight): damage on every enemy from the first hit on the boss to the
+        // kill, adds included, divided by that time, like an encounter in
+        // Details! or ACT. Trash and walking before the pull are left out.
+        let boss = if self.cfg.dps_clock == DpsClock::Boss && target.is_none() { self.boss_target(f) } else { None };
+        let window = boss.and_then(|b| f.tspan.get(&b).copied());
+        let (clock, dur) = match (self.cfg.dps_clock, target, window) {
+            (_, Some(t), _) => ("target", f.tspan.get(&t).map_or(f.duration(), |(a, z)| (z - a).max(1.0))),
+            (DpsClock::Boss, None, Some((a, z))) => ("boss", (z - a).max(1.0)),
+            (DpsClock::Personal, None, _) => ("personal", f.duration()),
             _ => ("fight", f.duration()),
         };
         let personal = clock == "personal";
         let own_dur = |s: &ActorStat| if personal { (s.last - s.first).max(1.0) } else { dur };
-        let dmg_of = |s: &ActorStat| match scope {
-            Some(t) => *s.by_target.get(&t).unwrap_or(&0),
-            None => s.dmg,
+        // Seconds of the fight timeline inside the boss fight.
+        let span = window.map(|(a, z)| (((a - f.start).max(0.0)) as usize, ((z - f.start).max(0.0)) as usize));
+        let dmg_of = |s: &ActorStat| match (target, span) {
+            (Some(t), _) => *s.by_target.get(&t).unwrap_or(&0),
+            (None, Some((i, j))) if clock == "boss" => s.timeline.iter().skip(i).take(j + 1 - i).sum(),
+            _ => s.dmg,
         };
         let total: u64 = f.stats.values().map(dmg_of).sum();
         let mut rows: Vec<(&u64, &ActorStat)> = f.stats.iter().filter(|(_, s)| dmg_of(s) > 0).collect();
@@ -1194,11 +1211,7 @@ impl Engine {
             };
             let npc_id = a.and_then(|a| a.npc_id).or(frozen.and_then(|x| x.2));
             // HP check: once it's dead, how much of its health the meter saw.
-            let dead = hp == Some(0) || (f.boss_killed && Some(t) == f.main_target());
-            let counted = match max_hp {
-                Some(m) if dead && m > 0 => Some(*f.targets.get(&t).unwrap_or(&0) as f64 / m as f64),
-                _ => None,
-            };
+            let counted = self.hp_counted(f, t);
             Obj::new()
                 .set("id", t)
                 .set("counted", counted)
@@ -1221,9 +1234,11 @@ impl Engine {
             .set("duration", f.duration())
             .set("clock", clock)
             .set("clock_secs", dur)
-            .set("clock_target", if clock == "boss" { scope } else { None })
-            .set("clock_npc", if clock == "boss" { scope.and_then(|t| self.actors.get(&t).and_then(|a| a.npc_id).or(f.tinfo.get(&t).and_then(|x| x.2))) } else { None })
-            .set("clock_target_name", if clock == "boss" { scope.map(|t| self.fname(f, t)) } else { None })
+            .set("clock_target", if clock == "boss" { boss } else { None })
+            .set("clock_npc", if clock == "boss" { boss.and_then(|t| self.actors.get(&t).and_then(|a| a.npc_id).or(f.tinfo.get(&t).and_then(|x| x.2))) } else { None })
+            .set("clock_target_name", if clock == "boss" { boss.map(|t| self.fname(f, t)) } else { None })
+            // HP check for the boss itself: its damage against its max HP, once dead.
+            .set("clock_counted", if clock == "boss" { boss.and_then(|b| self.hp_counted(f, b)) } else { None })
             .set("started_unix", f.started_unix)
             .set("total", total)
             .set("dps", total as f64 / dur)
@@ -1509,7 +1524,9 @@ mod tests {
             e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(2000) });
             e.handle(&dmg(0.0, 1, 40, 18000000, 300, 0)); // trash first
             e.handle(&dmg(4.0, 1, 40, 18000000, 200, 0));
+            e.handle(&GameEvent::Actor { id: 60, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(6), owner: None, max_hp: Some(300) });
             e.handle(&dmg(10.0, 1, 50, 18000000, 1000, 0)); // boss: 10 s → 20 s
+            e.handle(&dmg(12.0, 1, 60, 18000000, 200, 0)); // an add the boss summoned
             e.handle(&dmg(15.0, 2, 50, 18000000, 500, 0)); // joins at 15 s
             e.handle(&dmg(20.0, 1, 50, 18000000, 500, 0));
             e.handle(&GameEvent::Death { ts: 20.0, target: 50, killer: Some(1) });
@@ -1517,14 +1534,16 @@ mod tests {
             e.fight_table(f, None)
         };
         let row = |t: &Value, n: &str| t.get("players").unwrap().as_arr().unwrap().iter().find(|r| r.str_or("name", "") == n).unwrap().f64_or("dps", 0.0);
-        // Boss time: boss damage only, divided by 10 s on the boss.
+        // Boss fight: boss + add damage from the pull to the kill (trash
+        // before the pull left out), divided by 10 s.
         let b = run(DpsClock::Boss);
         assert_eq!(b.str_or("clock", ""), "boss");
-        assert_eq!(row(&b, "Me"), 150.0);
+        assert_eq!(row(&b, "Me"), 170.0);
         assert_eq!(row(&b, "Late"), 50.0);
+        assert_eq!(b.f64_or("clock_counted", 0.0), 1.0);
         // Whole fight: everything ÷ 20 s.
         let w = run(DpsClock::Fight);
-        assert_eq!(row(&w, "Me"), 100.0);
+        assert_eq!(row(&w, "Me"), 110.0);
         // Your time: the late joiner's own 1 s.
         let p = run(DpsClock::Personal);
         assert_eq!(row(&p, "Late"), 500.0);

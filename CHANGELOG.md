@@ -3,7 +3,7 @@
 ## 0.3.7
 
 - **Live numbers:** DPS, damage and share now count smoothly to each new value, like a digital dashboard, instead of jumping. Your DPS glows faintly green while it climbs.
-- **DPS clock:** DPS on a boss is now **damage on the boss ÷ time from the first hit on it to the kill**, the same way most meters count it. Before, it was divided by the whole fight, including trash and the walk-up, so it read lower than other meters. Hover a DPS number to see the rule in use; **Settings → Fights → DPS clock** also offers *your time* and *whole fight*.
+- **DPS clock:** on a boss or elite, DPS now counts the **boss fight**: damage on every enemy (the boss, its adds and objects) from the first hit on the boss to the kill, divided by that time. This is how Details! and ACT count an encounter. Trash and walking before the pull no longer pull your DPS down; before, everything was divided by the whole fight, so it read lower than other meters. Without a boss, DPS uses the whole fight as before. Hover a DPS number to see the rule; **Settings → Fights → DPS clock** also offers *your time* and *whole fight*.
 - **HP check:** when a monster dies, its card shows **✓ 99.8% of HP counted**, proof that the meter saw every hit. If hits were missed it says so (**⚠ 92.1%**) instead of quietly showing a lower DPS. Saved fights also record any gaps in the captured traffic.
 - **Extra columns:** choose up to 3 of Crit %, Back %, Perfect %, Hits, Max hit, Healing/s, Damage taken and Deaths in **Settings → Overlay**. They appear with a small header row.
 - **Personal bests:** beat your best DPS on a boss (kills of 30 s or more) and a 🏆 line appears under the meter. History has a **You** column with 🏆 on your record fights, and each fight shows *Your best on this boss*.
