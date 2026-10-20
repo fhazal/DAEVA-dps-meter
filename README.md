@@ -4,7 +4,7 @@
 
 # Daeva Meter
 
-**A passive damage meter for AION 2, made for the Bajubesi Network community.**
+**A passive damage meter for AION 2, made by BajuBesi Labs.**
 Live DPS · boss target card · skill breakdowns · event alerts · fight history
 
 [![Build](https://github.com/fhazal/DAEVA-dps-meter/actions/workflows/build.yml/badge.svg)](https://github.com/fhazal/DAEVA-dps-meter/actions/workflows/build.yml)
@@ -20,7 +20,7 @@ Live DPS · boss target card · skill breakdowns · event alerts · fight histor
 </div>
 
 > [!NOTE]
-> Daeva Meter is an unofficial fan project by the **Bajubesi Network** community. It is not affiliated with or endorsed by NCSOFT. It only **reads** your network traffic: it never injects into, modifies or talks to the game client.
+> Daeva Meter is an unofficial fan project by **BajuBesi Labs**. It is not affiliated with or endorsed by NCSOFT. It only **reads** your network traffic: it never injects into, modifies or talks to the game client.
 
 <p align="center">
   <img src="docs/branding/preview.png" alt="Daeva Meter overlay with an event alert" width="460">

@@ -33,7 +33,7 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
-    "publisher": "Bajubesi Network",
+    "publisher": "BajuBesi Labs",
     "shortDescription": "AION 2 damage meter",
     "longDescription": "Open, passive damage meter for AION 2. Reads game traffic via Npcap; never touches the game client.",
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.ico"],
