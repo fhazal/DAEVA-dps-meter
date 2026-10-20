@@ -182,11 +182,11 @@
   /* The window fits the card's height; nothing below it. */
   body.lay-solo .shell { bottom: auto; }
   /* Metallic rim in your class colour. */
-  body.lay-solo .shell::after { border: 0; padding: 1px;
-    background: linear-gradient(160deg, color-mix(in srgb, var(--k) 45%, #fff), color-mix(in srgb, var(--k) 65%, #000) 35%, color-mix(in srgb, var(--k) 85%, #fff) 60%, color-mix(in srgb, var(--k) 45%, #000));
+  body.lay-solo .shell::after { border: 0; padding: 1.5px;
+    background: linear-gradient(160deg, color-mix(in srgb, var(--k) 55%, #fff), var(--k) 30%, color-mix(in srgb, var(--k) 80%, #000) 55%, color-mix(in srgb, var(--k) 75%, #fff) 80%, var(--k));
     -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
   body.lay-solo .shell { --k: var(--cls, var(--accent)); }
-  .so-hd { display: flex; align-items: center; gap: 8px; padding: 5px 10px 3px; }
+  .so-hd { display: flex; align-items: center; gap: 8px; padding: 5px 9px 3px; }
   .so-hd .gt-ic, .so-hd .tc-ic { width: 22px; height: 22px; border-radius: 6px; flex: none; }
   .so-bn { min-width: 0; flex: 1; }
   .so-bn b { display: block; font-size: 12px; font-weight: 650; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -199,13 +199,13 @@
   .so-pc.dead { color: var(--good); font-size: 11px; }
   .so-hp { height: 4px; margin: 0 10px; border-radius: 2px; background: rgba(255,255,255,.07); overflow: hidden; }
   .so-hp i { display: block; height: 100%; background: linear-gradient(90deg, #b8392f, #ec7a64); box-shadow: 0 0 8px rgba(236,122,100,.8); transition: width .25s; }
-  .so-me { margin: 5px 6px 0; padding: 5px 8px 6px; border-radius: 8px; cursor: pointer;
-    background: radial-gradient(120px 60px at 18px 18px, color-mix(in srgb, var(--k) 30%, transparent), transparent 70%), rgba(255,255,255,.025);
+  .so-me { margin: 5px 5px 0; padding: 5px 7px 5px; border-radius: 8px; cursor: pointer;
+    background: linear-gradient(100deg, color-mix(in srgb, var(--k) 12%, transparent), rgba(255,255,255,.02) 70%);
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--k) 20%, transparent); }
   .so-l1 { display: flex; align-items: center; gap: 8px; }
-  .so-crest { position: relative; width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; flex: none;
-    background: radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--k) 50%, transparent), color-mix(in srgb, var(--k) 15%, transparent));
-    box-shadow: 0 0 10px color-mix(in srgb, var(--k) 45%, transparent); }
+  .so-crest { position: relative; width: 26px; height: 26px; border-radius: 4px; display: grid; place-items: center; flex: none;
+    background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(0,0,0,.35)); border: 1px solid color-mix(in srgb, var(--k) 70%, transparent);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.10); }
   .so-crest .on { position: absolute; right: -2px; bottom: -2px; width: 8px; height: 8px; border-radius: 50%; background: var(--dim); border: 2px solid rgb(var(--bg)); }
   .so-crest .on.live { background: var(--good); }
   .so-who { min-width: 0; flex: 1; }
@@ -215,11 +215,11 @@
   .so-num { text-align: right; flex: none; white-space: nowrap; }
   .so-num .odo { font-size: 21px; font-weight: 800; letter-spacing: -.3px; line-height: 1; color: #f6e3a6; text-shadow: 0 0 10px rgba(231,199,90,.35); }
   .so-num small { color: var(--muted); font-size: 9.5px; margin-left: 2px; }
-  .so-chips { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin-top: 5px; }
-  .so-chips div { background: rgba(0,0,0,.3); border: 1px solid color-mix(in srgb, var(--k) 14%, transparent); border-radius: 5px; padding: 1px 4px; text-align: center; line-height: 1.1; }
-  .so-chips small { display: block; font-size: 8px; letter-spacing: .1em; color: var(--dim); }
-  .so-chips b { font-size: 10.5px; font-weight: 650; font-variant-numeric: tabular-nums; }
-  .so-share { height: 3px; margin-top: 5px; border-radius: 2px; background: rgba(255,255,255,.08); overflow: hidden; }
+  .so-chips { display: grid; grid-template-columns: repeat(5, 1fr); gap: 3px; margin-top: 4px; }
+  .so-chips div { display: flex; align-items: baseline; justify-content: center; gap: 4px; background: rgba(0,0,0,.3); border: 1px solid color-mix(in srgb, var(--k) 14%, transparent); border-radius: 4px; padding: 1px 3px; line-height: 1.25; white-space: nowrap; }
+  .so-chips small { font-size: 8px; letter-spacing: .06em; color: var(--dim); }
+  .so-chips b { font-size: 10px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .so-share { height: 2px; margin-top: 4px; border-radius: 2px; background: rgba(255,255,255,.08); overflow: hidden; }
   .so-share i { display: block; height: 100%; background: var(--k); box-shadow: 0 0 6px var(--k); transition: width .3s; }
   .so-ft { display: flex; align-items: center; gap: 10px; padding: 2px 7px 2px 10px; color: var(--muted); font-size: 10px; white-space: nowrap; }
   .so-ft b { color: var(--text); font-variant-numeric: tabular-nums; }
@@ -735,19 +735,20 @@
       if (me) D.call("open_window", { kind: "detail", params: JSON.stringify({ fight_id: lastFight.fight_id, actor_id: me.id }) });
     }
   });
-  // The window takes the card's height (the width stays yours).
+  // Solo is a fixed card, 372 wide (times Scale); the window fits it.
+  const SOLO_W = 372;
   let fitting = false;
   function fitSolo() {
     if (fitting) return;
     const T = window.__TAURI__;
     const sh = document.querySelector(".shell");
     const z = parseFloat(document.body.style.zoom) || 1;
-    const h = Math.ceil(sh.offsetHeight * z) + 1;
-    if (!T || Math.abs(h - window.innerHeight) <= 1) return;
+    const h = Math.ceil(sh.offsetHeight * z) + 1, w = Math.round(SOLO_W * z) + 1;
+    if (!T || (Math.abs(h - window.innerHeight) <= 1 && Math.abs(w - window.innerWidth) <= 1)) return;
     const Size = (T.dpi && T.dpi.LogicalSize) || (T.window && T.window.LogicalSize);
     if (!Size) return;
     fitting = true;
-    T.window.getCurrentWindow().setSize(new Size(window.innerWidth, h)).catch((e) => console.warn(e)).finally(() => setTimeout(() => (fitting = false), 300));
+    T.window.getCurrentWindow().setSize(new Size(w, h)).catch((e) => console.warn(e)).finally(() => setTimeout(() => (fitting = false), 300));
   }
 
   function emptyState(s, state, text) {
