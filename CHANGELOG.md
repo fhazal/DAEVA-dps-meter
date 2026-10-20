@@ -7,6 +7,8 @@
 - **Lighter alert window:** with no banner on screen it checks for new alerts once a second and follows the meter at a gentler pace. Banners still appear well before each event.
 - **Your server stays in the footer:** while idle the footer shows **● Beritra │ Idle · no combat for 30s** instead of replacing your server with the idle message. The server light is now **blue**, so it isn't confused with the green "in combat" dot.
 - **Player list header:** a thin line under PLAYER · CRIT · PERF… that fades at both ends, and the figure the list is ranked by (DPS, DMG or DMG %) is shown in gold.
+- **⏱ Enrage countdown:** on bosses with a known enrage time, the boss card counts down from your first hit, for example *⏱ Enrage 3:12*. It turns amber in the last minute and shows **🔥 Enraged** once the boss hits harder and faster. Starts with 14 dungeon bosses (most at 5:00; Kaldrix and Terminator Bargott 8:00, Eternal Ludra 10:00). The times are community-reported and may differ by difficulty; hover the countdown to see the rule.
+- **Dungeon bosses fully recognised:** dungeon versions of a boss (such as Conquest Vakron and Thamon) have their own monster ids that the monster list doesn't include, so their card showed no picture, type or rank and offered *✎ name it*. The card now takes them from the boss with the same name: portrait, **Natura · Heroic** and the rank colour.
 
 ## 0.4.3
 

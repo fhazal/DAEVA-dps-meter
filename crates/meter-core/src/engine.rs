@@ -145,6 +145,56 @@ impl Names {
         if Self::is_player_skill(id) { id / 10000 * 10000 } else { id }
     }
 
+    /// The template whose rank, family and picture describe `npc`: itself when
+    /// listed, else the one listed monster with the same name. Dungeon variants
+    /// such as Conquest Vakron have ids of their own that the data doesn't
+    /// list; a name shared by monsters of different rank or family gives None.
+    pub fn npc_ref(&self, npc: u32, name: &str) -> Option<u32> {
+        if self.ranks.contains_key(&npc) || self.families.contains_key(&npc) {
+            return Some(npc);
+        }
+        let name = name.trim();
+        if name.is_empty() {
+            return None;
+        }
+        let mut found: Option<u32> = None;
+        for (id, n) in &self.npcs {
+            if *id == npc || !self.ranks.contains_key(id) || !n.trim().eq_ignore_ascii_case(name) {
+                continue;
+            }
+            found = match found {
+                None => Some(*id),
+                Some(f) if self.ranks.get(&f) == self.ranks.get(id) && self.families.get(&f) == self.families.get(id) => Some(f.min(*id)),
+                Some(_) => return None,
+            };
+        }
+        found
+    }
+
+    /// Seconds from the first hit until this boss enrages ("berserk"): by its
+    /// own id, else by a listed boss with the same name (dungeon variants),
+    /// when every such entry agrees.
+    pub fn berserk_for(&self, npc: u32, name: &str) -> Option<u32> {
+        if let Some(s) = self.berserk.get(&npc) {
+            return Some(*s);
+        }
+        let name = name.trim();
+        if name.is_empty() {
+            return None;
+        }
+        let mut found = None;
+        for (id, secs) in &self.berserk {
+            if self.npcs.get(id).map_or(false, |n| n.trim().eq_ignore_ascii_case(name)) {
+                match found {
+                    None => found = Some(*secs),
+                    Some(f) if f == *secs => {}
+                    Some(_) => return None,
+                }
+            }
+        }
+        found
+    }
+
     /// Adds (and overrides with) every name in `other`.
     pub fn merge(&mut self, other: Names) {
         self.skills.extend(other.skills);
@@ -1366,22 +1416,27 @@ impl Engine {
             let npc_id = a.and_then(|a| a.npc_id).or(frozen.and_then(|x| x.2));
             // HP check: once it's dead, how much of its health the meter saw.
             let counted = self.hp_counted(f, t);
+            let name = self.fname(f, t);
+            // Rank, family and portrait, borrowed by name for unlisted variants.
+            let info = npc_id.and_then(|n| self.names.npc_ref(n, &name));
+            let enrage = npc_id.and_then(|n| self.names.berserk_for(n, &name));
             Obj::new()
                 .set("id", t)
                 .set("counted", counted)
                 .set("watched", if counted.is_some() { self.watched_whole(f, t) } else { None })
                 .set("hp_scale", if counted.is_some() { Some(self.hp_scale_of(f, t)) } else { None })
-                .set("name", self.fname(f, t))
+                .set("name", name)
                 .set("npc_id", npc_id)
-                .set("named", npc_id.map_or(true, |n| self.names.npcs.contains_key(&n)))
+                .set("art_npc", info)
+                .set("named", npc_id.map_or(true, |n| self.names.npcs.contains_key(&n)) || info.is_some())
                 .set("dmg_taken", *f.targets.get(&t).unwrap_or(&0))
                 .set("secs", f.tspan.get(&t).map(|(a, b)| (b - a).max(1.0)))
                 .set("hp_pct", hp_pct)
                 .set("max_hp", max_hp)
                 .set("hp", hp)
-                .set("berserk", npc_id.and_then(|n| self.names.berserk.get(&n).copied()))
-                .set("rank", npc_id.and_then(|n| self.names.ranks.get(&n).cloned()))
-                .set("family", npc_id.and_then(|n| self.names.families.get(&n).cloned()))
+                .set("berserk", enrage)
+                .set("rank", info.and_then(|n| self.names.ranks.get(&n).cloned()))
+                .set("family", info.and_then(|n| self.names.families.get(&n).cloned()))
                 .build()
         });
         Obj::new()
@@ -1977,5 +2032,51 @@ mod zone_notice_tests {
         assert!(!e.fresh_view);
         e.handle(&GameEvent::Fresh);
         assert!(e.fresh_view);
+    }
+
+    /// Conquest Vakron (2300812) isn't in the monster data, but the listed
+    /// Vakron (2300582) is: the boss card borrows its rank, family and picture.
+    #[test]
+    fn unlisted_variants_borrow_by_name() {
+        let n = Names::from_json(
+            r#"{"npcs": {"2300582": "Vakron", "2100001": "Guard", "2100002": "Guard"},
+                "ranks": {"2300582": "Heroic", "2100001": "Common", "2100002": "Elite"},
+                "families": {"2300582": "Natura"}}"#,
+        )
+        .unwrap();
+        assert_eq!(n.npc_ref(2300582, "Vakron"), Some(2300582), "a listed id is itself");
+        assert_eq!(n.npc_ref(2300812, "Vakron"), Some(2300582));
+        assert_eq!(n.npc_ref(2300812, "vakron "), Some(2300582), "case and spaces don't matter");
+        assert_eq!(n.npc_ref(2199999, "Guard"), None, "a name shared by different ranks");
+        assert_eq!(n.npc_ref(2300812, "Unknown monster"), None);
+
+        let mut e = Engine::new(EngineConfig::default(), n);
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&GameEvent::Actor { id: 50, name: Some("Vakron".into()), class: None, kind: ActorKind::Npc, npc_id: Some(2300812), owner: None, max_hp: Some(1000) });
+        e.handle(&GameEvent::Damage { ts: 0.0, src: 1, tgt: 50, skill: 18000000, amount: 10, flags: 0 });
+        let t = e.fight_table(e.current.as_ref().unwrap(), None);
+        let card = t.get("target").unwrap();
+        assert_eq!(card.str_or("rank", ""), "Heroic");
+        assert_eq!(card.str_or("family", ""), "Natura");
+        assert_eq!(card.get("art_npc").and_then(|x| x.as_u64()), Some(2300582));
+        assert!(card.bool_or("named", false), "no '✎ name it' for a known boss");
+    }
+
+    /// Enrage timers are listed for the base boss; variants find them by name.
+    #[test]
+    fn enrage_timer_for_variants() {
+        let n = Names::from_json(
+            r#"{"npcs": {"2300582": "Vakron", "2301060": "Kaldrix", "9000001": "Twin", "9000002": "Twin"},
+                "berserk": {"2300582": 300, "2301060": 480, "9000001": 300, "9000002": 600}}"#,
+        )
+        .unwrap();
+        assert_eq!(n.berserk_for(2300582, "Vakron"), Some(300));
+        assert_eq!(n.berserk_for(2300812, "Vakron"), Some(300), "Conquest Vakron by name");
+        assert_eq!(n.berserk_for(2301999, "kaldrix"), Some(480));
+        assert_eq!(n.berserk_for(9000003, "Twin"), None, "same name, different timers");
+        assert_eq!(n.berserk_for(2300812, "Unknown monster"), None);
+        // The bundled names.json parses and carries the timers.
+        let bundled = Names::from_json(include_str!("../../../definitions/names.json")).unwrap();
+        assert_eq!(bundled.berserk.get(&2300582), Some(&300));
     }
 }

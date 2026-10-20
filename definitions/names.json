@@ -23,5 +23,22 @@
  "items": {},
  "servers": {
   "2508": "Beritra"
+ },
+ "berserk_note": "Enrage (\"berserk\") seconds from the first hit on the boss (in game it may show as Frenzy). Community-reported, not verified per difficulty; dungeon variants use the entry with the same name.",
+ "berserk": {
+  "2090428": 300,
+  "2300171": 300,
+  "2300218": 300,
+  "2300371": 300,
+  "2300582": 300,
+  "2300601": 300,
+  "2300709": 300,
+  "2300910": 300,
+  "2301014": 600,
+  "2301060": 480,
+  "2301208": 480,
+  "2700100": 300,
+  "2700694": 300,
+  "2701399": 300
  }
 }
