@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.0
+
+- **Solo layout: just you.** A small card the size of a game window, for players who only want their own numbers. On top, the boss with its HP left, the fight clock, the enrage countdown and HP %. Below, your card: class crest, name, combat power, your rank and share in the party, your live DPS in big numbers, and five chips (crit, double, perfect, front and back hits). At the bottom, Odyle, party DPS and ping. The rim, the glow behind your crest and the share line are in your class colour. Switch with the new panels button on the meter (either layout) or **Ctrl+Shift+O**; each layout keeps its own window size. Click your card for your full breakdown.
+- **Settings with tabs.** General, Layout, Overlay look, Fights, Event alerts, Hotkeys, Daeva bot and Capture down the side, instead of one long page, plus a search box that finds any setting by name. The window opens on the tab you used last. Every setting is still there, just grouped.
+- **Layout tab:** pick Classic or Solo, and choose what the Solo card shows (rank and share, the five chips, the bottom line).
+
 ## 0.4.5
 
 - **Party members named from the first boss:** in dungeons the game often sends a player's name late (minutes into the run) or not at all, so the first bosses showed *Player #6377* instead of your party, and those fights couldn't count for them on the Daeva bot's DPS boards. The party list the game sends as you enter has every member with a number that follows their class; the meter now matches each member to the fighter of that class as soon as they use a skill. When the game does send a name late, earlier fights of the same dungeon are filled in too. It never guesses: two members of the same class (two Gladiators) stay unnamed until the game names them, and strangers in the open world are never taken for party members.

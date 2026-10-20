@@ -377,6 +377,9 @@ impl Core {
         // The dragged alert spot is set by Move alerts, not by the form.
         s.alerts.custom = self.settings.alerts.custom;
         s.alerts.custom_monitor = self.settings.alerts.custom_monitor.clone();
+        // So are the window's spot and sizes (the form may hold old ones).
+        s.window = self.settings.window;
+        s.solo_size = self.settings.solo_size;
         let demo_changed = s.demo != self.settings.demo;
         self.pipeline.engine.cfg = engine_cfg(&s);
         if s.alerts.feed_url != self.settings.alerts.feed_url || s.alerts.enabled != self.settings.alerts.enabled {
@@ -1233,6 +1236,8 @@ impl Core {
             .set("show_research", s.show_research)
             .set("columns", Value::Arr(s.columns.iter().take(3).map(|c| Value::from(c.as_str())).collect()))
             .set("dps_clock", s.dps_clock.as_str())
+            .set("layout", s.layout.as_str())
+            .set("solo", Obj::new().set("rank", s.solo.rank).set("chips", s.solo.chips).set("footer", s.solo.footer).build())
             .build();
         let alerts = self.alerts_view(now);
         Obj::new().set("status", status).set("ui", ui).set("fight", fight).set("research", rec).set("alerts", alerts).build()

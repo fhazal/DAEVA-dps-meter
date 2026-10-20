@@ -326,6 +326,7 @@ pub struct ActorStat {
     pub hits: u64,
     pub crits: u64,
     pub back: u64,
+    pub front: u64,
     pub perfect: u64,
     pub max_hit: u64,
     pub max_hit_skill: u32,
@@ -802,6 +803,9 @@ impl Engine {
                     }
                     if fl & flags::BACK != 0 {
                         s.back += 1;
+                    }
+                    if fl & flags::FRONT != 0 {
+                        s.front += 1;
                     }
                     if fl & flags::PERFECT != 0 {
                         s.perfect += 1;
@@ -1663,6 +1667,9 @@ impl Engine {
                     .set("crit_rate", if s.hits > 0 { s.crits as f64 / s.hits as f64 } else { 0.0 })
                     .set("back_rate", if s.hits > 0 { s.back as f64 / s.hits as f64 } else { 0.0 })
                     .set("perfect_rate", if s.hits > 0 { s.perfect as f64 / s.hits as f64 } else { 0.0 })
+                    .set("front_rate", if s.hits > 0 { s.front as f64 / s.hits as f64 } else { 0.0 })
+                    .set("double_rate", if s.hits > 0 { s.doubles as f64 / s.hits as f64 } else { 0.0 })
+                    .set("cp", if Some(**id) == f.self_id { self.self_cp } else { None })
                     .set("max_hit", s.max_hit)
                     .set("max_hit_skill", self.names.skill(s.max_hit_skill))
                     .set("heal", s.heal)

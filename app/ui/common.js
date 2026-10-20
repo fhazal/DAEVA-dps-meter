@@ -218,6 +218,8 @@
     unlock: '<g transform="scale(0.6667)" stroke-width="2.4"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></g>',
     flask: '<g transform="scale(0.6667)" stroke-width="2.4"><path d="M14 2v6a2 2 0 0 0 .245.96l5.51 10.08A2 2 0 0 1 18 22H6a2 2 0 0 1-1.755-2.96l5.51-10.08A2 2 0 0 0 10 8V2"/><path d="M6.453 15h11.094"/><path d="M8.5 2h7"/></g>',
     metric: '<g transform="scale(0.6667)" stroke-width="2.4"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></g>',
+    // Panels from Lucide (lucide.dev, ISC licence), 24-unit grid: switch layout.
+    layout: '<g transform="scale(0.6667)" stroke-width="2.4"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></g>',
   };
   function icon(name) {
     return `<svg viewBox="0 0 16 16">${ICONS[name] || ""}</svg>`;

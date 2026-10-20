@@ -10,6 +10,8 @@ pub struct Hotkeys {
     pub marker: String,
     pub copy: String,
     pub report: String,
+    /// Switch between the Classic and Solo layouts.
+    pub layout: String,
 }
 
 impl Default for Hotkeys {
@@ -21,6 +23,7 @@ impl Default for Hotkeys {
             marker: "Ctrl+Shift+M".into(),
             copy: "Ctrl+Shift+C".into(),
             report: "Ctrl+Shift+P".into(),
+            layout: "Ctrl+Shift+O".into(),
         }
     }
 }
@@ -47,6 +50,24 @@ pub const DEFAULT_SHARE_ENDPOINT: &str = "https://aion2.bajubesi.org/api/meter";
 impl Default for Share {
     fn default() -> Self {
         Share { enabled: false, endpoint: DEFAULT_SHARE_ENDPOINT.into(), token: String::new(), scope: "self".into(), share_loot: false, min_loot_grade: 4, min_duration: 20.0 }
+    }
+}
+
+/// What the Solo layout shows besides your DPS.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Solo {
+    /// Your place in the party ("#2 of 5") and share of the damage.
+    pub rank: bool,
+    /// Crit, double, perfect, front and back chips.
+    pub chips: bool,
+    /// Odyle, party DPS and ping at the bottom.
+    pub footer: bool,
+}
+
+impl Default for Solo {
+    fn default() -> Self {
+        Solo { rank: true, chips: true, footer: true }
     }
 }
 
@@ -128,6 +149,11 @@ pub struct Settings {
     pub anonymize_others: bool,
     pub click_through: bool,
     pub always_on_top: bool,
+    /// Overlay layout: "classic" (the party table) or "solo" (just you).
+    pub layout: String,
+    pub solo: Solo,
+    /// Window size in the Solo layout (Classic keeps `window`).
+    pub solo_size: Option<(u32, u32)>,
     pub idle_timeout: f64,
     /// What DPS is divided by: "boss" (first hit on the boss → kill),
     /// "personal" (each player's first → last hit) or "fight" (whole fight).
@@ -196,6 +222,9 @@ impl Default for Settings {
             anonymize_others: false,
             click_through: false,
             always_on_top: true,
+            layout: "classic".into(),
+            solo: Solo::default(),
+            solo_size: None,
             idle_timeout: 8.0,
             dps_clock: "boss".into(),
             columns: vec![],
@@ -253,6 +282,7 @@ impl Settings {
             ("marker".into(), h.marker.clone()),
             ("copy".into(), h.copy.clone()),
             ("report".into(), h.report.clone()),
+            ("layout".into(), h.layout.clone()),
         ]
     }
 }

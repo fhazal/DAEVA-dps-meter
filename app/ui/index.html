@@ -173,6 +173,64 @@
   .nextev b { color: var(--text); font-weight: 600; }
   .nextev .live b { color: var(--good); }
   .nextev .soon b { color: var(--warn); }
+
+  /* ---- Solo layout: just you, in a card the size of the window ---- */
+  .solo { display: none; }
+  body.lay-solo .titlebar, body.lay-solo #target, body.lay-solo .scroll, body.lay-solo #zonetip,
+  body.lay-solo #nextev, body.lay-solo #foot { display: none !important; }
+  body.lay-solo .solo { display: block; }
+  /* The window fits the card's height; nothing below it. */
+  body.lay-solo .shell { bottom: auto; }
+  /* Metallic rim in your class colour. */
+  body.lay-solo .shell::after { border: 0; padding: 1px;
+    background: linear-gradient(160deg, color-mix(in srgb, var(--k) 45%, #fff), color-mix(in srgb, var(--k) 65%, #000) 35%, color-mix(in srgb, var(--k) 85%, #fff) 60%, color-mix(in srgb, var(--k) 45%, #000));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
+  body.lay-solo .shell { --k: var(--cls, var(--accent)); }
+  .so-hd { display: flex; align-items: center; gap: 8px; padding: 5px 10px 3px; }
+  .so-hd .gt-ic, .so-hd .tc-ic { width: 22px; height: 22px; border-radius: 6px; flex: none; }
+  .so-bn { min-width: 0; flex: 1; }
+  .so-bn b { display: block; font-size: 12px; font-weight: 650; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .so-bn span { color: var(--muted); font-size: 9.5px; line-height: 1.1; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .so-rt { display: flex; align-items: center; gap: 6px; flex: none; }
+  .so-clock { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 11px; color: #bfe3ff; background: rgba(79,184,232,.12); border: 1px solid rgba(79,184,232,.25); padding: 1px 7px; border-radius: 5px; }
+  .so-enr { font-size: 10px; color: var(--muted); background: rgba(255,255,255,.05); padding: 1px 6px; border-radius: 5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .so-enr.soon { color: var(--warn); background: rgba(231,180,76,.12); } .so-enr.on { color: var(--bad); background: rgba(229,103,95,.14); }
+  .so-pc { font-weight: 800; font-size: 13px; color: #f29a88; font-variant-numeric: tabular-nums; min-width: 34px; text-align: right; }
+  .so-pc.dead { color: var(--good); font-size: 11px; }
+  .so-hp { height: 4px; margin: 0 10px; border-radius: 2px; background: rgba(255,255,255,.07); overflow: hidden; }
+  .so-hp i { display: block; height: 100%; background: linear-gradient(90deg, #b8392f, #ec7a64); box-shadow: 0 0 8px rgba(236,122,100,.8); transition: width .25s; }
+  .so-me { margin: 5px 6px 0; padding: 5px 8px 6px; border-radius: 8px; cursor: pointer;
+    background: radial-gradient(120px 60px at 18px 18px, color-mix(in srgb, var(--k) 30%, transparent), transparent 70%), rgba(255,255,255,.025);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--k) 20%, transparent); }
+  .so-l1 { display: flex; align-items: center; gap: 8px; }
+  .so-crest { position: relative; width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; flex: none;
+    background: radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--k) 50%, transparent), color-mix(in srgb, var(--k) 15%, transparent));
+    box-shadow: 0 0 10px color-mix(in srgb, var(--k) 45%, transparent); }
+  .so-crest .on { position: absolute; right: -2px; bottom: -2px; width: 8px; height: 8px; border-radius: 50%; background: var(--dim); border: 2px solid rgb(var(--bg)); }
+  .so-crest .on.live { background: var(--good); }
+  .so-who { min-width: 0; flex: 1; }
+  .so-who b { display: block; font-size: 12.5px; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: color-mix(in srgb, var(--k) 35%, #fff); }
+  .so-who span { color: var(--muted); font-size: 9.5px; white-space: nowrap; line-height: 1.1; }
+  .so-who .cp { color: #c9b6ff; } .so-who .rk { color: var(--accent); font-weight: 700; }
+  .so-num { text-align: right; flex: none; white-space: nowrap; }
+  .so-num .odo { font-size: 21px; font-weight: 800; letter-spacing: -.3px; line-height: 1; color: #f6e3a6; text-shadow: 0 0 10px rgba(231,199,90,.35); }
+  .so-num small { color: var(--muted); font-size: 9.5px; margin-left: 2px; }
+  .so-chips { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin-top: 5px; }
+  .so-chips div { background: rgba(0,0,0,.3); border: 1px solid color-mix(in srgb, var(--k) 14%, transparent); border-radius: 5px; padding: 1px 4px; text-align: center; line-height: 1.1; }
+  .so-chips small { display: block; font-size: 8px; letter-spacing: .1em; color: var(--dim); }
+  .so-chips b { font-size: 10.5px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .so-share { height: 3px; margin-top: 5px; border-radius: 2px; background: rgba(255,255,255,.08); overflow: hidden; }
+  .so-share i { display: block; height: 100%; background: var(--k); box-shadow: 0 0 6px var(--k); transition: width .3s; }
+  .so-ft { display: flex; align-items: center; gap: 10px; padding: 2px 7px 2px 10px; color: var(--muted); font-size: 10px; white-space: nowrap; }
+  .so-ft b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .so-ft .ody { width: 12px; height: 12px; object-fit: contain; vertical-align: -2px; }
+  .so-ft .sep { width: 1px; height: 10px; background: rgba(255,255,255,.12); }
+  .so-ft .btns { margin-left: auto; display: flex; gap: 0; }
+  .so-ft .icon-btn { width: 18px; height: 18px; }
+  .so-ft .icon-btn svg { width: 12px; height: 12px; }
+  body.locked .so-ft .hide-locked { display: none; }
+  .so-pad { height: 6px; }
+  .so-idle { color: var(--muted); font-size: 10.5px; padding: 2px 0 1px; }
 </style>
 </head>
 <body>
@@ -181,6 +239,7 @@
     <span class="state-dot" id="dot" data-drag></span>
     <div class="title" id="title" data-drag>Daeva Meter</div>
     <div class="tools">
+      <button class="icon-btn hide-locked" id="bLayout" title="Switch to Solo: just you (Ctrl+Shift+O)"></button>
       <button class="icon-btn hide-locked" id="bMetric" title="Switch DPS / damage / share"></button>
       <button class="icon-btn hide-locked" id="bCopy" title="Copy summary for Discord"></button>
       <button class="icon-btn hide-locked" id="bReset" title="End fight now"></button>
@@ -191,6 +250,7 @@
       <button class="icon-btn close hide-locked" data-win="close" title="Quit"></button>
     </div>
   </div>
+  <div class="solo" id="solo" data-drag></div>
   <div class="target" id="target" hidden></div>
   <div class="scroll"><div class="rows" id="rows"></div></div>
   <div class="zonetip" id="zonetip" hidden><span>📍 <b>Teleport or change zone once</b> so Daeva Meter can read names, monster health, Odyle and keys.</span><button class="x" id="zonetipX" title="Hide">✕</button></div>
@@ -214,6 +274,8 @@
   let share = null;
   let lastFight = null;
 
+  $("bLayout").innerHTML = D.icon("layout");
+  $("bLayout").onclick = () => D.call("set_layout", { layout: "solo" });
   $("bMetric").innerHTML = D.icon("metric");
   $("bCopy").innerHTML = D.icon("copy");
   $("bReset").innerHTML = D.icon("reset");
@@ -288,7 +350,12 @@
     lastFight = f;
     const m = metric || ui.primary_metric || "dps";
     setHTML($("title"), appName(s));
-    if (!f || !f.players.length) {
+    const solo = ui.layout === "solo";
+    document.body.classList.toggle("lay-solo", solo);
+    if (solo) {
+      // Classic redraws again from scratch when switched back.
+      $("rows").__html = null; lastTargetHtml = "";
+    } else if (!f || !f.players.length) {
       setProp($("target"), "hidden", true);
       if (setHTML($("rows"), emptyState(s, state, text))) wireEmpty();
     } else {
@@ -311,7 +378,8 @@
     const odyle = s.odyle != null ? `<span class="fx${s.odyle_stale ? " stale" : ""}" title="${s.odyle_stale ? "Last seen: " : ""}Odyle ${Number(s.odyle).toLocaleString()}${s.odyle_bonus ? ` (+${Number(s.odyle_bonus).toLocaleString()} from Odyle Energy)` : ""} · from the game, updated whenever it changes"><img class="ody" src="img/odyle.webp" alt=""><b>${Number(s.odyle).toLocaleString()}</b>${s.odyle_bonus ? `<span class="dl"> (+${Number(s.odyle_bonus).toLocaleString()})</span>` : ""}</span><i class="sep"></i>` : "";
     setProp($("zonetip"), "hidden", !s.needs_zone || zoneTipHidden);
     renderUpdate(s); renderPB(s);
-    const foot = `${footLeft}<span class="fr">${s.uploads_pending ? `<span>↑${s.uploads_pending}</span><i class="sep"></i>` : ""}${odyle}${ping}</span>`;
+    if (solo) { renderSolo(f, s, state, text, ping); return; }
+    const foot =`${footLeft}<span class="fr">${s.uploads_pending ? `<span>↑${s.uploads_pending}</span><i class="sep"></i>` : ""}${odyle}${ping}</span>`;
     setProp($("foot"), "title", "Daeva Meter " + (s.version || ""));
     renderAlerts(snap.alerts);
     // The warning replaces the left part of the footer, so it is part of the key.
@@ -516,7 +584,7 @@
   const xc = (p) => cols().length ? `<span class="xcs">${cols().map((c) => `<span>${COLS[c][1](p)}</span>`).join("")}</span>` : "";
   // ---- Live "digital dash" numbers: every figure counts smoothly to its new value
   const odoShown = {}; const trend = {};
-  const FMT = { rate: (v) => D.fmt(v) + "/s", num: (v) => D.fmt(v), pct: (v) => D.pct(v), pct1: (v) => D.pct(v, 1) };
+  const FMT = { rate: (v) => D.fmt(v) + "/s", num: (v) => D.fmt(v), int: (v) => (v < 100000 ? Math.round(v).toLocaleString("en") : D.fmt(v)), pct: (v) => D.pct(v), pct1: (v) => D.pct(v, 1) };
   const odo = (k, v, f, cls) => `<span class="odo${cls ? " " + cls : ""}${trend[k] ? " " + trend[k] : ""}" data-k="${k}" data-v="${v}" data-f="${f}">${FMT[f](odoShown[k] ?? v)}</span>`;
   const anims = {};
   function runOdos() {
@@ -604,6 +672,82 @@
     document.querySelectorAll(".row").forEach((r) => {
       r.onclick = () => D.call("open_window", { kind: "detail", params: JSON.stringify({ fight_id: lastFight.fight_id, actor_id: Number(r.dataset.id) }) });
     });
+  }
+
+  // ---- Solo layout: the boss on top, your own card, Odyle/party/ping ----
+  const SKULL = '<span class="tc-ic"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.5C4.5 1.5 2 4 2 7c0 1.9 1 3.3 2.3 4.1V13c0 .6.4 1 1 1h.7v-1.5h1V14h2v-1.5h1V14h.7c.6 0 1-.4 1-1v-1.9C13 10.3 14 8.9 14 7c0-3-2.5-5.5-6-5.5zM5.6 9.2a1.3 1.3 0 1 1 0-2.6 1.3 1.3 0 0 1 0 2.6zm4.8 0a1.3 1.3 0 1 1 0-2.6 1.3 1.3 0 0 1 0 2.6z"/></svg></span>';
+  const clock = (sec) => { sec = Math.max(0, Math.floor(sec || 0)); return `${String(Math.floor(sec / 60)).padStart(2, "0")}:${String(sec % 60).padStart(2, "0")}`; };
+  function renderSolo(f, s, state, text, ping) {
+    const so = ui.solo || {};
+    const me = f && f.players ? f.players.find((p) => p.is_self) : null;
+    const t = f && f.target && ui.show_target !== false ? f.target : null;
+    // Boss line: portrait, name, HP left / max; enrage, fight clock, HP %.
+    let hd;
+    if (t) {
+      const dead = t.hp_pct != null ? t.hp_pct <= 0.0005 : !!f.boss_killed;
+      const pctv = dead ? 0 : t.hp_pct == null ? null : Math.min(1, Math.max(0, t.hp_pct));
+      const secs = t.secs || f.duration || 0;
+      const hpNow = t.hp != null && t.max_hp ? Math.min(t.hp, t.max_hp) : null;
+      let enr = "";
+      if (t.berserk && !dead && f.live) {
+        const left = t.berserk - secs;
+        enr = left > 0 ? `<span class="so-enr${left <= 60 ? " soon" : ""}" title="Enrage: the boss hits harder and faster">⏱ ${D.dur(left)}</span>` : `<span class="so-enr on">🔥 Enraged</span>`;
+      }
+      const pc = dead ? `<span class="so-pc dead">✓ Killed</span>` : pctv != null ? `<span class="so-pc">${D.pct(pctv, pctv > 0 && pctv < 0.1 ? 1 : 0)}</span>` : "";
+      const sub = t.max_hp ? `${D.fmt(dead ? 0 : hpNow != null ? hpNow : t.max_hp)} / ${D.fmt(t.max_hp)}` : t.rank ? D.esc(t.rank) : "";
+      hd = `<div class="so-hd" data-drag>${D.npcIcon(t.art_npc || t.npc_id, 24) || SKULL}<div class="so-bn" data-drag><b>${D.esc(t.name)}</b><span>${sub}</span></div><div class="so-rt">${enr}<span class="so-clock">${clock(secs)}</span>${pc}</div></div>`
+        + (pctv != null ? `<div class="so-hp"><i style="width:${(pctv * 100).toFixed(1)}%"></i></div>` : "");
+    } else {
+      hd = `<div class="so-hd" data-drag><div class="so-bn" data-drag><b>Daeva Meter${s.version ? ` <span>v${D.esc(s.version)}</span>` : ""}</b><span title="${D.esc(text)}">${D.esc(state === "live" || state === "idle" ? (s.server ? s.server + " · " : "") + (f ? "Fight over" : "Waiting for a fight") : text)}</span></div>${f && f.duration ? `<div class="so-rt"><span class="so-clock">${clock(f.duration)}</span></div>` : ""}</div>`;
+    }
+    // Your card.
+    const fk = f ? f.fight_id + "_" : "x_";
+    const party = f ? f.players.filter((p) => p.in_party || p.is_self) : [];
+    const pool = party.length > 1 ? party : f ? f.players : [];
+    const rank = me ? pool.indexOf(me) + 1 : 0;
+    const name = (me && me.name) || s.self_name || "You";
+    const cls = (me && me.class) || s.self_class || savedClass;
+    const cp = me && me.cp ? `<span class="cp" title="Combat power">◆ ${D.fmt(me.cp)}</span> · ` : "";
+    const line = [cls ? D.esc(cls) : "", so.rank !== false && me && pool.length > 1 ? `<span class="rk">#${rank} of ${pool.length}</span>` : "", so.rank !== false && me && pool.length > 1 ? D.pct(me.share) : ""].filter(Boolean).join(" · ");
+    const dps = me ? odo(fk + "solo", me.dps, "int") : `<span class="odo">0</span>`;
+    const tip = me ? `Damage ${D.fmt(me.dmg)} · ${D.fmt(me.dps)}/s\n${clockRule(f)}\nClick for your full breakdown` : "";
+    const chip = (k, v) => `<div><small>${k}</small><b>${me ? D.pct(v || 0) : "–"}</b></div>`;
+    const chips = so.chips !== false ? `<div class="so-chips">${chip("CRIT", me && me.crit_rate)}${chip("DBL", me && me.double_rate)}${chip("PERF", me && me.perfect_rate)}${chip("FRONT", me && me.front_rate)}${chip("BACK", me && me.back_rate)}</div>` : "";
+    const shareLine = so.rank !== false ? `<div class="so-share" title="Your share of the damage"><i style="width:${me ? (Math.min(1, me.share || 0) * 100).toFixed(1) : 0}%"></i></div>` : "";
+    const card = `<div class="so-me" title="${D.esc(tip)}" data-act="detail"><div class="so-l1"><span class="so-crest">${D.classIcon(cls, 18)}<i class="on${f && f.live ? " live" : ""}"></i></span><div class="so-who"><b>${D.esc(name)}</b><span>${cp}${line}</span></div><div class="so-num">${dps}<small>DPS</small></div></div>${chips}${shareLine}</div>`;
+    // Bottom: Odyle, party DPS, ping and the buttons.
+    const partyDps = pool.reduce((a, p) => a + (p.dps || 0), 0);
+    const ody = s.odyle != null ? `<span title="Odyle${s.odyle_bonus ? ` (+${Number(s.odyle_bonus).toLocaleString()} from Odyle Energy)` : ""}"><img class="ody" src="img/odyle.webp" alt=""> <b>${Number(s.odyle).toLocaleString()}</b>${s.odyle_bonus ? ` <span style="color:#4fb8e8">(+${Number(s.odyle_bonus).toLocaleString()})</span>` : ""}</span><i class="sep"></i>` : "";
+    const btns = `<span class="btns"><button class="icon-btn hide-locked" data-act="layout" title="Switch to Classic (Ctrl+Shift+O)">${D.icon("layout")}</button><button class="icon-btn hide-locked" data-act="settings" title="Settings">${D.icon("gear")}</button><button class="icon-btn${ui.click_through ? " on" : ""}" data-act="lock" title="Click-through (Ctrl+Shift+L)">${D.icon(ui.click_through ? "lock" : "unlock")}</button></span>`;
+    const ft = so.footer !== false ? `<div class="so-ft" data-drag>${ody}${pool.length > 1 ? `<span>Party <b>${D.fmt(partyDps)}</b></span><i class="sep"></i>` : ""}${ping}${btns}</div>` : `<div class="so-ft" data-drag style="padding-top:3px;padding-bottom:3px">${btns}</div>`;
+    if (setHTML($("solo"), hd + card + ft)) runOdos();
+    fitSolo();
+  }
+  $("solo").addEventListener("click", (ev) => {
+    const a = ev.target.closest("[data-act]");
+    if (!a) return;
+    const act = a.dataset.act;
+    if (act === "layout") D.call("set_layout", { layout: "classic" });
+    else if (act === "settings") D.call("open_window", { kind: "settings" });
+    else if (act === "lock") D.call("toggle_click_through").then((on) => D.toast(on ? "Click-through on — Ctrl+Shift+L to unlock" : "Click-through off"));
+    else if (act === "detail" && lastFight) {
+      const me = lastFight.players.find((p) => p.is_self);
+      if (me) D.call("open_window", { kind: "detail", params: JSON.stringify({ fight_id: lastFight.fight_id, actor_id: me.id }) });
+    }
+  });
+  // The window takes the card's height (the width stays yours).
+  let fitting = false;
+  function fitSolo() {
+    if (fitting) return;
+    const T = window.__TAURI__;
+    const sh = document.querySelector(".shell");
+    const z = parseFloat(document.body.style.zoom) || 1;
+    const h = Math.ceil(sh.offsetHeight * z) + 1;
+    if (!T || Math.abs(h - window.innerHeight) <= 1) return;
+    const Size = (T.dpi && T.dpi.LogicalSize) || (T.window && T.window.LogicalSize);
+    if (!Size) return;
+    fitting = true;
+    T.window.getCurrentWindow().setSize(new Size(window.innerWidth, h)).catch((e) => console.warn(e)).finally(() => setTimeout(() => (fitting = false), 300));
   }
 
   function emptyState(s, state, text) {

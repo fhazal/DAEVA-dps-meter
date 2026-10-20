@@ -23,6 +23,38 @@
   .cmd { color: var(--accent); font-weight: 600; }
   .st-ok b { color: var(--good); } .st-bad b { color: var(--bad); } .st-save { color: var(--warn); font-weight: 600; }
   .warnbox { border: 1px solid rgba(231,180,76,0.35); background: rgba(231,180,76,0.08); border-radius: 8px; padding: 8px 10px; font-size: 12px; color: var(--muted); margin: 6px 0 10px; }
+  /* Tabs down the side; one section at a time (all of them while searching). */
+  .split { flex: 1; min-height: 0; display: flex; }
+  .side { width: 184px; flex: none; display: flex; flex-direction: column; padding: 10px 8px; background: rgba(255,255,255,0.025); border-right: 1px solid var(--line); }
+  .side .find { margin: 0 2px 10px; width: auto; }
+  .tab { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border: 0; border-radius: 7px; background: none; color: #cfccc4; font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; margin-bottom: 2px; }
+  .tab:hover { background: rgba(255,255,255,0.05); color: var(--text); }
+  .tab svg { width: 15px; height: 15px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; opacity: .85; }
+  .tab.on { background: var(--accent-soft); color: var(--accent); box-shadow: inset 2px 0 0 var(--accent); }
+  .tab .badge { margin-left: auto; font-size: 9.5px; font-weight: 700; letter-spacing: .04em; color: var(--accent); background: var(--accent-soft); padding: 0 5px; border-radius: 4px; }
+  .tab .badge.adv { color: var(--muted); background: rgba(255,255,255,0.06); }
+  .side .ver { margin-top: auto; padding: 8px 10px 0; font-size: 11px; color: var(--dim); border-top: 1px solid var(--line); }
+  .split .scroll { flex: 1; }
+  section[data-tab] { display: none; }
+  section[data-tab].on, .searching section[data-tab].hit { display: block; }
+  .searching section[data-tab]:not(.hit) { display: none; }
+  section h2:first-child { margin-top: 2px; }
+  .sh { color: var(--muted); font-size: 12px; margin: -4px 0 12px; }
+  .fr { display: contents; }
+  .fr.gone, .gone { display: none !important; }
+  .nohit { color: var(--muted); padding: 20px 4px; display: none; }
+  .searching .nohit.show { display: block; }
+  /* Layout picker */
+  .picks { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin: 4px 0 14px; }
+  .pick { border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: rgba(255,255,255,0.03); cursor: pointer; position: relative; }
+  .pick:hover { border-color: rgba(255,255,255,0.18); }
+  .pick.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 0 18px var(--accent-soft); }
+  .pick b { font-size: 13px; } .pick p { margin: 2px 0 0; font-size: 11px; color: var(--muted); }
+  .pick .ok { position: absolute; top: 8px; right: 8px; width: 16px; height: 16px; border-radius: 50%; background: var(--accent); color: #1a1408; font-size: 11px; font-weight: 800; text-align: center; line-height: 16px; display: none; }
+  .pick.on .ok { display: block; }
+  .thumb { height: 84px; border-radius: 6px; background: rgba(0,0,0,0.35); margin-bottom: 8px; padding: 7px; display: flex; flex-direction: column; gap: 4px; }
+  .thumb i { display: block; height: 7px; border-radius: 2px; background: rgba(255,255,255,0.12); }
+  .thumb .g { background: var(--accent); opacity: .55; } .thumb .y { background: rgba(255,255,255,0.28); }
 </style>
 </head>
 <body>
@@ -31,7 +63,10 @@
     <div class="title" data-drag>Settings</div>
     <button class="icon-btn close" data-win="close" title="Close"></button>
   </div>
-  <div class="scroll"><div class="content" id="form"></div></div>
+  <div class="split">
+    <nav class="side" id="side"></nav>
+    <div class="scroll"><div class="content" id="form"></div></div>
+  </div>
   <div class="bar"><span class="muted" id="msg"></span><span class="sp"></span><button class="btn" data-win="close">Cancel</button><button class="btn primary" id="bSave">Save</button></div>
 </div>
 <script src="common.js"></script>
@@ -42,7 +77,7 @@
   D.wireTitlebar();
   let s = null;
 
-  const F = (label, html, hint) => `<label>${label}</label><div>${html}</div>${hint ? `<div class="hint">${hint}</div>` : ""}`;
+  const F = (label, html, hint) => `<div class="fr"><label>${label}</label><div>${html}</div>${hint ? `<div class="hint">${hint}</div>` : ""}</div>`;
   const chk = (k, text) => `<span class="inline"><input type="checkbox" data-k="${k}"> ${text || ""}</span>`;
   const txt = (k, ph, type) => `<input type="${type || "text"}" data-k="${k}" placeholder="${ph || ""}">`;
   const num = (k, min, max, step) => `<input type="number" data-k="${k}" min="${min}" max="${max}" step="${step || 1}">`;
@@ -66,9 +101,75 @@
       paintCols();
     }));
   }
+  // Tabs: [id, label, icon path(s) on a 24 grid, badge].
+  const TABS = [
+    ["general", "General", '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'],
+    ["layout", "Layout", '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/>', "NEW"],
+    ["look", "Overlay look", '<circle cx="13.5" cy="6.5" r="1.5"/><circle cx="17.5" cy="10.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12.5" r="1.5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.9 0 1.6-.7 1.6-1.7 0-.4-.2-.8-.4-1.1-.3-.3-.4-.7-.4-1.1 0-.9.7-1.7 1.7-1.7h2c3 0 5.5-2.5 5.5-5.5C22 6 17.5 2 12 2z"/>'],
+    ["fights", "Fights", '<path d="M14.5 17.5 3 6V3h3l11.5 11.5"/><path d="M13 19l6-6"/><path d="M16 16l4 4"/><path d="M19 21l2-2"/>'],
+    ["alerts", "Event alerts", '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/>'],
+    ["hotkeys", "Hotkeys", '<rect width="20" height="16" x="2" y="4" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10"/>'],
+    ["bot", "Daeva bot", '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/>'],
+    ["capture", "Capture", '<path d="M12 20h.01"/><path d="M2 8.8a15 15 0 0 1 20 0"/><path d="M5 12.9a10 10 0 0 1 14 0"/><path d="M8.5 16.4a5 5 0 0 1 7 0"/>', "ADV"],
+  ];
+  let tab = "general";
+  try { tab = localStorage.getItem("daeva.setTab") || "general"; } catch {}
+  function buildSide() {
+    document.getElementById("side").innerHTML = `<input type="text" class="find" id="find" placeholder="🔍 Search settings…">`
+      + TABS.map(([id, label, ic, badge]) => `<button type="button" class="tab" data-t="${id}"><svg viewBox="0 0 24 24">${ic}</svg>${label}${badge ? `<span class="badge${badge === "ADV" ? " adv" : ""}">${badge}</span>` : ""}</button>`).join("")
+      + `<div class="ver" id="sideVer">Daeva Meter · BajuBesi Labs</div>`;
+    document.querySelectorAll(".tab").forEach((b) => (b.onclick = () => { document.getElementById("find").value = ""; search(""); showTab(b.dataset.t); }));
+    document.getElementById("find").oninput = (e) => search(e.target.value);
+  }
+  function showTab(id) {
+    if (!TABS.some((t) => t[0] === id)) id = "general";
+    tab = id;
+    try { localStorage.setItem("daeva.setTab", id); } catch {}
+    document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("on", b.dataset.t === id));
+    document.querySelectorAll("section[data-tab]").forEach((s) => s.classList.toggle("on", s.dataset.tab === id));
+    document.querySelector(".split .scroll").scrollTop = 0;
+  }
+  // Searching shows every tab, with only the settings whose text matches.
+  function search(q) {
+    q = q.trim().toLowerCase();
+    const form = document.getElementById("form");
+    form.classList.toggle("searching", !!q);
+    let any = false;
+    document.querySelectorAll("section[data-tab]").forEach((sec) => {
+      let hit = false;
+      // A tab's own name ("hotkeys", "capture") shows all of it.
+      const whole = !!q && TABS.some(([id, label]) => id === sec.dataset.tab && label.toLowerCase().includes(q));
+      sec.querySelectorAll(".fr, .sr").forEach((r) => {
+        const ok = !q || whole || r.textContent.toLowerCase().includes(q) || [...r.querySelectorAll("input, select")].some((i) => (i.placeholder || "").toLowerCase().includes(q));
+        r.classList.toggle("gone", !ok);
+        hit = hit || ok;
+      });
+      sec.classList.toggle("hit", hit);
+      any = any || hit;
+    });
+    document.getElementById("nohit").classList.toggle("show", !!q && !any);
+    document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("on", !q && b.dataset.t === tab));
+    if (!q) showTab(tab);
+  }
+  function paintPicks() {
+    const v = document.querySelector('[data-k="layout"]').value || "classic";
+    document.querySelectorAll(".pick").forEach((p) => p.classList.toggle("on", p.dataset.l === v));
+  }
   function build() {
     document.getElementById("form").innerHTML = `
-    <h2>Overlay</h2><div class="f">
+    <section data-tab="layout">
+    <h2>Layout</h2><div class="sh">How the overlay shows a fight. Switch any time with the panels button on the meter, or Ctrl+Shift+O.</div>
+    <input type="text" data-k="layout" hidden>
+    <div class="picks sr">
+      <div class="pick" data-l="classic"><span class="ok">✓</span><div class="thumb"><i class="g" style="height:16px"></i><i></i><i class="y"></i><i></i><i></i></div><b>Classic</b><p>The whole party, ranked</p></div>
+      <div class="pick" data-l="solo"><span class="ok">✓</span><div class="thumb"><i class="g" style="height:10px"></i><i class="y" style="height:30px"></i><i></i><i style="width:60%"></i></div><b>Solo</b><p>Just you, in a small card</p></div>
+    </div>
+    <h2>Solo card</h2><div class="f">
+      ${F("Show", `<div class="row-btns">${chk("solo.rank", "Rank and share in the party")}${chk("solo.chips", "Crit, double, perfect, front, back")}${chk("solo.footer", "Odyle, party DPS and ping")}</div>`, "The boss line and your DPS are always there. Scale (Overlay look) sizes the card too.")}
+    </div>
+    </section>
+    <section data-tab="look">
+    <h2>Overlay look</h2><div class="f">
       ${F("Background opacity", rng("opacity", 0.2, 1, 0.02))}
       ${F("Scale", rng("scale", 0.7, 1.6, 0.05))}
       ${F("Rows shown", num("rows", 1, 24))}
@@ -80,6 +181,8 @@
       ${F("Privacy", chk("anonymize_others", "Hide other players' names"), "For screenshots and streams. Your own name stays visible.")}
       ${F("Window", `<div class="row-btns">${chk("always_on_top", "Always on top")}${chk("click_through", "Click-through")}</div>`)}
     </div>
+    </section>
+    <section data-tab="alerts">
     <h2>Event alerts</h2>
     <div class="warnbox">Banners on the overlay before AION 2 events start, using the same schedule as the Daeva Discord bot (aion2.bajubesi.org). Gartua times are estimates, as on Discord.</div>
     <div class="f">
@@ -95,9 +198,8 @@
       ${F("Schedule feed", txt("alerts.feed_url"), `<span id="evStatus"></span>`)}
       ${F("", `<button class="btn" id="bTestAlert">Show a test alert</button>`, "It stays 30 seconds: drag it where you want event alerts.")}
     </div>
-    <h2>Server</h2><div class="f">
-      ${F("Server name", txt("server_name", "detected automatically"), "Shown at the bottom of the meter. Leave empty: the meter reads your server from the game (Beritra is built in).")}
-    </div>
+    </section>
+    <section data-tab="fights">
     <h2>Fights</h2><div class="f">
       ${F("DPS clock", sel("dps_clock", [["boss", "Boss fight: first hit on the boss → kill, adds included (recommended)"], ["personal", "Your time: your first hit → your last hit"], ["fight", "Whole fight, including trash"]]), "Boss fight is how Details! and ACT count an encounter. Without a boss or elite, DPS uses the whole fight. Hover a DPS number to see the rule in use.")}
       ${F("Personal bests", chk("personal_bests", "Tell me when I beat my best DPS on a boss"), "Compared with your saved fights on the same boss, at least 30 s long. Only your own character counts.")}
@@ -106,22 +208,29 @@
       ${F("", chk("merge_summons", "Count summon/pet damage for its owner"))}
       ${F("Keep saved fights (days)", num("history_keep_days", 1, 365))}
     </div>
-    <h2>Capture</h2><div class="f">
+    </section>
+    <section data-tab="capture">
+    <h2>Capture</h2><div class="sh">Only needed when the meter doesn't see the game. Most players never change these.</div><div class="f">
       ${F("Game process names", txt("process_names", "aion2"), "Comma separated, matched anywhere in the .exe name.")}
       ${F("Extra server ports", txt("manual_ports", "e.g. 7777"), "Only needed if auto-detection fails.")}
       ${F("Ignore ports", txt("ignore_ports", "80, 443"))}
       ${F("Network adapter filter", txt("device_filter", "blank = all adapters"))}
       ${F("", `<div class="row-btns"><button class="btn" id="bRestart">Restart capture</button>${chk("demo", "Demo mode (simulated party)")}</div>`)}
     </div>
-    <h2>Hotkeys</h2><div class="f">
+    </section>
+    <section data-tab="hotkeys">
+    <h2>Hotkeys</h2><div class="sh">They work in game too. Format: Ctrl+Shift+F9. Leave one empty to turn it off.</div><div class="f">
       ${F("Toggle click-through", txt("hotkeys.click_through"))}
       ${F("End fight", txt("hotkeys.reset"))}
       ${F("Hide / show overlay", txt("hotkeys.hide"))}
       ${F("Copy summary", txt("hotkeys.copy"))}
       ${F("Report a problem", txt("hotkeys.report"))}
-      ${F("Research marker", txt("hotkeys.marker"), "Format: Ctrl+Shift+F9. Leave empty to disable.")}
+      ${F("Switch layout", txt("hotkeys.layout"), "Classic ⇄ Solo.")}
+      ${F("Research marker", txt("hotkeys.marker"))}
     </div>
     <div class="errs" id="hkErr"></div>
+    </section>
+    <section data-tab="bot">
     <h2>Share with Daeva bot</h2>
     <div class="warnbox">Puts your boss and elite fights on the DPS boards at aion2.bajubesi.org and in the Daeva daily recap on Discord. Off by default. Get your token with <b>/meter link</b> in our Discord. “Only me” never sends other players' names.</div>
     <div class="f">
@@ -133,8 +242,13 @@
       ${F("", chk("share.share_loot", "Share rare loot drops"))}
       ${F("Minimum loot grade", num("share.min_loot_grade", 0, 10))}
     </div>
+    </section>
+    <section data-tab="general">
+    <h2>General</h2><div class="f">
+      ${F("Server name", txt("server_name", "detected automatically"), "Shown at the bottom of the meter. Leave empty: the meter reads your server from the game (Beritra is built in).")}
+    </div>
     <h2>Data</h2>
-    <div class="row-btns">
+    <div class="row-btns sr">
       <button class="btn primary" id="bReport">Report a problem</button>
       <button class="btn" data-folder="data">Open data folder</button>
       <button class="btn" data-folder="definitions">Definitions folder</button>
@@ -145,8 +259,11 @@
     <div class="f" style="margin-top:8px">${F("Names", `<div class="row-btns">${chk("lookup_names", "Get monster and skill names from aion2.gaming.tools")}${chk("game_art", "Show game icons (classes, skills, monsters)")}</div><div class="muted" id="namesStatus" style="font-size:11.5px;margin-top:4px">…</div>`, "Downloads their monster and skill lists at most once a day and keeps a copy for offline use. Names you type yourself always win. Game icons are NCSOFT's, shown via gaming.tools. With thanks to the AION 2 Global Database team.")}</div>
     <div class="f" style="margin-top:8px">${F("Updates", `<div class="row-btns">${chk("check_updates", "Check GitHub for new versions")}<button class="btn" id="bCheckUpd">Check now</button></div><div class="muted" id="updStatus" style="font-size:11.5px;margin-top:4px">…</div>`, "Asks GitHub for the latest published Daeva Meter release at start-up and every 6 hours. Nothing about you is sent. A new version shows a notice under the meter; Download opens the release page.")}</div>
     <div class="f" style="margin-top:8px">${F("Testers", chk("show_research", "Show research tools (flask button in the header)"), "Research mode records game traffic with markers, for decoding after a game patch. Most players don't need it: use Report a problem instead.")}</div>
-    <p class="muted" style="font-size:11.5px"><b>Report a problem</b> saves the last 3 minutes of game traffic plus what the meter showed as one zip on your Desktop (also Ctrl+Shift+P, even in game). Send that file when something looks wrong.</p>
-    <p class="muted" style="font-size:11.5px">Drop an updated <span class="mono">aion2.json</span> or <span class="mono">names.json</span> in the definitions folder to override the bundled copy after a game patch.</p>`;
+    <p class="muted sr" style="font-size:11.5px"><b>Report a problem</b> saves the last 3 minutes of game traffic plus what the meter showed as one zip on your Desktop (also Ctrl+Shift+P, even in game). Send that file when something looks wrong.</p>
+    <p class="muted sr" style="font-size:11.5px">Drop an updated <span class="mono">aion2.json</span> or <span class="mono">names.json</span> in the definitions folder to override the bundled copy after a game patch.</p>
+    </section>
+    <div class="nohit" id="nohit">No settings match that search.</div>`;
+    document.querySelectorAll(".pick").forEach((p) => (p.onclick = () => { document.querySelector('[data-k="layout"]').value = p.dataset.l; paintPicks(); }));
   }
 
   function get(o, path) { return path.split(".").reduce((a, k) => (a == null ? a : a[k]), o); }
@@ -242,9 +359,12 @@
   async function init() {
     s = await D.call("get_settings");
     D.applyTheme({ accent: s.accent, opacity: 0.97 });
+    buildSide();
     build();
     wireCols();
     fill();
+    paintPicks();
+    showTab(tab);
     document.querySelectorAll("input[type=range]").forEach((r) => (r.oninput = () => { if (r.dataset.k === "alerts.volume") updateVol(); else updateRanges(); }));
     updateVol();
     loadEvents();
@@ -292,9 +412,17 @@
     const posSel = document.querySelector('[data-k="alerts.position"]');
     let posTouched = false;
     posSel.addEventListener("change", () => (posTouched = true));
-    setInterval(async () => {
-      if (posTouched) return;
-      try { const n = await D.call("get_settings"); if (n.alerts.position !== posSel.value) { posSel.value = n.alerts.position; s.alerts.position = n.alerts.position; } } catch {}
+    // Same for the layout, switched with the meter's button or the hotkey.
+    const layIn = document.querySelector('[data-k="layout"]');
+    let layTouched = false;
+    document.querySelectorAll(".pick").forEach((p) => p.addEventListener("click", () => (layTouched = true)));
+    if (window.__setPoll) clearInterval(window.__setPoll);
+    window.__setPoll = setInterval(async () => {
+      try {
+        const n = await D.call("get_settings");
+        if (!posTouched && n.alerts.position !== posSel.value) { posSel.value = n.alerts.position; s.alerts.position = n.alerts.position; }
+        if (!layTouched && n.layout !== layIn.value) { layIn.value = n.layout; s.layout = n.layout; paintPicks(); }
+      } catch {}
     }, 1500);
     document.getElementById("bRestart").onclick = async () => { await D.call("restart_capture"); D.toast("Capture restarted"); };
     document.getElementById("bReport").onclick = async () => {
