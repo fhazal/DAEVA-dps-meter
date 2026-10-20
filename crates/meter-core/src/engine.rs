@@ -747,10 +747,20 @@ impl Engine {
                         let live = self.current.as_ref().filter(|f| !f.finished);
                         let shared = live.map_or(false, |f| f.stats.get(&me).map_or(false, |s| s.by_target.contains_key(tgt)));
                         let ally = live.map_or(false, |f| f.allies.contains(&attacker));
-                        if !mine && !shared && !ally {
+                        // In a party, every boss fight counts from the first
+                        // hit, also when your group pulls it before you get
+                        // there (the game sends it once you're in the area).
+                        let party_boss = self.party.len() >= 2
+                            // A player (class known, or named in the party list),
+                            // not a skill's helper object.
+                            && self.actors.get(&attacker).map_or(false, |a| Self::is_class_player(a) || a.name.as_ref().map_or(false, |n| self.party.contains(n)))
+                            && self.actors.get(tgt).and_then(|a| a.npc_id).map_or(false, |n| {
+                                self.npc_is_boss(n) || self.names.npc_ref(n, &self.actor_name(*tgt)).map_or(false, |r| self.npc_is_boss(r))
+                            });
+                        if !mine && !shared && !ally && !party_boss {
                             return finished;
                         }
-                        extends = mine || shared;
+                        extends = mine || shared || party_boss;
                         if shared && !mine {
                             if let Some(f) = self.current.as_mut() {
                                 f.allies.insert(attacker);
@@ -2369,6 +2379,25 @@ mod zone_notice_tests {
         // Two Clerics: can't tell which one you are.
         let e = run(vec![Some(31), Some(31)]);
         assert_eq!(e.actor_name(1), "You");
+    }
+
+    #[test]
+    fn party_boss_counts_before_you_arrive() {
+        let run = |party: bool| {
+            let names = Names::from_json(r#"{"bosses": ["777"], "classes": {"18": "Chanter"}}"#).unwrap();
+            let mut e = Engine::new(EngineConfig::default(), names);
+            e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+            if party {
+                e.handle(&GameEvent::Party { names: vec!["Me".into(), "Arthemis".into()], codes: vec![Some(31), Some(35)] });
+            }
+            e.handle(&GameEvent::Actor { id: 2, name: Some("Arthemis".into()), class: None, kind: ActorKind::Player, npc_id: None, owner: None, max_hp: None });
+            e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(100_000) });
+            // Your group pulls the boss; you're still on the way.
+            e.handle(&GameEvent::Damage { ts: 1.0, src: 2, tgt: 50, skill: 18_010_000, amount: 5000, flags: 0 });
+            e.current.as_ref().map_or(0, |f| f.targets.get(&50).copied().unwrap_or(0))
+        };
+        assert_eq!(run(true), 5000, "party: counts from the pull");
+        assert_eq!(run(false), 0, "a stranger's boss: still ignored");
     }
 
     #[test]
