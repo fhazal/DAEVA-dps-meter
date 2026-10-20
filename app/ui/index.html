@@ -721,7 +721,7 @@
     // Bottom: Odyle, party DPS, ping and the buttons.
     const partyDps = pool.reduce((a, p) => a + (p.dps || 0), 0);
     const ody = s.odyle != null ? `<span title="Odyle${s.odyle_bonus ? ` (+${Number(s.odyle_bonus).toLocaleString()} from Odyle Energy)` : ""}"><img class="ody" src="img/odyle.webp" alt=""> <b>${Number(s.odyle).toLocaleString()}</b>${s.odyle_bonus ? ` <span style="color:#4fb8e8">(+${Number(s.odyle_bonus).toLocaleString()})</span>` : ""}</span><i class="sep"></i>` : "";
-    const btns = `<span class="btns"><button class="icon-btn hide-locked" data-act="layout" title="Switch to Classic (Ctrl+Shift+O)">${D.icon("layout")}</button><button class="icon-btn hide-locked" data-act="settings" title="Settings">${D.icon("gear")}</button><button class="icon-btn${ui.click_through ? " on" : ""}" data-act="lock" title="Click-through (Ctrl+Shift+L)">${D.icon(ui.click_through ? "lock" : "unlock")}</button></span>`;
+    const btns = `<span class="btns"><button class="icon-btn hide-locked" data-act="layout" title="Switch to Classic (Ctrl+Shift+O)">${D.icon("layout")}</button><button class="icon-btn hide-locked" data-act="settings" title="Settings">${D.icon("gear")}</button><button class="icon-btn${ui.click_through ? " on" : ""}" data-act="lock" title="Click-through (Ctrl+Shift+L)">${D.icon(ui.click_through ? "lock" : "unlock")}</button><button class="icon-btn hide-locked" data-act="min" title="Minimise">${D.icon("min")}</button><button class="icon-btn close hide-locked" data-act="close" title="Quit Daeva Meter">${D.icon("close")}</button></span>`;
     const ft = so.footer !== false ? `<div class="so-ft" data-drag>${ody}${pool.length > 1 ? `<span>Party <b>${D.fmt(partyDps)}</b></span><i class="sep"></i>` : ""}${ping}${btns}</div>` : `<div class="so-ft" data-drag style="padding-top:3px;padding-bottom:3px">${btns}</div>`;
     if (setHTML($("solo"), hd + card + ft)) runOdos();
     fitSolo();
@@ -732,6 +732,8 @@
     const act = a.dataset.act;
     if (act === "layout") D.call("set_layout", { layout: "classic" });
     else if (act === "settings") D.call("open_window", { kind: "settings" });
+    else if (act === "min") D.winAction("minimize");
+    else if (act === "close") D.winAction("close");
     else if (act === "lock") D.call("toggle_click_through").then((on) => D.toast(on ? "Click-through on — Ctrl+Shift+L to unlock" : "Click-through off"));
     else if (act === "detail" && lastFight) {
       const me = lastFight.players.find((p) => p.is_self);
