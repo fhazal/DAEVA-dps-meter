@@ -5,6 +5,8 @@
 - **Solo layout: just you.** A small card the size of a game window, for players who only want their own numbers. On top, the boss with its HP left, the fight clock, the enrage countdown and HP %. Below, your card: class crest, name, combat power, your rank and share in the party, your live DPS in big numbers, and five chips (crit, double, perfect, front and back hits). At the bottom, Odyle, party DPS and ping. The rim, the glow behind your crest and the share line are in your class colour. Switch with the new panels button on the meter (either layout) or **Ctrl+Shift+O**; each layout keeps its own window size. Click your card for your full breakdown.
 - **Settings with tabs.** General, Layout, Overlay look, Fights, Event alerts, Hotkeys, Daeva bot and Capture down the side, instead of one long page, plus a search box that finds any setting by name. The window opens on the tab you used last. Every setting is still there, just grouped.
 - **Layout tab:** pick Classic or Solo, and choose what the Solo card shows (rank and share, the five chips, the bottom line).
+- **Players listed: Auto (new default).** The meter follows the game's party list: in a dungeon, a dungeon room or a party at a world boss it lists you and your group; on your own it lists everyone fighting your target. Nothing to switch in Settings. If you had the old default (*Everyone*), you're moved to Auto once; any other choice is kept.
+- **Leaving a party is noticed.** The meter used to keep your old party until the game sent a new list, so former members could still count as your party. It now clears it as soon as you leave.
 
 ## 0.4.5
 

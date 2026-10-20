@@ -177,7 +177,7 @@
       ${F("Accent colour", `<input type="color" data-k="accent">`)}
       ${F("Show", `<div class="row-btns">${chk("show_target", "Target & HP")}${chk("show_heal", "Healing")}</div>`)}
       ${F("Extra columns", `<div class="colpick" id="colpick">${COLS.map(([k, l]) => `<button type="button" class="cp" data-col="${k}">${l}</button>`).join("")}</div>`, "Up to 3, shown between the name and the main number. Widen the meter for more room.")}
-      ${F("Players listed", sel("show_players", [["all", "Everyone fighting your target"], ["party", "Me and my party"], ["me", "Only me"]]), "Others' damage is still counted (share %, fight totals); this only hides their rows.")}
+      ${F("Players listed", sel("show_players", [["auto", "Auto: my party when I'm in one, else everyone"], ["all", "Everyone fighting your target"], ["party", "Me and my party"], ["me", "Only me"]]), "Auto follows the game's party list: dungeons, rooms and parties at world bosses show your group; solo you see everyone. Others' damage is still counted (share %, fight totals); this only hides their rows.")}
       ${F("Privacy", chk("anonymize_others", "Hide other players' names"), "For screenshots and streams. Your own name stays visible.")}
       ${F("Window", `<div class="row-btns">${chk("always_on_top", "Always on top")}${chk("click_through", "Click-through")}</div>`)}
     </div>

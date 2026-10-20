@@ -210,6 +210,11 @@
     {"opcode": "0x9702", "name": "S_PARTY_LIST", "dir": "server",
      "fields": [{"name": "members", "type": "member_names", "marker": 30}],
      "emit": {"event": "party", "when": "1", "members": "members"}},
+    // You left the party (no body; seen 2.5 s after "leave party" in two
+    // captures, never otherwise). An empty party list.
+    {"opcode": "0x8d3f", "name": "S_PARTY_LEFT", "dir": "server",
+     "fields": [],
+     "emit": {"event": "party", "when": "1"}},
     // Stat update. kind 2 = HP (u32), kind 1 = MP.
     {"opcode": "0x8d00", "name": "S_STAT_UPDATE", "dir": "server",
      // (Kept free of "&&" so the file also loads in meter v0.1.0/0.1.1.)

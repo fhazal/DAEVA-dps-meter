@@ -628,8 +628,11 @@
     });
   }
   function renderRows(f, m) {
-    const list = ui.show_players === "me" ? f.players.filter((p) => p.is_self)
-      : ui.show_players === "party" ? f.players.filter((p) => p.in_party || p.is_self)
+    // Auto: your party once another member of it is in the fight, else everyone.
+    const inParty = f.players.some((p) => p.in_party && !p.is_self);
+    const mode = ui.show_players === "auto" || !ui.show_players ? (inParty ? "party" : "all") : ui.show_players;
+    const list = mode === "me" ? f.players.filter((p) => p.is_self)
+      : mode === "party" ? f.players.filter((p) => p.in_party || p.is_self)
       : f.players;
     const rows = list.slice(0, Math.max(1, ui.rows || 8));
     const top = Math.max(1, ...rows.map((p) => (m === "dps" ? p.dps : p.dmg)));

@@ -140,9 +140,13 @@ pub struct Settings {
     pub rows: usize,
     pub show_heal: bool,
     pub show_target: bool,
-    /// Whose rows the overlay lists: "all" (everyone fighting your targets),
-    /// "party" (you and your group, from the game's party list) or "me".
+    /// Whose rows the overlay lists: "auto" (your party while you're in one,
+    /// everyone otherwise), "all" (everyone fighting your targets), "party"
+    /// (you and your group, from the game's party list) or "me".
     pub show_players: String,
+    /// Settings file revision, for one-time upgrades (0 = before 0.5.0).
+    #[serde(default)]
+    pub settings_rev: u32,
     /// "dps" | "dmg" | "share"
     pub primary_metric: String,
     /// Hide other players' names on the overlay (screenshots/streams).
@@ -217,7 +221,8 @@ impl Default for Settings {
             rows: 8,
             show_heal: false,
             show_target: true,
-            show_players: "all".into(),
+            show_players: "auto".into(),
+            settings_rev: 1,
             primary_metric: "dps".into(),
             anonymize_others: false,
             click_through: false,
@@ -262,6 +267,14 @@ impl Settings {
         // Older versions saved an empty address; fill in the Daeva bot's.
         if s.share.endpoint.trim().is_empty() {
             s.share.endpoint = DEFAULT_SHARE_ENDPOINT.into();
+        }
+        // 0.5.0: "Everyone" was the default; Auto replaces it (your party
+        // while you're in one). Choices made after this are kept.
+        if s.settings_rev < 1 {
+            if s.show_players == "all" {
+                s.show_players = "auto".into();
+            }
+            s.settings_rev = 1;
         }
         s
     }

@@ -2372,6 +2372,16 @@ mod zone_notice_tests {
     }
 
     #[test]
+    fn leaving_the_party_clears_it() {
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.handle(&GameEvent::Party { names: vec!["Me".into(), "Arthemis".into()], codes: vec![Some(31), Some(35)] });
+        assert!(e.party.contains("Arthemis"));
+        // "You left the party" comes as an empty list.
+        e.handle(&GameEvent::Party { names: vec![], codes: vec![] });
+        assert!(e.party.is_empty() && e.party_member_codes.is_empty());
+    }
+
+    #[test]
     fn party_list_names_unnamed_members() {
         let names = || {
             Names::from_json(
