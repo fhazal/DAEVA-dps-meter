@@ -193,6 +193,6 @@ More: [docs/DECODING.md](docs/DECODING.md) · [docs/DEFINITIONS.md](docs/DEFINIT
 
 <div align="center">
 
-<sub>Made with ☕ by the <b>Bajubesi Network</b> community · AION 2 and its artwork belong to NCSOFT Corporation.</sub>
+<sub>Made with ☕ by <b>BajuBesi Labs</b> · AION 2 and its artwork belong to NCSOFT Corporation.</sub>
 
 </div>
