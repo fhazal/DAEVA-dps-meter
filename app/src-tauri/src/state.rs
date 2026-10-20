@@ -160,8 +160,9 @@ impl Bests {
         let ok = !name.is_empty() && clock == "boss" && row.bool_or("boss_killed", false) && row.f64_or("clock_secs", 0.0) >= PB_MIN_SECS && row.f64_or("mine", 0.0) > 0.0;
         ok.then(|| (name.to_string(), npc, clock.to_string()))
     }
-    /// Adds a fight; returns the previous best when this one beat it.
-    pub fn add(&mut self, row: &Value) -> Option<f64> {
+    /// Adds a fight: Some(Some(prev)) when it beat the best, Some(None) when
+    /// it's the first recorded kill on that boss, None otherwise.
+    pub fn add(&mut self, row: &Value) -> Option<Option<f64>> {
         let k = Self::key(row)?;
         let (dps, at) = (row.f64_or("mine", 0.0), row.f64_or("started_unix", 0.0));
         match self.map.get_mut(&k) {
@@ -171,14 +172,14 @@ impl Bests {
                     let prev = b.0;
                     b.0 = dps;
                     b.1 = at;
-                    Some(prev)
+                    Some(Some(prev))
                 } else {
                     None
                 }
             }
             None => {
                 self.map.insert(k, (dps, at, 1));
-                None
+                Some(None)
             }
         }
     }
@@ -460,11 +461,9 @@ impl Core {
             self.fight_finished(f);
         }
         self.track_gaps();
-        // The personal-best line stays until the next fight or 10 minutes.
-        let pb_stale = self.pb_notice.as_ref().map_or(false, |n| {
-            let id = n.get("fight_id").and_then(|x| x.as_u64());
-            now - n.f64_or("at", 0.0) > 600.0 || self.pipeline.engine.current.as_ref().map_or(false, |c| !c.finished && Some(c.id) != id)
-        });
+        // The personal-best / first-record line stays 10 minutes, through
+        // later fights; only a newer record replaces it (or ✕ in the window).
+        let pb_stale = self.pb_notice.as_ref().map_or(false, |n| now - n.f64_or("at", 0.0) > 600.0);
         if pb_stale {
             self.pb_notice = None;
         }
@@ -972,6 +971,7 @@ impl Core {
                             .set("fight_id", f.id)
                             .set("target", row.str_or("target", "the boss"))
                             .set("dps", row.f64_or("mine", 0.0))
+                            // null on a first kill: "First record", nothing to beat yet.
                             .set("prev", prev)
                             .set("at", now_unix())
                             .build(),

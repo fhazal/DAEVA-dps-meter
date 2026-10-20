@@ -82,7 +82,7 @@
   .rows.cols .val > * { min-width: 0; margin-left: 0; text-align: center; }
   .rows.cols .val .odo.main { min-width: 0; }
   .colhead { padding-right: 8px; }
-  .chk { color: var(--good); font-weight: 600; } .chk.warn { color: var(--warn); } .chk.ow svg { width: 11px; height: 11px; vertical-align: -1px; margin-right: 2px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
+  .chk { color: var(--good); font-weight: 600; } .chk.wb { color: #8fc6ff; } .chk.warn { color: var(--warn); } .chk.ow svg { width: 11px; height: 11px; vertical-align: -1px; margin-right: 2px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
   .pbline { flex: none; display: flex; align-items: center; gap: 8px; padding: 5px 10px; font-size: 11px; color: #ffe6a8; background: rgba(232,176,75,.14); border-top: 1px solid rgba(232,176,75,.35); }
   .pbline b { color: #ffd166; }
   .pbline .up { color: var(--good); font-weight: 600; }
@@ -349,7 +349,10 @@
     const sig = pb.fight_id + ":" + pb.dps;
     if (sig === pbShown) return;
     pbShown = sig;
-    $("pbline").innerHTML = `<span title="Your DPS on this boss beat your best saved fight (same DPS clock, at least 30 s on the boss).">🏆 <b>New personal best</b> on ${D.esc(pb.target)} · <b>${D.fmt(pb.dps)}/s</b> <span class="up">▲ ${D.pct(pb.dps / pb.prev - 1, 0)}</span> <span style="color:var(--muted)">(was ${D.fmt(pb.prev)})</span></span><button class="x" id="pbX" title="Hide">✕</button>`;
+    const line = pb.prev == null
+      ? `<span title="Your first recorded kill on this boss (at least 30 s on the boss). Beat this DPS next time for a new personal best.">🏆 <b>First record</b> on ${D.esc(pb.target)} · <b>${D.fmt(pb.dps)}/s</b> <span style="color:var(--muted)">· your best to beat next time</span></span>`
+      : `<span title="Your DPS on this boss beat your best saved fight (same DPS clock, at least 30 s on the boss).">🏆 <b>New personal best</b> on ${D.esc(pb.target)} · <b>${D.fmt(pb.dps)}/s</b> <span class="up">▲ ${D.pct(pb.dps / pb.prev - 1, 0)}</span> <span style="color:var(--muted)">(was ${D.fmt(pb.prev)})</span></span>`;
+    $("pbline").innerHTML = `${line}<button class="x" id="pbX" title="Hide">✕</button>`;
     $("pbX").onclick = () => { pbHidden = pb.fight_id; $("pbline").hidden = true; pbShown = null; };
   }
   function renderUpdate(s) {
@@ -370,12 +373,22 @@
   // it's an open-world boss, where the game only sends the hits of players
   // near you, and all of yours were recorded.
   let gaps = 0;
+  const WORLD_BOSS_PLAYERS = 5;
   function hpCheck(t) {
     if (t.counted == null) return "";
     const c = t.counted, low = c < 0.97;
     if (low && t.watched === true && !gaps) {
       const tip = `Open-world boss: the game only sends you the hits of players near you, so the meter saw ${D.pct(c, 1)} of its health go. Every one of your own hits was recorded, from the pull to the kill, and your DPS is complete.`;
       return ` · <span class="chk ow" title="${D.esc(tip)}">${D.icon("globe")} All your hits seen</span>`;
+    }
+    // Joined a busy world boss after the pull: the low figure is the game's
+    // nearby-only rule (players arrive at different times), not missed hits,
+    // and nothing was lost. Say so instead of warning.
+    const f = lastFight;
+    const crowd = f && f.players ? f.players.length : 0;
+    if (low && !gaps && f && f.clock === "boss" && t.id === f.clock_target && crowd >= WORLD_BOSS_PLAYERS) {
+      const tip = `World boss: the game only sends you the hits of players near you, so the meter saw ${D.pct(c, 1)} of its health go. Every one of your hits since you joined was recorded. The meter didn't see this boss at full health, so it can't confirm the fight from the pull.`;
+      return ` · <span class="chk ow wb" title="${D.esc(tip)}">${D.icon("globe")} World Boss</span>`;
     }
     const tip = low
       ? `The hits the meter saw add up to ${D.pct(c, 1)} of this monster's health, so some were missed${gaps ? ` (${gaps} gaps in the captured traffic)` : ""}. DPS for this fight may be a little low.`

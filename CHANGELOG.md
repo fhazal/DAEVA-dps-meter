@@ -3,6 +3,9 @@
 ## 0.4.2
 
 - **Clearer column labels:** with extra columns turned on (crit, perfect, max and so on), the figures on the right each get their own label, centred over the number: **DPS**, **DMG** and **DMG %** (your share of the group's damage). Before, a single *DPS* label sat at the far right, above the percentage. The header is also a little brighter, so it reads over the game. With *Show healing* on, a **HEAL** column joins them.
+- **🌐 World Boss instead of a warning:** at a busy open-world boss, players arrive at different times and the game only sends you the hits of players near you, so joining after the pull showed *⚠ 2.5% of HP counted*, which looked like a fault. With nothing lost, the card now says **🌐 World Boss** (hover for why). *🌐 All your hits seen* stays for bosses watched from full health, and ⚠ stays for real problems.
+- **🏆 First record:** your first recorded kill on a boss (at least 30 s on it) now shows *🏆 First record on … · your best to beat next time*. Before, the 🏆 line only appeared when you beat an earlier best.
+- **The 🏆 line stays 10 minutes**, through later fights; only a newer record replaces it (or ✕).
 
 ## 0.4.1
 
