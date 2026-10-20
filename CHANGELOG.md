@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.4
+
+- **Lighter on your PC:** the overlay still checks for new numbers 4 times a second, but only redraws what actually changed. Idle or between fights it now does almost no work (on a test PC the meter's graphics use fell from about 0.5% to 0.05%), and in fights it redraws about half as much. DPS still counts up just as smoothly.
+- **Calmer idle light:** when combat stops, the amber dot dims three times and then rests as a steady glow, instead of pulsing (and redrawing the overlay) for the rest of the session.
+- **Lighter alert window:** with no banner on screen it checks for new alerts once a second and follows the meter at a gentler pace. Banners still appear well before each event.
+- **Your server stays in the footer:** while idle the footer shows **● Beritra │ Idle · no combat for 30s** instead of replacing your server with the idle message. The server light is now **blue**, so it isn't confused with the green "in combat" dot.
+- **Player list header:** a thin line under PLAYER · CRIT · PERF… that fades at both ends, and the figure the list is ranked by (DPS, DMG or DMG %) is shown in gold.
+
 ## 0.4.3
 
 - **No more dark box behind event banners:** the banner's shadow was wider than the invisible window it sits in, so it was cut off at the edges and showed as a faint dark rectangle behind the banner over the game. The shadow is now a thin edge that fits inside the window: the banner sits cleanly on the game and still reads well.

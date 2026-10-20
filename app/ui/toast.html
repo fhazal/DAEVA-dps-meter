@@ -110,7 +110,9 @@
       }
       sendRects();
     } catch (e) { console.warn(e); }
-    setTimeout(poll, 400);
+    // Quick while a banner is up; with none on screen once a second is plenty
+    // (banners warn minutes ahead).
+    setTimeout(poll, box.children.length ? 400 : 1000);
   }
   poll();
 })();

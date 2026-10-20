@@ -450,8 +450,11 @@ fn toast_positioner(handle: AppHandle, sh: Arc<Shared>) {
     let mut last: Option<(i32, i32, u32)> = None;
     let mut ignoring: Option<bool> = None;
     let mut tick: u32 = 0;
+    // No banner on screen and nothing being dragged: the empty window can
+    // follow the meter at a gentler pace.
+    let mut idle = false;
     loop {
-        std::thread::sleep(std::time::Duration::from_millis(80));
+        std::thread::sleep(std::time::Duration::from_millis(if idle { 250 } else { 80 }));
         tick = tick.wrapping_add(1);
         let (Some(t), Some(m)) = (handle.get_webview_window("toast"), handle.get_webview_window("main")) else { continue };
         let scale = t.scale_factor().unwrap_or(1.0);
@@ -463,6 +466,7 @@ fn toast_positioner(handle: AppHandle, sh: Arc<Shared>) {
             let c = sh.lock();
             (c.settings.click_through, c.toast_rects.clone(), c.alert_drag.is_some())
         };
+        idle = rects.is_empty() && !dragging;
         let over = !locked
             && winsys::cursor_pos().map_or(false, |(cx, cy)| {
                 rects.iter().any(|(x, y, w, h)| {
