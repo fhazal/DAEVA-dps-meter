@@ -14,7 +14,9 @@
      that need keys a gold strip with the keys you hold. */
   .alert { --k: #e8b04b; position: relative; overflow: hidden; border-radius: 12px;
     background: rgba(24,25,30,0.96); border: 1px solid rgba(255,255,255,0.10);
-    box-shadow: 0 10px 28px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.04);
+    /* Kept within the stack's 5px padding: a wider shadow is cut off at the
+       window edge and shows as a dark box behind the banner. */
+    box-shadow: 0 1px 4px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.04);
     animation: inn .35s cubic-bezier(.2,.9,.3,1.2); transition: opacity .45s, transform .45s; }
   .alert.start { --k: #7fd6a0; }
   .alert.out { opacity: 0; transform: translateY(-6px) scale(.98); }

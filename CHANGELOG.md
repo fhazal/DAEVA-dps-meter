@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.3
+
+- **No more dark box behind event banners:** the banner's shadow was wider than the invisible window it sits in, so it was cut off at the edges and showed as a faint dark rectangle behind the banner over the game. The shadow is now a thin edge that fits inside the window: the banner sits cleanly on the game and still reads well.
+
 ## 0.4.2
 
 - **Clearer column labels:** with extra columns turned on (crit, perfect, max and so on), the figures on the right each get their own label, centred over the number: **DPS**, **DMG** and **DMG %** (your share of the group's damage). Before, a single *DPS* label sat at the far right, above the percentage. The header is also a little brighter, so it reads over the game. With *Show healing* on, a **HEAL** column joins them.
