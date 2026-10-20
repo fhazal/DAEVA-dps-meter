@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.2
+
+- **Clearer column labels:** with extra columns turned on (crit, perfect, max and so on), the figures on the right each get their own label, centred over the number: **DPS**, **DMG** and **DMG %** (your share of the group's damage). Before, a single *DPS* label sat at the far right, above the percentage. The header is also a little brighter, so it reads over the game. With *Show healing* on, a **HEAL** column joins them.
+
 ## 0.4.1
 
 - **HP check right in the open world:** open-world monsters lose 4.5 times the damage the game shows (your damage numbers are right: the game's own Combat Analysis shows the same). The HP check compared the damage with the health bar as if 1:1, so a solo kill of a side-quest elite read *⚠ 23% of HP counted* although every hit was seen. It now measures how much health each hit really removes and allows for a steady factor: those fights show ✓, and the Beritra air raid boss reads about 94% instead of 21%. Fights where hits really go missing (busy world bosses) still say so. DPS and damage are unchanged.

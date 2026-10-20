@@ -74,10 +74,13 @@
   .rows.cols .row { grid-template-columns: 1fr var(--xc) auto; }
   .xcs { display: grid; grid-auto-flow: column; grid-auto-columns: 44px; text-align: right; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
   .xcs b { color: var(--text); font-weight: 600; }
-  .colhead { display: grid; grid-template-columns: 1fr var(--xc) auto; gap: 8px; padding: 2px 12px 0 10px; font-size: 9.5px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
-  .colhead .xcs { font-size: 9.5px; }
-  .colhead .vh { width: 150px; text-align: right; }
-  .rows.cols .val { width: 150px; }
+  .colhead { display: grid; grid-template-columns: 1fr var(--xc) auto; gap: 8px; padding: 2px 12px 0 10px; font-size: 9.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: #c9ccd3; }
+  .colhead .xcs { font-size: 9.5px; color: inherit; }
+  /* With columns on, each figure on the right gets its own label, centred over it. */
+  .colhead .vh { width: var(--vw); display: grid; grid-template-columns: var(--vc); text-align: center; }
+  .rows.cols .val { width: var(--vw); display: grid; grid-template-columns: var(--vc); align-items: baseline; text-align: center; }
+  .rows.cols .val > * { min-width: 0; margin-left: 0; text-align: center; }
+  .rows.cols .val .odo.main { min-width: 0; }
   .colhead { padding-right: 8px; }
   .chk { color: var(--good); font-weight: 600; } .chk.warn { color: var(--warn); } .chk.ow svg { width: 11px; height: 11px; vertical-align: -1px; margin-right: 2px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
   .pbline { flex: none; display: flex; align-items: center; gap: 8px; padding: 5px 10px; font-size: 11px; color: #ffe6a8; background: rgba(232,176,75,.14); border-top: 1px solid rgba(232,176,75,.35); }
@@ -513,7 +516,12 @@
     const cc = cols();
     $("rows").classList.toggle("cols", cc.length > 0);
     $("rows").style.setProperty("--xc", cc.length * 44 + "px");
-    const head = cc.length ? `<div class="colhead" style="--xc:${cc.length * 44}px"><span>Player</span><span class="xcs">${cc.map((c) => `<span>${COLS[c][0]}</span>`).join("")}</span><span class="vh">${m === "dps" ? "DPS" : m === "dmg" ? "Damage" : "Share"}</span></div>` : "";
+    // Figures on the right, each with its own label: [label, width in px].
+    const vparts = m === "share" ? [["Dmg %", 66], ["DPS", 54]] : [[m === "dps" ? "DPS" : "Dmg", 66], [m === "dps" ? "Dmg" : "DPS", 54], ["Dmg %", 50]];
+    if (ui.show_heal) vparts.splice(1, 0, ["Heal", 54]);
+    $("rows").style.setProperty("--vc", vparts.map((v) => v[1] + "px").join(" "));
+    $("rows").style.setProperty("--vw", vparts.reduce((a, v) => a + v[1], 0) + "px");
+    const head = cc.length ? `<div class="colhead" style="--xc:${cc.length * 44}px"><span>Player</span><span class="xcs">${cc.map((c) => `<span>${COLS[c][0]}</span>`).join("")}</span><span class="vh">${vparts.map((v) => `<span>${v[0]}</span>`).join("")}</span></div>` : "";
     // Remember where each row was, so rows that change place glide there.
     const before = new Map([...document.querySelectorAll("#rows .row")].map((r) => [r.dataset.id, r.getBoundingClientRect().top]));
     $("rows").innerHTML = head + rows.map((p, i) => {
@@ -524,7 +532,8 @@
       const main = m === "share" ? odo(fk + "sh" + p.id, p.share, "pct1", "main") : m === "dps" ? odo(fk + "dps" + p.id, p.dps, "rate", "main") : odo(fk + "dmg" + p.id, p.dmg, "num", "main");
       const other = m === "dps" ? odo(fk + "dmg" + p.id, p.dmg, "num") : odo(fk + "dps" + p.id, p.dps, "rate");
       const sub = m === "share" ? `<span class="sub">${odo(fk + "dps" + p.id, p.dps, "rate")}</span>` : `<span class="sub">${other}</span><small>${odo(fk + "sh" + p.id, p.share, "pct")}</small>`;
-      const heal = ui.show_heal && p.heal ? `<span class="sub">♥ ${D.fmt(p.hps)}/s</span>` : "";
+      // With columns on, the heal cell is always there (a dash when none) so the figures stay under their labels.
+      const heal = ui.show_heal && (p.heal || cc.length) ? `<span class="sub">${p.heal ? `♥ ${D.fmt(p.hps)}/s` : "–"}</span>` : "";
       const tip = `${p.name}${p.class ? " (" + p.class + ")" : ""}\nDamage ${D.fmt(p.dmg)} · ${D.fmt(p.dps)}/s\n${clockRule(f)}\nCrit ${D.pct(p.crit_rate)} · Back ${D.pct(p.back_rate)} · Hits ${p.hits}\nMax hit ${D.fmt(p.max_hit)} (${p.max_hit_skill})${p.heal ? "\nHealing " + D.fmt(p.heal) : ""}${p.deaths ? "\nDeaths " + p.deaths : ""}`;
       return `<div class="row${p.is_self ? " self" : ""}" data-id="${p.id}" title="${D.esc(tip)}">
         <i class="fill" style="width:${((v / top) * 100).toFixed(1)}%;background:${color}"></i>
