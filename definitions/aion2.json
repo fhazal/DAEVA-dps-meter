@@ -210,6 +210,15 @@
     {"opcode": "0x9702", "name": "S_PARTY_LIST", "dir": "server",
      "fields": [{"name": "members", "type": "member_names", "marker": 30}],
      "emit": {"event": "party", "when": "1", "members": "members"}},
+    // Party list sent when you join any party (open world too, where 0x9702
+    // never comes): the same member entries without the marker byte.
+    {"opcode": "0x9200", "name": "S_PARTY_INFO", "dir": "server",
+     "fields": [{"name": "members", "type": "member_names", "marker": 0}],
+     "emit": {"event": "party", "when": "1", "members": "members"}},
+    // You left an open-world party (no body, 3 s after "leave party").
+    {"opcode": "0x9213", "name": "S_PARTY_LEAVE", "dir": "server",
+     "fields": [],
+     "emit": {"event": "party", "when": "1"}},
     // You left the party (no body; seen 2.5 s after "leave party" in two
     // captures, never otherwise). An empty party list.
     {"opcode": "0x8d3f", "name": "S_PARTY_LEFT", "dir": "server",

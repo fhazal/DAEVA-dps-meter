@@ -7,7 +7,9 @@
 <link rel="stylesheet" href="common.css">
 <style>
   .titlebar { gap: 2px; }
-  .state-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); flex: none; margin-right: 6px; box-shadow: 0 0 0 3px rgba(255,255,255,0.03); }
+  /* The status dot follows the name; the buttons stay on the right. */
+  .titlebar .title { flex: 0 1 auto; }
+  .state-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); flex: none; margin: 0 auto 0 8px; box-shadow: 0 0 0 3px rgba(255,255,255,0.03); }
   .state-dot.live { background: var(--good); box-shadow: 0 0 8px rgba(111,207,142,0.7); }
   .state-dot.wait { background: var(--warn); }
   /* Connected but no combat for 30 s: amber that dims three times, then
@@ -24,6 +26,7 @@
   @keyframes pulse { 50% { opacity: 0.35; } }
   .tools { display: flex; gap: 0; }
   body.locked .tools .hide-locked { display: none; }
+  body.locked .lights { display: none; }
 
   /* Target card: portrait, name, HP current / max · %, health bar,
      kill-time estimate and damage on the target. */
@@ -225,7 +228,10 @@
   .so-ft b { color: var(--text); font-variant-numeric: tabular-nums; }
   .so-ft .ody { width: 12px; height: 12px; object-fit: contain; vertical-align: -2px; }
   .so-ft .sep { width: 1px; height: 10px; background: rgba(255,255,255,.12); }
-  .so-ft .btns { margin-left: auto; display: flex; gap: 0; }
+  .so-ft .btns { margin-left: auto; display: flex; align-items: center; gap: 0; }
+  .so-ft .lights { margin-left: 6px; gap: 6px; }
+  .so-ft .lt { width: 11px; height: 11px; } .so-ft .lt svg { inset: 1.5px; }
+  .titlebar .lights { margin: 0 10px 0 2px; }
   .so-ft .icon-btn { width: 18px; height: 18px; }
   .so-ft .icon-btn svg { width: 12px; height: 12px; }
   body.locked .so-ft .hide-locked { display: none; }
@@ -236,18 +242,16 @@
 <body>
 <div class="shell">
   <div class="titlebar" data-drag>
-    <span class="state-dot" id="dot" data-drag></span>
+    <span id="lights"></span>
     <div class="title" id="title" data-drag>Daeva Meter</div>
+    <span class="state-dot" id="dot" data-drag></span>
     <div class="tools">
-      <button class="icon-btn hide-locked" id="bLayout" title="Switch to Solo: just you (Ctrl+Shift+O)"></button>
       <button class="icon-btn hide-locked" id="bMetric" title="Switch DPS / damage / share"></button>
       <button class="icon-btn hide-locked" id="bCopy" title="Copy summary for Discord"></button>
       <button class="icon-btn hide-locked" id="bReset" title="End fight now"></button>
       <button class="icon-btn hide-locked" id="bHistory" title="History"></button>
       <button class="icon-btn hide-locked" id="bResearch" title="Research mode"></button>
       <button class="icon-btn hide-locked" id="bSettings" title="Settings"></button>
-      <button class="icon-btn hide-locked" data-win="minimize" title="Minimise"></button>
-      <button class="icon-btn close hide-locked" data-win="close" title="Quit"></button>
     </div>
   </div>
   <div class="solo" id="solo" data-drag></div>
@@ -274,16 +278,22 @@
   let share = null;
   let lastFight = null;
 
-  $("bLayout").innerHTML = D.icon("layout");
-  $("bLayout").onclick = () => D.call("set_layout", { layout: "solo" });
+  $("lights").outerHTML = D.lights("solo");
+  // The window lights, in the title bar and on the Solo card.
+  document.addEventListener("click", (ev) => {
+    const b = ev.target.closest("[data-lt]");
+    if (!b) return;
+    ev.stopPropagation();
+    if (b.dataset.lt === "close") D.winAction("close");
+    else if (b.dataset.lt === "min") D.winAction("minimize");
+    else D.call("set_layout", { layout: b.dataset.to });
+  });
   $("bMetric").innerHTML = D.icon("metric");
   $("bCopy").innerHTML = D.icon("copy");
   $("bReset").innerHTML = D.icon("reset");
   $("bHistory").innerHTML = D.icon("history");
   $("bResearch").innerHTML = D.icon("flask");
   $("bSettings").innerHTML = D.icon("gear");
-  document.querySelector('[data-win="minimize"]').innerHTML = D.icon("min");
-  document.querySelector('[data-win="close"]').innerHTML = D.icon("close");
   D.wireTitlebar();
 
   $("bMetric").onclick = () => { metric = metrics[(metrics.indexOf(metric || ui.primary_metric || "dps") + 1) % metrics.length]; D.toast("Showing " + ({ dps: "DPS", dmg: "total damage", share: "damage share" })[metric]); render(lastSnap); };
@@ -721,7 +731,7 @@
     // Bottom: Odyle, party DPS, ping and the buttons.
     const partyDps = pool.reduce((a, p) => a + (p.dps || 0), 0);
     const ody = s.odyle != null ? `<span title="Odyle${s.odyle_bonus ? ` (+${Number(s.odyle_bonus).toLocaleString()} from Odyle Energy)` : ""}"><img class="ody" src="img/odyle.webp" alt=""> <b>${Number(s.odyle).toLocaleString()}</b>${s.odyle_bonus ? ` <span style="color:#4fb8e8">(+${Number(s.odyle_bonus).toLocaleString()})</span>` : ""}</span><i class="sep"></i>` : "";
-    const btns = `<span class="btns"><button class="icon-btn hide-locked" data-act="layout" title="Switch to Classic (Ctrl+Shift+O)">${D.icon("layout")}</button><button class="icon-btn hide-locked" data-act="settings" title="Settings">${D.icon("gear")}</button><button class="icon-btn${ui.click_through ? " on" : ""}" data-act="lock" title="Click-through (Ctrl+Shift+L)">${D.icon(ui.click_through ? "lock" : "unlock")}</button><button class="icon-btn hide-locked" data-act="min" title="Minimise">${D.icon("min")}</button><button class="icon-btn close hide-locked" data-act="close" title="Quit Daeva Meter">${D.icon("close")}</button></span>`;
+    const btns = `<span class="btns"><button class="icon-btn hide-locked" data-act="settings" title="Settings">${D.icon("gear")}</button><button class="icon-btn${ui.click_through ? " on" : ""}" data-act="lock" title="Click-through (Ctrl+Shift+L)">${D.icon(ui.click_through ? "lock" : "unlock")}</button>${D.lights("classic")}</span>`;
     const ft = so.footer !== false ? `<div class="so-ft" data-drag>${ody}${pool.length > 1 ? `<span>Party <b>${D.fmt(partyDps)}</b></span><i class="sep"></i>` : ""}${ping}${btns}</div>` : `<div class="so-ft" data-drag style="padding-top:3px;padding-bottom:3px">${btns}</div>`;
     if (setHTML($("solo"), hd + card + ft)) runOdos();
     fitSolo();
@@ -730,10 +740,7 @@
     const a = ev.target.closest("[data-act]");
     if (!a) return;
     const act = a.dataset.act;
-    if (act === "layout") D.call("set_layout", { layout: "classic" });
-    else if (act === "settings") D.call("open_window", { kind: "settings" });
-    else if (act === "min") D.winAction("minimize");
-    else if (act === "close") D.winAction("close");
+    if (act === "settings") D.call("open_window", { kind: "settings" });
     else if (act === "lock") D.call("toggle_click_through").then((on) => D.toast(on ? "Click-through on — Ctrl+Shift+L to unlock" : "Click-through off"));
     else if (act === "detail" && lastFight) {
       const me = lastFight.players.find((p) => p.is_self);

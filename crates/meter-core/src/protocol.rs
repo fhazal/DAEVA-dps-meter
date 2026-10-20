@@ -527,22 +527,35 @@ fn read_fields(r: &mut Reader<'_>, defs: &[FieldDef], parents: &[&Scope], out: &
                 let b = r.rest();
                 let mut names: Vec<String> = Vec::new();
                 let mut i = 0;
-                while i + 12 <= b.len() {
-                    let idx = b[i + 1];
-                    let len = b[i + 10] as usize;
-                    // Entries start 0x1e, or 0x0e with one status bit clear
-                    // (seen for a member who joined through a dungeon room).
-                    if b[i] | 0x10 == *marker | 0x10 && (1..=16).contains(&idx) && b[i + 6] == 0 && b[i + 7] == 0 && (2..=48).contains(&len) && i + 11 + len <= b.len() {
-                        if let Ok(n) = std::str::from_utf8(&b[i + 11..i + 11 + len]) {
-                            if !n.chars().any(|c| c.is_control()) && !names.iter().any(|x| x.split('\t').next() == Some(n)) {
-                                // The u32 after the name follows the member's class
-                                // ("Name\t22"); the engine matches it to fighters.
-                                let at = i + 11 + len;
-                                match b.get(at..at + 4) {
-                                    Some(c) => names.push(format!("{n}\t{}", u32::from_le_bytes([c[0], c[1], c[2], c[3]]))),
+                // An entry: [marker, slot,] id u32, 0 0, server u16, name
+                // length, name, class number u32. Marker 0 = no marker and
+                // slot (the open-world party list), so the server and class
+                // number must look right instead.
+                let h = if *marker == 0 { 0 } else { 2 };
+                while i + h + 10 <= b.len() {
+                    let len = b[i + h + 8] as usize;
+                    let head = if *marker == 0 {
+                        let server = u16::from_le_bytes([b[i + 6], b[i + 7]]);
+                        (1000..=9999).contains(&server)
+                    } else {
+                        // Entries start 0x1e, or 0x0e with one status bit clear
+                        // (seen for a member who joined through a dungeon room).
+                        b[i] | 0x10 == *marker | 0x10 && (1..=16).contains(&b[i + 1])
+                    };
+                    let name_at = i + h + 9;
+                    if head && b[i + h + 4] == 0 && b[i + h + 5] == 0 && (2..=48).contains(&len) && name_at + len <= b.len() {
+                        if let Ok(n) = std::str::from_utf8(&b[name_at..name_at + len]) {
+                            // The u32 after the name follows the member's class
+                            // ("Name\t22"); the engine matches it to fighters.
+                            let at = name_at + len;
+                            let code = b.get(at..at + 4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]));
+                            let code_ok = *marker != 0 || code.map_or(false, |c| (1..=64).contains(&c));
+                            if code_ok && !n.chars().any(|c| c.is_control()) && !names.iter().any(|x| x.split('\t').next() == Some(n)) {
+                                match code {
+                                    Some(c) => names.push(format!("{n}\t{c}")),
                                     None => names.push(n.to_string()),
                                 }
-                                i += 11 + len;
+                                i = at;
                                 continue;
                             }
                         }
@@ -1031,6 +1044,11 @@ fn emit(e: &Emit, header: &Scope, scope: &Scope, ts: f64, out: &mut Vec<GameEven
             "fresh" => GameEvent::Fresh,
             "party" => {
                 let lines: Vec<String> = txt("members").map(|s| s.split('\n').filter(|l| !l.is_empty()).map(String::from).collect()).unwrap_or_default();
+                // A list with no member read isn't "you left": only messages
+                // without a list (the leave messages) clear the party.
+                if lines.is_empty() && e.map.iter().any(|(k, _)| k == "members") {
+                    continue;
+                }
                 let split = |l: &String| match l.split_once('\t') {
                     Some((n, c)) => (n.to_string(), c.parse::<u32>().ok()),
                     None => (l.clone(), None),
@@ -1255,6 +1273,26 @@ mod party_tests {
         assert_eq!(names, vec!["Member01", "Member2", "Member3", "DewiHijau", "Membr4"]);
         // Each member's class number (DewiHijau is a Chanter: 36).
         assert_eq!(codes, vec![Some(34), Some(14), Some(24), Some(36), Some(14)]);
+    }
+
+    /// A real 0x9200 from an open-world party of two (another player's name
+    /// and the account ids replaced), then the empty 0x9213 sent on leaving.
+    #[test]
+    fn open_world_party_join_and_leave() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
+        let mut d = Decoder::new(Arc::new(Definitions::from_json(&src).unwrap()), None);
+        let flow = FlowKey { src: Endpoint { ip: Ipv4Addr::new(9, 9, 9, 9), port: 13328 }, dst: Endpoint { ip: Ipv4Addr::new(10, 0, 0, 2), port: 5000 } };
+        let hex = "d6 02 00 92 00 fa 5b 1f 00 40 d3 24 9a e6 0b 03 00 00 00 cc 09 05 00 00 00 02 01 00 02 02 03 01 00 00 00 00 cc 09 b4 0d 24 30 30 30 30 30 30 30 30 2d 30 30 30 30 2d 30 30 30 30 2d 30 30 30 30 2d 30 30 30 30 30 30 30 30 30 30 30 30 e6 0b 03 00 00 00 cc 09 08 4d 65 6d 62 65 72 30 38 0b 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 14 00 00 00 03 00 00 00 60 02 00 00 33 20 79 46 af 8a 22 c7 00 d4 2b 46 3f 05 66 69 69 73 74 02 00 00 00 2d 00 00 00 00 00 00 00 52 09 00 00 eb f5 01 00 00 00 00 00 02 07 02 3e 22 00 00 cc 09 cc 09 24 30 30 30 30 30 30 30 30 2d 30 30 30 30 2d 30 30 30 30 2d 30 30 30 30 2d 30 30 30 30 30 30 30 30 30 30 30 30 e0 6a 03 00 00 00 cc 09 09 44 65 77 61 50 75 74 69 68 1f 00 00 00 aa 77 aa 77 22 12 00 00 22 12 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 56 04 00 00 00 00 00 00 38 04 00 00 7e e6 09 48 1d 4c ce 47 00 70 91 45 05 66 69 69 73 74 02 00 00 00 2d 00 00 00 00 00 00 00 91 06 00 00 01 00 ba 59 09 01 05 e1 21 01 00 00 00 00 00 02 01 08 13 92 00 00";
+        let bytes: Vec<u8> = hex.split_whitespace().map(|h| u8::from_str_radix(h, 16).unwrap()).collect();
+        let mut out = Vec::new();
+        d.push(flow, true, &bytes, false, 1.0, &mut out);
+        let parties: Vec<(Vec<String>, Vec<Option<u32>>)> = out.iter().filter_map(|e| match e { GameEvent::Party { names, codes } => Some((names.clone(), codes.clone())), _ => None }).collect();
+        assert_eq!(parties.len(), 2, "{out:?}");
+        // A Templar (11) and you, a Cleric (31).
+        assert_eq!(parties[0].0, vec!["Member08", "DewaPutih"]);
+        assert_eq!(parties[0].1, vec![Some(11), Some(31)]);
+        // Leaving: an empty list.
+        assert!(parties[1].0.is_empty());
     }
 
     /// Start of a real 0x3633 sent on a teleport (same entity id as before).

@@ -6,7 +6,9 @@
 - **Settings with tabs.** General, Layout, Overlay look, Fights, Event alerts, Hotkeys, Daeva bot and Capture down the side, instead of one long page, plus a search box that finds any setting by name. The window opens on the tab you used last. Every setting is still there, just grouped.
 - **Layout tab:** pick Classic or Solo, and choose what the Solo card shows (rank and share, the five chips, the bottom line).
 - **Players listed: Auto (new default).** The meter follows the game's party list: in a dungeon, a dungeon room or a party at a world boss it lists you and your group; on your own it lists everyone fighting your target. Nothing to switch in Settings. If you had the old default (*Everyone*), you're moved to Auto once; any other choice is kept.
-- **Leaving a party is noticed.** The meter used to keep your old party until the game sent a new list, so former members could still count as your party. It now clears it as soon as you leave.
+- **Open-world parties too.** The meter only read the party list the game sends in dungeons, so a party out in the world (two friends at a field boss, say) was never seen. It now also reads the list the game sends whenever you join a party or someone joins or leaves it, anywhere.
+- **Leaving a party is noticed**, in the open world and in dungeons. The meter used to keep your old party until the game sent a new list, so former members could still count as your party.
+- **Window buttons like on a Mac:** red quits, yellow minimises, green switches between Classic and Solo (the symbols show when you point at them). In Classic they're at the top left, in Solo at the end of the bottom line. The status light now sits after the name.
 
 ## 0.4.5
 

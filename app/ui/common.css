@@ -95,6 +95,16 @@ html, body {
 }
 .icon-btn:hover { background: rgba(255, 255, 255, 0.08); color: var(--text); }
 .icon-btn.on { color: var(--accent); }
+/* macOS-style window lights: red quit, yellow minimise, green switch layout.
+   The symbols show while the mouse is over the group, as on a Mac. */
+.lights { display: inline-flex; align-items: center; gap: 7px; flex: none; }
+.lt { position: relative; width: 12px; height: 12px; padding: 0; border: 0; border-radius: 50%; cursor: pointer;
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.25); }
+.lt.r { background: #ff5f57; } .lt.y { background: #febc2e; } .lt.g { background: #28c840; }
+.lt svg { position: absolute; inset: 2px; width: 8px; height: 8px; opacity: 0; fill: none; stroke: rgba(60, 20, 10, 0.75); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.lt.y svg { stroke: rgba(90, 55, 0, 0.75); } .lt.g svg { stroke: rgba(0, 70, 10, 0.75); }
+.lights:hover .lt svg { opacity: 1; }
+.lt:active { filter: brightness(0.85); }
 .icon-btn.close { color: #e5675f; }
 .icon-btn.close:hover { background: rgba(229, 103, 95, 0.25); color: #fff; }
 .icon-btn svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
