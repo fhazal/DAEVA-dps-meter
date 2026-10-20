@@ -80,8 +80,9 @@ pub enum GameEvent {
     Odyle { cur: Option<u64>, bonus: Option<u64> },
     /// Shugo Festival Reward Keys you hold.
     Keys { cur: u64 },
-    /// Names of your group (party) members, you included.
-    Party { names: Vec<String> },
+    /// Names of your group (party) members, you included, and each member's
+    /// class number from the same list (follows the class, see Names::party_codes).
+    Party { names: Vec<String>, codes: Vec<Option<u32>> },
     /// The game just sent a full picture (login or zone change).
     Fresh,
 }

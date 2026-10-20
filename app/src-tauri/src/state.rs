@@ -32,14 +32,6 @@ pub struct Paths {
     pub research: PathBuf,
 }
 
-impl Paths {
-    /// User override in the data folder wins over the bundled file, so the
-    /// community can ship updated definitions without a new release.
-    pub fn definition(&self, file: &str) -> Option<PathBuf> {
-        [self.data.join("definitions").join(file), self.resources.join("definitions").join(file)].into_iter().find(|p| p.exists())
-    }
-}
-
 #[derive(Default)]
 pub struct Status {
     pub npcap_version: Option<String>,
@@ -1206,7 +1198,7 @@ impl Core {
             .set("odyle_bonus", e.self_odyle.or(self.settings.last_odyle).map(|o| o.1))
             // Remembered from an earlier session (Odyle regenerates while
             // you're away, so it's shown as "last seen" until the game sends it).
-            .set("needs_zone", !e.fresh_view && p.last_game_ts > 0.0 && e.self_id.is_some())
+            .set("needs_zone", p.last_game_ts > 0.0 && e.needs_zone())
             // "loading" while a fresh install downloads the monster data, so
             // the boss card can say so instead of looking incomplete.
             .set("monster_data", if self.site_bulk.is_some() { None } else if self.site_loading { Some("loading") } else { None })
@@ -1415,17 +1407,20 @@ fn load_definitions(paths: &Paths, status: &mut Status) -> (Arc<Definitions>, Na
         }
     };
     status.defs_name = format!("{} v{}", defs.name, defs.version);
-    let names = match paths.definition("names.json") {
-        Some(p) => match std::fs::read_to_string(&p).map_err(|e| e.to_string()).and_then(|s| Names::from_json(&s)) {
-            Ok(n) => n,
-            Err(e) => {
-                status.names_error = Some(format!("{}: {e}", p.display()));
-                Names::default()
-            }
-        },
-        None => Names::default(),
-    };
-    let mut names = names;
+    // The bundled names.json is the base; one dropped into the data folder's
+    // definitions adds to it and wins where both have an entry. (It used to
+    // replace it outright, so an older copy there hid newer data such as
+    // enrage timers and party class numbers.)
+    let mut names = Names::default();
+    for p in [paths.resources.join("definitions").join("names.json"), paths.data.join("definitions").join("names.json")] {
+        if !p.exists() {
+            continue;
+        }
+        match std::fs::read_to_string(&p).map_err(|e| e.to_string()).and_then(|s| Names::from_json(&s)) {
+            Ok(n) => names.merge(n),
+            Err(e) => status.names_error = Some(format!("{}: {e}", p.display())),
+        }
+    }
     // gaming.tools names (used with permission) take precedence over the
     // bundled names.json; your own names (my-names.json) win over both.
     if let Ok(site) = std::fs::read_to_string(paths.data.join("gaming-tools-names.json")).map_err(|e| e.to_string()).and_then(|s| Names::from_json(&s)) {

@@ -530,10 +530,18 @@ fn read_fields(r: &mut Reader<'_>, defs: &[FieldDef], parents: &[&Scope], out: &
                 while i + 12 <= b.len() {
                     let idx = b[i + 1];
                     let len = b[i + 10] as usize;
-                    if b[i] == *marker && (1..=16).contains(&idx) && b[i + 6] == 0 && b[i + 7] == 0 && (2..=48).contains(&len) && i + 11 + len <= b.len() {
+                    // Entries start 0x1e, or 0x0e with one status bit clear
+                    // (seen for a member who joined through a dungeon room).
+                    if b[i] | 0x10 == *marker | 0x10 && (1..=16).contains(&idx) && b[i + 6] == 0 && b[i + 7] == 0 && (2..=48).contains(&len) && i + 11 + len <= b.len() {
                         if let Ok(n) = std::str::from_utf8(&b[i + 11..i + 11 + len]) {
-                            if !n.chars().any(|c| c.is_control()) && !names.iter().any(|x| x == n) {
-                                names.push(n.to_string());
+                            if !n.chars().any(|c| c.is_control()) && !names.iter().any(|x| x.split('\t').next() == Some(n)) {
+                                // The u32 after the name follows the member's class
+                                // ("Name\t22"); the engine matches it to fighters.
+                                let at = i + 11 + len;
+                                match b.get(at..at + 4) {
+                                    Some(c) => names.push(format!("{n}\t{}", u32::from_le_bytes([c[0], c[1], c[2], c[3]]))),
+                                    None => names.push(n.to_string()),
+                                }
                                 i += 11 + len;
                                 continue;
                             }
@@ -1021,15 +1029,22 @@ fn emit(e: &Emit, header: &Scope, scope: &Scope, ts: f64, out: &mut Vec<GameEven
                 _ => continue,
             },
             "fresh" => GameEvent::Fresh,
-            "party" => GameEvent::Party { names: txt("members").map(|s| s.split('\n').map(String::from).collect()).unwrap_or_default() },
+            "party" => {
+                let lines: Vec<String> = txt("members").map(|s| s.split('\n').filter(|l| !l.is_empty()).map(String::from).collect()).unwrap_or_default();
+                let split = |l: &String| match l.split_once('\t') {
+                    Some((n, c)) => (n.to_string(), c.parse::<u32>().ok()),
+                    None => (l.clone(), None),
+                };
+                GameEvent::Party { names: lines.iter().map(|l| split(l).0).collect(), codes: lines.iter().map(|l| split(l).1).collect() }
+            }
             "keys" => match num("cur") {
                 Some(cur) if cur < 10_000 => GameEvent::Keys { cur },
                 _ => continue,
             },
-            "odyle" => match (num("cur"), num("bonus")) {
-                (None, None) => continue,
-                (cur, bonus) => GameEvent::Odyle { cur, bonus },
-            },
+            // The game leaves a counter value out when it is 0 (the flags only
+            // mark the values sent): an update with just the bonus means the
+            // base is 0, as the game shows "0 (+35)".
+            "odyle" => GameEvent::Odyle { cur: Some(num("cur").unwrap_or(0)), bonus: Some(num("bonus").unwrap_or(0)) },
             "hp" => GameEvent::Hp { ts, id: num("id").unwrap_or(0), hp: num("hp").unwrap_or(0), max_hp: num("max_hp") },
             "zone" => GameEvent::Zone { ts, zone_id: num("zone").unwrap_or(0) as u32 },
             "loot" => GameEvent::Loot {
@@ -1197,7 +1212,8 @@ mod odyle_tests {
         let mut out = Vec::new();
         d.push(flow, true, &bytes, false, 1.0, &mut out);
         let ody: Vec<_> = out.iter().filter_map(|e| match e { GameEvent::Odyle { cur, bonus } => Some((*cur, *bonus)), _ => None }).collect();
-        assert_eq!(ody, vec![(Some(160), Some(40)), (Some(160), None)]);
+        // The second update sends no bonus: the game leaves zeros out.
+        assert_eq!(ody, vec![(Some(160), Some(40)), (Some(160), Some(0))]);
         assert!(out.iter().any(|e| matches!(e, GameEvent::Keys { cur: 21 })), "{out:?}");
     }
 
@@ -1235,8 +1251,10 @@ mod party_tests {
         let bytes: Vec<u8> = hex.split_whitespace().map(|h| u8::from_str_radix(h, 16).unwrap()).collect();
         let mut out = Vec::new();
         d.push(flow, true, &bytes, false, 1.0, &mut out);
-        let names = out.iter().find_map(|e| match e { GameEvent::Party { names } => Some(names.clone()), _ => None }).expect("party event");
+        let (names, codes) = out.iter().find_map(|e| match e { GameEvent::Party { names, codes } => Some((names.clone(), codes.clone())), _ => None }).expect("party event");
         assert_eq!(names, vec!["Member01", "Member2", "Member3", "DewiHijau", "Membr4"]);
+        // Each member's class number (DewiHijau is a Chanter: 36).
+        assert_eq!(codes, vec![Some(34), Some(14), Some(24), Some(36), Some(14)]);
     }
 
     /// Start of a real 0x3633 sent on a teleport (same entity id as before).

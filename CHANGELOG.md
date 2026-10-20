@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.5
+
+- **Party members named from the first boss:** in dungeons the game often sends a player's name late (minutes into the run) or not at all, so the first bosses showed *Player #6377* instead of your party, and those fights couldn't count for them on the Daeva bot's DPS boards. The party list the game sends as you enter has every member with a number that follows their class; the meter now matches each member to the fighter of that class as soon as they use a skill. When the game does send a name late, earlier fights of the same dungeon are filled in too. It never guesses: two members of the same class (two Gladiators) stay unnamed until the game names them, and strangers in the open world are never taken for party members.
+- **Your own name instead of *You*:** if the meter was started after you logged in, the game hadn't told it your character's name, so your row said *You* for the whole session. It now takes your name from the party list (you are the party's only member of your class) and fills it into earlier fights too. In a party with two of your class it still says *You* until the game names you.
+- **Dungeon-room members too:** a player who joined through a dungeon room ("Request to Join") was missing from the meter's copy of the party list, which also stopped the naming above. They're read now.
+- **The boss card stays on the boss:** in a boss fight the card follows the boss even when your own hits (or a healer's damage-over-time) land on its adds; elite adds no longer take it over. Trash fights still follow what you hit last.
+- **Odyle shows 0 when it is 0:** the game leaves a value out of its updates when it's zero, and the meter kept showing the old number (*15 (+35)* while the game showed *0 (+35)*).
+- **Zone notices only when they help:** the *Teleport or change zone once* notice and the *Teleport away and back to identify* hint now show only while a monster you fight really can't be identified. Entering a dungeon (which the game doesn't announce as a new zone) used to leave the notice up for the whole run until you teleported in the open world; now it goes as soon as you fight monsters the meter knows.
+- **New event and Odyle icons:** Spacetime Rift, Shugo Festival, Dimensional Invasion, Artifact Siege and the field bosses (Kaira, Executors, Nahma) have their own icons on the next-events line and the alert banners, and Odyle has a new crystal in the footer. They ship with the meter, so they show even with game art turned off.
+- **Your own names.json no longer hides new data:** a `names.json` in the meter's data folder (`%APPDATA%\org.bajubesi.daevameter\definitions`) used to replace the built-in one, so an older copy there hid newer data such as the enrage timers. The built-in names are now always loaded, and your file adds to them (and wins for the entries it has).
+
 ## 0.4.4
 
 - **Lighter on your PC:** the overlay still checks for new numbers 4 times a second, but only redraws what actually changed. Idle or between fights it now does almost no work (on a test PC the meter's graphics use fell from about 0.5% to 0.05%), and in fights it redraws about half as much. DPS still counts up just as smoothly.

@@ -31,6 +31,13 @@ pub struct Names {
     pub ranks: HashMap<u32, String>,
     /// Monster family by template (Cogni, Natura, Fera, Varian...).
     pub families: HashMap<u32, String>,
+    /// Party-list class number -> class name ("22" -> Elementalist). The
+    /// number follows the class but isn't one per class (Chanters seen as 35
+    /// and 36), so only numbers seen with a known class are trusted.
+    pub party_codes: HashMap<u32, String>,
+    /// Class -> its block of party-list numbers (Gladiator 5..=8): each class
+    /// has a block of four. Only classes confirmed by real party lists.
+    pub party_code_ranges: Vec<(u32, u32, String)>,
 }
 
 impl Names {
@@ -90,6 +97,19 @@ impl Names {
                 n.ranks.insert(id, s.to_string());
             }
         }
+        for (code, x) in ids("party_class_codes") {
+            if let Some(s) = x.as_str() {
+                n.party_codes.insert(code, s.to_string());
+            }
+        }
+        if let Some(o) = v.get("party_class_ranges").and_then(|o| o.as_obj()) {
+            for (class, r) in o {
+                let b: Vec<u32> = r.as_arr().map(|a| a.iter().filter_map(|x| x.as_u64()).map(|x| x as u32).collect()).unwrap_or_default();
+                if let [lo, hi] = b.as_slice() {
+                    n.party_code_ranges.push((*lo, *hi, class.clone()));
+                }
+            }
+        }
         for (id, x) in ids("berserk") {
             if let Some(secs) = x.as_u64().filter(|s| *s > 0 && *s < 24 * 3600) {
                 n.berserk.insert(id, secs as u32);
@@ -143,6 +163,12 @@ impl Names {
     pub fn skill_name_key(id: u32) -> u32 {
         let id = id & !DOT_KEY;
         if Self::is_player_skill(id) { id / 10000 * 10000 } else { id }
+    }
+
+    /// The class a party-list number means: a number seen before, else the
+    /// class whose block it falls in.
+    pub fn party_class(&self, code: u32) -> Option<&String> {
+        self.party_codes.get(&code).or_else(|| self.party_code_ranges.iter().find(|(lo, hi, _)| (*lo..=*hi).contains(&code)).map(|(_, _, c)| c))
     }
 
     /// The template whose rank, family and picture describe `npc`: itself when
@@ -202,10 +228,13 @@ impl Names {
         self.zones.extend(other.zones);
         self.servers.extend(other.servers);
         self.items.extend(other.items);
+        self.grades.extend(other.grades);
         self.bosses.extend(other.bosses);
         self.berserk.extend(other.berserk);
         self.ranks.extend(other.ranks);
         self.families.extend(other.families);
+        self.party_codes.extend(other.party_codes);
+        self.party_code_ranges.extend(other.party_code_ranges);
         for (k, v) in other.classes {
             self.classes.entry(k).or_insert(v);
         }
@@ -507,6 +536,13 @@ pub struct Engine {
     pub self_keys: Option<u64>,
     /// Your group members' names (from the game's party list).
     pub party: std::collections::HashSet<String>,
+    /// Each group member's class number from the party list.
+    pub party_member_codes: HashMap<String, u32>,
+    /// Class numbers that turned out to mean more than one class.
+    bad_codes: std::collections::HashSet<u32>,
+    /// Fights from this id on are in the current zone: entity ids are
+    /// reassigned on a zone change, so a late name only fills these in.
+    zone_first_fight: u64,
     /// True once the meter has seen a login or zone change, i.e. the game
     /// has introduced everything around you (names, monsters, health).
     pub fresh_view: bool,
@@ -545,6 +581,9 @@ impl Engine {
             self_odyle: None,
             self_keys: None,
             party: Default::default(),
+            party_member_codes: HashMap::new(),
+            bad_codes: Default::default(),
+            zone_first_fight: 1,
             fresh_view: false,
             self_live: false,
             npc_max_hp: HashMap::new(),
@@ -855,6 +894,11 @@ impl Engine {
                         a.max_hp = Some(best);
                     }
                 }
+                if let Some(n) = name {
+                    if self.actors.get(id).map_or(false, |a| a.kind == ActorKind::Player) {
+                        self.backfill_name(*id, n);
+                    }
+                }
             }
             GameEvent::SelfId { id, name } => {
                 // Entity ids change on every zone change / relog, so the
@@ -879,6 +923,7 @@ impl Engine {
                         // Zone change / relog: every entity id is reassigned.
                         finished = self.finish();
                         self.actors.clear();
+                        self.zone_first_fight = self.next_id;
                         self.pending_end = None;
                     }
                 }
@@ -992,7 +1037,11 @@ impl Engine {
                 }
             }
             GameEvent::Keys { cur } => self.self_keys = Some(*cur),
-            GameEvent::Party { names } => self.party = names.iter().cloned().collect(),
+            GameEvent::Party { names, codes } => {
+                self.party = names.iter().cloned().collect();
+                self.party_member_codes = names.iter().zip(codes.iter()).filter_map(|(n, c)| c.map(|c| (n.clone(), c))).collect();
+                self.bind_party_names();
+            }
             GameEvent::Fresh => self.fresh_view = true,
             GameEvent::Odyle { cur, bonus } => {
                 let (c0, b0) = self.self_odyle.unwrap_or((0, 0));
@@ -1045,6 +1094,8 @@ impl Engine {
 
     /// Call periodically with the current capture time.
     pub fn tick(&mut self, now: f64) -> Option<Fight> {
+        // A fighter's class is known from their first skill: try the party list.
+        self.bind_party_names();
         if let Some(t) = self.pending_end {
             if now >= t {
                 self.pending_end = None;
@@ -1177,6 +1228,25 @@ impl Engine {
             .map(|(t, _)| *t)
     }
 
+    /// The boss the target card shows: of the bosses and elites hit in this
+    /// fight, the one with the most health, so an elite add (Urugugu Patrol,
+    /// 232k) never takes the card from the boss (5.2M) it was summoned for.
+    fn card_boss(&self, f: &Fight) -> Option<u64> {
+        f.targets
+            .keys()
+            .filter_map(|t| {
+                let a = self.actors.get(t);
+                let npc = a.and_then(|a| a.npc_id).or(f.tinfo.get(t).and_then(|x| x.2))?;
+                if !self.npc_is_boss(npc) {
+                    return None;
+                }
+                let max = a.and_then(|a| a.max_hp).or(f.tinfo.get(t).and_then(|x| x.1)).unwrap_or(0);
+                Some((max, f.targets[t], *t))
+            })
+            .max()
+            .map(|(_, _, t)| t)
+    }
+
     /// True while the fight's main target is a known boss that is not dead.
     fn boss_alive(&self, f: &Fight) -> bool {
         let Some(t) = f.main_target() else { return false };
@@ -1280,6 +1350,193 @@ impl Engine {
         self.actors.get(&id).and_then(|a| a.class.as_ref()).map(|c| self.names.class(c))
     }
 
+    // ------------------------------------------------------------ party names
+
+    /// Names players the game hasn't named yet from the party list. In a
+    /// dungeon the game may send a member's name late or never, but the party
+    /// list has every member with a class number, and a fighter's class is
+    /// known from their skills. A name is given only when the match is
+    /// certain: every unclaimed member's number is known, there are no more
+    /// unnamed players than unclaimed members (so not strangers in the open
+    /// world), and exactly one member and one fighter share the class.
+    /// Numbers are learned from members the game did name, and from you.
+    fn bind_party_names(&mut self) {
+        if self.party_member_codes.is_empty() {
+            return;
+        }
+        // Learn: party members whose fighter already has a name.
+        let mut seen: Vec<(u32, String)> = Vec::new();
+        for a in self.actors.values() {
+            let name = if Some(a.id) == self.self_id { self.self_name.as_ref().or(a.name.as_ref()) } else { a.name.as_ref() };
+            if let (Some(code), Some(class)) = (name.and_then(|n| self.party_member_codes.get(n)), self.actor_class(a.id)) {
+                seen.push((*code, class));
+            }
+        }
+        for (code, class) in seen {
+            match self.names.party_class(code).cloned() {
+                Some(c) if c != class => {
+                    self.bad_codes.insert(code);
+                }
+                _ => {
+                    self.names.party_codes.insert(code, class);
+                }
+            }
+        }
+        // Your own name not sent yet (meter started after login): you're in
+        // the party list, so the one member of your class is you.
+        if self.self_name.is_none() {
+            if let (Some(me), Some(mine)) = (self.self_id, self.self_id.and_then(|id| self.actor_class(id))) {
+                // Names on your skills' helper objects don't count, only players.
+                let taken: std::collections::HashSet<&String> = self.actors.values().filter(|a| a.id != me && Self::is_class_player(a)).filter_map(|a| a.name.as_ref()).collect();
+                let mut doubt = false;
+                let mut same: Vec<String> = Vec::new();
+                for (n, code) in &self.party_member_codes {
+                    if taken.contains(n) {
+                        continue;
+                    }
+                    match self.names.party_class(*code).filter(|_| !self.bad_codes.contains(code)) {
+                        Some(c) if *c == mine => same.push(n.clone()),
+                        Some(_) => {}
+                        None => doubt = true,
+                    }
+                }
+                if !doubt && same.len() == 1 {
+                    let name = same.remove(0);
+                    self.self_name = Some(name.clone());
+                    self.actor(me).name = Some(name.clone());
+                    self.backfill_name(me, &name);
+                }
+            }
+        }
+        // Players fighting on your side in this fight (not its targets).
+        let Some(f) = self.current.as_ref().filter(|f| !f.finished) else { return };
+        // An enemy takes more damage than it deals; a party member can show up
+        // as a "target" of a stray friendly effect but deals far more. A
+        // summon's or ground skill's damage counts for its owner.
+        let on_side: std::collections::HashSet<u64> = f
+            .stats
+            .iter()
+            .filter(|(id, s)| (s.dmg > 0 || s.heal > 0) && f.targets.get(id).map_or(true, |taken| *taken < s.dmg + s.heal))
+            .map(|(id, _)| self.actors.get(id).and_then(|a| a.owner).unwrap_or(*id))
+            .collect();
+        // Members not yet tied to a fighter, by the class their number means.
+        // Only a real fighter (a player with a class) holds a name: the game
+        // also labels buffs and effects with their caster's name under other ids.
+        let claimed: std::collections::HashSet<String> = self
+            .actors
+            .values()
+            .filter(|a| Self::is_class_player(a))
+            .filter_map(|a| a.name.clone())
+            .chain(self.self_name.clone())
+            .collect();
+        let mut free: HashMap<String, Vec<String>> = HashMap::new();
+        let mut unknown: Vec<(String, u32)> = Vec::new();
+        let mut unclaimed = 0;
+        for (n, code) in &self.party_member_codes {
+            if claimed.contains(n) {
+                continue;
+            }
+            unclaimed += 1;
+            match self.names.party_class(*code).filter(|_| !self.bad_codes.contains(code)) {
+                Some(class) => free.entry(class.clone()).or_default().push(n.clone()),
+                None => unknown.push((n.clone(), *code)),
+            }
+        }
+        // Your own name not known yet (meter started mid-run): the one member
+        // of your class is you.
+        if self.self_name.is_none() {
+            if let Some(mine) = self.self_id.and_then(|id| self.actor_class(id)) {
+                if free.get(&mine).map_or(false, |m| m.len() == 1) {
+                    free.remove(&mine);
+                    unclaimed -= 1;
+                }
+            }
+        }
+        // Unnamed players, by class.
+        let mut fighters: HashMap<String, Vec<u64>> = HashMap::new();
+        let mut unnamed = 0;
+        let mut classless = false;
+        for a in self.actors.values() {
+            let player = a.kind == ActorKind::Player || Self::is_class_player(a);
+            if !player || a.name.is_some() || Some(a.id) == self.self_id || !on_side.contains(&a.id) {
+                continue;
+            }
+            unnamed += 1;
+            match self.actor_class(a.id) {
+                Some(class) => fighters.entry(class).or_default().push(a.id),
+                None => classless = true,
+            }
+        }
+        if unnamed == 0 || unnamed > unclaimed {
+            return;
+        }
+        // Members whose number isn't known: when every unclaimed member is
+        // fighting and every fighter's class is known, counting decides. For
+        // each class, fighters minus known members is how many unknown members
+        // have it; a class where that is 0 is fully accounted for, so its
+        // known member can be named. With one unknown member its class is
+        // the one with a fighter to spare, learned for next time.
+        let mut settled: Option<std::collections::HashSet<String>> = None;
+        if !unknown.is_empty() {
+            if unnamed != unclaimed || classless {
+                return; // no match is certain
+            }
+            let classes: std::collections::HashSet<&String> = fighters.keys().chain(free.keys()).collect();
+            let diff: HashMap<String, i64> = classes
+                .into_iter()
+                .map(|c| (c.clone(), fighters.get(c).map_or(0, |f| f.len() as i64) - free.get(c).map_or(0, |m| m.len() as i64)))
+                .collect();
+            if diff.values().any(|d| *d < 0) || diff.values().sum::<i64>() != unknown.len() as i64 {
+                return; // the counts don't add up: something unseen, don't guess
+            }
+            let spare: Vec<&String> = diff.iter().filter(|(_, d)| **d > 0).map(|(c, _)| c).collect();
+            if let ([class], [(name, code)]) = (spare.as_slice(), unknown.as_slice()) {
+                self.names.party_codes.insert(*code, (*class).clone());
+                free.entry((*class).clone()).or_default().push(name.clone());
+            } else {
+                settled = Some(diff.into_iter().filter(|(_, d)| *d == 0).map(|(c, _)| c).collect());
+            }
+        }
+        let mut bind: Vec<(u64, String)> = Vec::new();
+        for (class, members) in &free {
+            if settled.as_ref().map_or(false, |s| !s.contains(class)) {
+                continue;
+            }
+            if let (Some(ids), 1) = (fighters.get(class), members.len()) {
+                if ids.len() == 1 {
+                    bind.push((ids[0], members[0].clone()));
+                }
+            }
+        }
+        for (id, name) in bind {
+            self.actor(id).name = Some(name.clone());
+            self.backfill_name(id, &name);
+        }
+    }
+
+    /// A fighter using a player class's skills is a player, even before the
+    /// game has said so (a Sorcerer's first hits are often ground skills).
+    fn is_class_player(a: &ActorInfo) -> bool {
+        a.class.is_some() && matches!(a.kind, ActorKind::Player | ActorKind::Unknown)
+    }
+
+    /// A player's name arrived late: fill it into this zone's earlier fights,
+    /// which froze them as "Player #id".
+    fn backfill_name(&mut self, id: u64, name: &str) {
+        let placeholder = if Some(id) == self.self_id { "You".to_string() } else { format!("Player #{id}") };
+        let first = self.zone_first_fight;
+        for f in self.history.iter_mut().chain(self.current.iter_mut()) {
+            if f.id < first {
+                continue;
+            }
+            if let Some((n, _)) = f.names.get_mut(&id) {
+                if *n == placeholder {
+                    *n = name.to_string();
+                }
+            }
+        }
+    }
+
     // ------------------------------------------------------------ output
 
     pub fn fight(&self, id: u64) -> Option<&Fight> {
@@ -1333,6 +1590,20 @@ impl Engine {
 
     pub fn display_fight(&self) -> Option<&Fight> {
         self.current.as_ref().or_else(|| self.history.back())
+    }
+
+    /// Whether the meter is missing data that a zone change would bring:
+    /// no zone load seen yet, and the fight on screen has a monster the game
+    /// never introduced ("Unknown monster"). Dungeons introduce monsters as
+    /// you go and send no zone-load message, so "no zone load seen" alone
+    /// isn't a reason to ask for a teleport.
+    pub fn needs_zone(&self) -> bool {
+        if self.fresh_view || self.self_id.is_none() {
+            return false;
+        }
+        self.display_fight().map_or(false, |f| {
+            f.targets.keys().any(|t| self.actors.get(t).map_or(false, |a| a.npc_id.is_none() && a.kind == ActorKind::Npc))
+        })
     }
 
     /// Overlay table for a fight. `target` restricts totals to one target.
@@ -1401,9 +1672,11 @@ impl Engine {
                     .build()
             })
             .collect();
-        // The card follows the enemy you hit last; the biggest target only
-        // when you haven't hit anything yourself (spectating a fight).
-        let main = target.or(f.focus).or_else(|| f.main_target());
+        // A boss or elite in the fight takes the card; otherwise it follows
+        // the enemy you hit last (a healer's few hits and damage-over-time
+        // ticks often land on adds), and the biggest target only when you
+        // haven't hit anything yourself (spectating a fight).
+        let main = target.or_else(|| self.card_boss(f)).or(f.focus).or_else(|| f.main_target());
         let target_v = main.map(|t| {
             let a = self.actors.get(&t);
             let frozen = f.tinfo.get(&t).copied();
@@ -2060,6 +2333,138 @@ mod zone_notice_tests {
         assert_eq!(card.str_or("family", ""), "Natura");
         assert_eq!(card.get("art_npc").and_then(|x| x.as_u64()), Some(2300582));
         assert!(card.bool_or("named", false), "no '✎ name it' for a known boss");
+    }
+
+    /// Urugugu run: the game named DarkMagik but sent Arthemis, Clairvoyant
+    /// and Nemura's names late or never. The party list's class numbers name
+    /// them from their first skill, and a late name fills in earlier fights.
+    #[test]
+    fn party_list_names_you() {
+        let names = || {
+            Names::from_json(r#"{"classes": {"17": "Cleric", "18": "Chanter"}, "party_class_codes": {"31": "Cleric", "35": "Chanter"}}"#).unwrap()
+        };
+        let run = |codes: Vec<Option<u32>>| {
+            let mut e = Engine::new(EngineConfig::default(), names());
+            // Meter started after login: the game never said who you are.
+            e.handle(&GameEvent::SelfId { id: 1, name: None });
+            e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(1_000_000) });
+            // One of your skills' helper objects carries your name.
+            e.handle(&GameEvent::Actor { id: 900, name: Some("Me".into()), class: None, kind: ActorKind::Unknown, npc_id: None, owner: None, max_hp: None });
+            e.handle(&GameEvent::Damage { ts: 1.0, src: 1, tgt: 50, skill: 17_010_000, amount: 100, flags: 0 });
+            assert_eq!(e.actor_name(1), "You");
+            e.handle(&GameEvent::Party { names: vec!["Arthemis".into(), "Me".into()], codes });
+            e.tick(1.5);
+            e
+        };
+        let e = run(vec![Some(35), Some(31)]);
+        assert_eq!(e.actor_name(1), "Me");
+        assert_eq!(e.current.as_ref().map(|f| e.fname(f, 1)).as_deref(), Some("Me"));
+        // Two Clerics: can't tell which one you are.
+        let e = run(vec![Some(31), Some(31)]);
+        assert_eq!(e.actor_name(1), "You");
+    }
+
+    #[test]
+    fn party_list_names_unnamed_members() {
+        let names = || {
+            Names::from_json(
+                r#"{"classes": {"11": "Gladiator", "15": "Sorcerer", "16": "Elementalist", "17": "Cleric", "18": "Chanter"},
+                    "party_class_codes": {"6": "Gladiator", "22": "Elementalist", "26": "Sorcerer", "31": "Cleric", "35": "Chanter"}}"#,
+            )
+            .unwrap()
+        };
+        let party = || GameEvent::Party {
+            names: vec!["Arthemis".into(), "Me".into(), "Clairvoyant".into(), "DarkMagik".into(), "Nemura".into()],
+            codes: vec![Some(35), Some(31), Some(22), Some(26), Some(6)],
+        };
+        let player = |e: &mut Engine, id: u64, name: Option<&str>| {
+            e.handle(&GameEvent::Actor { id, name: name.map(String::from), class: None, kind: ActorKind::Player, npc_id: None, owner: None, max_hp: None })
+        };
+        let mut e = Engine::new(EngineConfig::default(), names());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(1_000_000) });
+        player(&mut e, 3850, Some("DarkMagik"));
+        for id in [5008, 1319, 6377] {
+            player(&mut e, id, None);
+        }
+        e.handle(&party());
+        // Each one's first skill gives their class (Chanter, Elementalist, Gladiator).
+        for (src, skill) in [(1, 17_010_000), (3850, 15_010_000), (5008, 18_010_000), (1319, 16_010_000), (6377, 11_010_000)] {
+            e.handle(&GameEvent::Damage { ts: 1.0, src, tgt: 50, skill, amount: 100, flags: 0 });
+        }
+        // A stray friendly effect makes Clairvoyant a "target" too; she still
+        // deals far more than she takes, so she is on your side.
+        e.handle(&GameEvent::Damage { ts: 1.1, src: 3850, tgt: 1319, skill: 15_020_000, amount: 5, flags: 0 });
+        e.tick(1.5);
+        assert_eq!(e.actor_name(5008), "Arthemis");
+        assert_eq!(e.actor_name(1319), "Clairvoyant");
+        assert_eq!(e.actor_name(6377), "Nemura");
+
+        // First Urugugu run: two Gladiators, and Mikaa's number (8) never seen.
+        // Counting makes Mikaa the second Gladiator; the Chanter and Sorcerer
+        // are named, the two Gladiators can't be told apart and stay unnamed.
+        let mut g = Engine::new(EngineConfig::default(), names());
+        g.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        g.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(1_000_000) });
+        g.handle(&GameEvent::Party {
+            names: vec!["Arthemis".into(), "Me".into(), "Prom".into(), "DarkMagik".into(), "Mikaa".into()],
+            codes: vec![Some(35), Some(31), Some(6), Some(26), Some(8)],
+        });
+        for (src, skill) in [(1, 17_010_000), (67, 11_010_000), (2395, 11_020_000), (10435, 18_010_000), (6792, 15_010_000)] {
+            if src != 1 {
+                player(&mut g, src, None);
+            }
+            g.handle(&GameEvent::Damage { ts: 1.0, src, tgt: 50, skill, amount: 100, flags: 0 });
+        }
+        g.tick(1.5);
+        assert_eq!(g.actor_name(10435), "Arthemis");
+        assert_eq!(g.actor_name(6792), "DarkMagik");
+        assert_eq!(g.actor_name(67), "Player #67");
+        assert_eq!(g.actor_name(2395), "Player #2395");
+        assert_eq!(g.names.party_codes.get(&8).map(String::as_str), Some("Gladiator"), "learned");
+
+        // Open world: a stranger with no name must not be taken for a member.
+        let mut w = Engine::new(EngineConfig::default(), names());
+        w.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        w.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(1_000_000) });
+        w.handle(&party());
+        for id in [5008, 1319, 6377, 3850, 9001] {
+            player(&mut w, id, None);
+        }
+        w.handle(&GameEvent::Damage { ts: 1.0, src: 9001, tgt: 50, skill: 11_010_000, amount: 100, flags: 0 });
+        w.tick(1.5);
+        assert_eq!(w.actor_name(9001), "Player #9001", "five unnamed players, four unclaimed members: no guess");
+
+        // A late name fills in the earlier fight that froze "Player #6377".
+        let mut l = Engine::new(EngineConfig::default(), names());
+        l.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        l.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(1_000_000) });
+        player(&mut l, 6377, None);
+        l.handle(&GameEvent::Damage { ts: 1.0, src: 1, tgt: 50, skill: 17_010_000, amount: 50_000, flags: 0 });
+        l.handle(&GameEvent::Damage { ts: 1.2, src: 6377, tgt: 50, skill: 11_010_000, amount: 50_000, flags: 0 });
+        let done = l.finish().expect("fight");
+        assert_eq!(l.fname(&l.history[0], 6377), "Player #6377");
+        player(&mut l, 6377, Some("Nemura"));
+        assert_eq!(l.fname(&l.history[0], 6377), "Nemura");
+        assert_eq!(done.id, l.history[0].id);
+    }
+
+    /// The "teleport once" notice only when something is actually missing.
+    #[test]
+    fn zone_notice_only_for_unknown_monsters() {
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        // A monster the game introduced: nothing missing, no notice (a dungeon).
+        e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(1000) });
+        e.handle(&GameEvent::Damage { ts: 1.0, src: 1, tgt: 50, skill: 17_010_000, amount: 10, flags: 0 });
+        assert!(!e.needs_zone());
+        // One that was already there when the meter started: ask for a teleport.
+        e.handle(&GameEvent::Actor { id: 60, name: None, class: None, kind: ActorKind::Npc, npc_id: None, owner: None, max_hp: None });
+        e.handle(&GameEvent::Damage { ts: 2.0, src: 1, tgt: 60, skill: 17_010_000, amount: 10, flags: 0 });
+        assert!(e.needs_zone());
+        // After a zone load the game has introduced everything.
+        e.handle(&GameEvent::Fresh);
+        assert!(!e.needs_zone());
     }
 
     /// Enrage timers are listed for the base boss; variants find them by name.

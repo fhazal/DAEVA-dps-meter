@@ -40,5 +40,51 @@
   "2700100": 300,
   "2700694": 300,
   "2701399": 300
+ },
+ "party_class_codes_note": "Party-list class numbers, from real party lists (Urugugu and Bakarma runs, Oct 2026). Each class has a block of four numbers (Gladiator 5-8, Templar 9-12, ...); only blocks confirmed by a real party member are listed. Ranger is 13-16 (Aretgal, 16); Assassin (17-20) is learned as the meter sees one.",
+ "party_class_codes": {
+  "5": "Gladiator",
+  "6": "Gladiator",
+  "7": "Gladiator",
+  "8": "Gladiator",
+  "9": "Templar",
+  "16": "Ranger",
+  "22": "Elementalist",
+  "24": "Elementalist",
+  "26": "Sorcerer",
+  "28": "Sorcerer",
+  "31": "Cleric",
+  "35": "Chanter",
+  "36": "Chanter"
+ },
+ "party_class_ranges": {
+  "Gladiator": [
+   5,
+   8
+  ],
+  "Templar": [
+   9,
+   12
+  ],
+  "Elementalist": [
+   21,
+   24
+  ],
+  "Sorcerer": [
+   25,
+   28
+  ],
+  "Cleric": [
+   29,
+   32
+  ],
+  "Chanter": [
+   33,
+   36
+  ],
+  "Ranger": [
+   13,
+   16
+  ]
  }
 }

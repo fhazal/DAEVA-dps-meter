@@ -147,7 +147,7 @@
   .foot .fx b { color: var(--text); font-weight: 650; font-variant-numeric: tabular-nums; }
   .foot .fx .dl { color: #4fb8e8; margin-left: 1px; }
   .foot .fx.stale { opacity: .55; }
-  .foot .ody { width: 11px; height: 11px; }
+  .foot .ody { width: 13px; height: 13px; object-fit: contain; }
   /* Connected to your server: blue, so it isn't confused with the green "in combat" light. */
   .foot .srv-dot { width: 6px; height: 6px; border-radius: 50%; background: #4fb8e8; box-shadow: 0 0 6px rgba(79,184,232,0.7); }
   .foot .fl { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
@@ -168,7 +168,8 @@
   .updline .x { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 11px; padding: 0 2px; }
   .zonetip .x { margin-left: auto; flex: none; background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 11px; padding: 0 2px; }
   .nextev { flex: none; display: flex; gap: 12px; padding: 3px 10px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; font-variant-numeric: tabular-nums; }
-  .nextev > span { color: var(--text); }
+  .nextev > span { color: var(--text); display: inline-flex; align-items: center; gap: 4px; }
+  .nextev .ev-ic { vertical-align: 0; }
   .nextev b { color: var(--text); font-weight: 600; }
   .nextev .live b { color: var(--good); }
   .nextev .soon b { color: var(--warn); }
@@ -307,7 +308,7 @@
     const bars = s.ping_ms == null ? 0 : s.ping_ms < 100 ? 4 : s.ping_ms < 180 ? 3 : s.ping_ms < 250 ? 2 : 1;
     const sig = [1, 2, 3, 4].map((i) => `<i style="height:${i * 2 + 1}px" class="${i <= bars ? "on" : ""}"></i>`).join("");
     const ping = `<b class="ping ${pc}" title="Latency to the game server (measured passively)"><span class="sig">${sig}</span>${s.ping_ms == null ? "-- ms" : Math.round(s.ping_ms) + " ms"}</b>`;
-    const odyle = s.odyle != null ? `<span class="fx${s.odyle_stale ? " stale" : ""}" title="${s.odyle_stale ? "Last seen: " : ""}Odyle ${Number(s.odyle).toLocaleString()}${s.odyle_bonus ? ` (+${Number(s.odyle_bonus).toLocaleString()} from Odyle Energy)` : ""} · from the game, updated whenever it changes"><svg class="ody" viewBox="0 0 16 16"><path d="M8 1l4.5 5L8 15 3.5 6z" fill="#7cc4ff"/><path d="M8 1l4.5 5H3.5z" fill="#d6efff"/></svg><b>${Number(s.odyle).toLocaleString()}</b>${s.odyle_bonus ? `<span class="dl"> (+${Number(s.odyle_bonus).toLocaleString()})</span>` : ""}</span><i class="sep"></i>` : "";
+    const odyle = s.odyle != null ? `<span class="fx${s.odyle_stale ? " stale" : ""}" title="${s.odyle_stale ? "Last seen: " : ""}Odyle ${Number(s.odyle).toLocaleString()}${s.odyle_bonus ? ` (+${Number(s.odyle_bonus).toLocaleString()} from Odyle Energy)` : ""} · from the game, updated whenever it changes"><img class="ody" src="img/odyle.webp" alt=""><b>${Number(s.odyle).toLocaleString()}</b>${s.odyle_bonus ? `<span class="dl"> (+${Number(s.odyle_bonus).toLocaleString()})</span>` : ""}</span><i class="sep"></i>` : "";
     setProp($("zonetip"), "hidden", !s.needs_zone || zoneTipHidden);
     renderUpdate(s); renderPB(s);
     const foot = `${footLeft}<span class="fr">${s.uploads_pending ? `<span>↑${s.uploads_pending}</span><i class="sep"></i>` : ""}${odyle}${ping}</span>`;
@@ -346,7 +347,7 @@
         const t = live ? `Now · ${countdown(o.ends - now)} left` : countdown(o.starts - now);
         const cls = live ? "live" : o.starts - now < 600 ? "soon" : "";
         const at = new Date(o.starts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-        return `<span class="${cls}" title="${D.esc(o.name)} · ${at}${o.note ? " · " + D.esc(o.note) : ""}">${D.esc(o.emoji || "")} ${D.esc(o.short)} <b>${t}</b></span>`;
+        return `<span class="${cls}" title="${D.esc(o.name)} · ${at}${o.note ? " · " + D.esc(o.note) : ""}">${D.eventIcon(o.id, o.emoji, 13)} ${D.esc(o.short)} <b>${t}</b></span>`;
       }).join(""));
       setProp(next, "title", a.error ? "Event feed: " + a.error + " (showing last known times)" : "");
     } else {
@@ -452,7 +453,10 @@
     const fam = t.family ? `<span class="fam">${famIc ? `<i class="famic">${famIc}</i>` : ""}${D.esc(t.family)}</span><span class="dotsep">·</span>` : "";
         // The game only names a monster when it first comes into range; a big boss
     // is announced from far away, so a short hop nearby isn't enough.
-    const needTp = t.name === "Unknown monster";
+    // Only when teleporting would help: the meter started inside this zone.
+    // After a zone change the game has introduced everything, so an unknown
+    // monster then is one it described in a way the meter doesn't read yet.
+    const needTp = t.name === "Unknown monster" && !!(lastSnap && lastSnap.status && lastSnap.status.needs_zone);
     // Fresh install: the monster data (type, family, picture) is still downloading.
     const loadingData = !rank && !t.family && !dead && lastSnap && lastSnap.status && lastSnap.status.monster_data === "loading";
     const right = needTp ? `<span class="tp-hint" title="The meter started while this monster was already nearby, so the game hasn't said which one it is. Teleport to another region and come back (or start the meter before heading to a boss).">📍 Teleport away and back to identify</span>` : loadingData ? `<span class="md-loading" title="Downloading the monster list (type, family and picture). This only happens once."><i class="md-spin"></i>Loading monster data…</span>` : rank ? `${fam}<span class="rank">${D.esc(rank)}</span>` : t.family && !dead ? `${fam}Fight <b>${D.dur(secs)}</b>` : dead ? `Damage <b>${D.fmt(onTarget)}</b>` : `Fight <b>${D.dur(secs)}</b>`;

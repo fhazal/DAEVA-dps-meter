@@ -102,13 +102,24 @@
     arena_of_tactics: "/images/ui/resource/texture/icon/ut_marker_dungeon.webp",
     gartua: "/images/ui/resource/texture/portrait/portrait_256/ut_256_mob_gartua_01.webp",
   };
+  // Icons shipped with the meter: always shown, even with game art off.
+  const EVENT_LOCAL = {
+    spacetime_rift: "spacetime_rift",
+    shugo_festival: "shugo_festival",
+    dimensional_invasion: "dimensional_invasion",
+    artifact_siege: "artifact_siege",
+    watcher_kaira: "field_boss",
+    executor_bosses: "field_boss",
+    guardian_nahma: "field_boss",
+  };
   function eventIcon(id, emoji, size) {
     const px = size || 14;
-    const path = art.on && art.base ? EVENT_ART[id] : null;
+    const local = EVENT_LOCAL[id];
+    const src = local ? `img/events/${local}.webp` : art.on && art.base && EVENT_ART[id] ? art.base + EVENT_ART[id] : null;
     const fallback = `<span class="ev-emoji">${esc(emoji || "🔔")}</span>`;
-    if (!path) return fallback;
-    // If the picture is missing on the server, swap back to the emoji.
-    return `<img class="gt-ic ev-ic" src="${esc(art.base + path)}" width="${px}" height="${px}" alt="" data-e="${esc(emoji || "🔔")}" onerror="this.outerHTML='<span class=&quot;ev-emoji&quot;>'+this.dataset.e+'</span>'">`;
+    if (!src) return fallback;
+    // If the picture is missing, swap back to the emoji.
+    return `<img class="gt-ic ev-ic" src="${esc(src)}" width="${px}" height="${px}" alt="" data-e="${esc(emoji || "🔔")}" onerror="this.outerHTML='<span class=&quot;ev-emoji&quot;>'+this.dataset.e+'</span>'">`;
   }
   function npcIcon(tid, size) {
     if (!art.on || !tid) return "";
