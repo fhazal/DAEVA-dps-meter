@@ -426,6 +426,9 @@ pub struct Fight {
     pub twatch: HashMap<u64, bool>,
     /// Frozen health-per-damage factor per target (see `hp_scale`).
     pub tscale: HashMap<u64, f64>,
+    /// When you last used a skill on each target (damage-over-time ticks
+    /// left out), to tell when you've moved on from a boss.
+    pub own_last: HashMap<u64, f64>,
 }
 
 impl Fight {
@@ -777,12 +780,15 @@ impl Engine {
                 // The boss is down and you (or your group) start on another
                 // monster: that's a new fight. The boss fight ends as it was,
                 // and the card follows what you fight next.
-                // On your own you left a boss alone (no hit on it for 20 s)
-                // and moved on to other monsters: that's a new fight too. In
-                // a party, bosses have add phases, so their fight goes on.
+                // On your own you left a boss (no skill of yours on it for
+                // 10 s: your damage-over-time ticks and other players' hits
+                // don't count) and started on another monster: a new fight.
+                // In a party, bosses have add phases, so their fight goes on.
                 let boss_left = self.party.len() < 2
+                    && attacker == self.self_id.unwrap_or(u64::MAX)
+                    && fl & flags::DOT == 0
                     && self.current.as_ref().map_or(false, |f| {
-                        !f.finished && !f.targets.contains_key(tgt) && self.card_boss(f).map_or(false, |b| f.tspan.get(&b).map_or(false, |s| *ts - s.1 > 20.0))
+                        !f.finished && !f.targets.contains_key(tgt) && self.card_boss(f).map_or(false, |b| f.own_last.get(&b).map_or(true, |t| *ts - t > 10.0))
                     });
                 if (boss_down || boss_left) && extends && self.current.as_ref().map_or(false, |f| !f.finished && !f.targets.contains_key(tgt)) {
                     if let Some(f) = self.finish() {
@@ -813,6 +819,9 @@ impl Engine {
                 }
                 if fight.self_id.is_some() && fight.self_id == Some(attacker) {
                     fight.focus = Some(*tgt);
+                    if fl & flags::DOT == 0 {
+                        fight.own_last.insert(*tgt, *ts);
+                    }
                 }
                 let bucket = ((*ts - fight.start).max(0.0)) as usize;
                 let s = fight.stats.entry(attacker).or_insert_with(|| ActorStat { first: *ts, ..Default::default() });
@@ -1115,6 +1124,7 @@ impl Engine {
                 tinfo: Default::default(),
                 twatch: Default::default(),
                 tscale: Default::default(),
+                own_last: Default::default(),
             });
         }
         self.current.as_mut().unwrap()
@@ -2172,6 +2182,31 @@ mod tests {
     }
 
     #[test]
+    fn leaving_a_world_boss_for_mobs_is_a_new_fight() {
+        let mut e = Engine::new(EngineConfig::default(), Names::from_json(r#"{"bosses": ["777"]}"#).unwrap());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(160_000_000) });
+        e.handle(&GameEvent::Actor { id: 60, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(6), owner: None, max_hp: Some(119_700) });
+        e.handle(&dmg(1.0, 1, 50, 18000000, 9000, 0));
+        // Your damage-over-time keeps ticking on the boss while you walk off.
+        for t in [3.0, 5.0, 7.0, 9.0, 11.0, 13.0] {
+            e.handle(&dmg(t, 1, 50, 18000000, 300, flags::DOT));
+        }
+        // A mob 12 s after your last skill on the boss: its own fight.
+        let done = e.handle(&dmg(13.5, 1, 60, 18010000, 4000, 0)).expect("the boss fight ends");
+        assert!(done.targets.contains_key(&50));
+        let now = e.current.as_ref().unwrap();
+        assert!(now.targets.contains_key(&60) && !now.targets.contains_key(&50));
+        // Back and forth within a few seconds stays one fight.
+        let mut g = Engine::new(EngineConfig::default(), Names::from_json(r#"{"bosses": ["777"]}"#).unwrap());
+        g.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        g.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(160_000_000) });
+        g.handle(&GameEvent::Actor { id: 60, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(6), owner: None, max_hp: Some(119_700) });
+        g.handle(&dmg(1.0, 1, 50, 18000000, 9000, 0));
+        assert!(g.handle(&dmg(4.0, 1, 60, 18010000, 4000, 0)).is_none());
+    }
+
+    #[test]
     fn finished_fight_keeps_its_end_health() {
         let mut e = Engine::new(EngineConfig::default(), Names::from_json(r#"{"bosses": ["777"]}"#).unwrap());
         e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
@@ -2335,7 +2370,7 @@ mod naming_tests {
         assert!(n.skill_named(17010230 | DOT_KEY));
         assert_eq!(n.skill(17020000), "Skill 17020000");
         let mut e = Engine::new(EngineConfig::default(), n);
-        let mut f = Fight { id: 1, start: 0.0, end: 1.0, started_unix: 0.0, stats: Default::default(), targets: Default::default(), deaths: vec![], loot: vec![], zone: None, boss_killed: false, finished: true, self_id: None, names: Default::default(), allies: Default::default(), focus: None, tspan: Default::default(), tsec: Default::default(), tinfo: Default::default(), twatch: Default::default(), tscale: Default::default() };
+        let mut f = Fight { id: 1, start: 0.0, end: 1.0, started_unix: 0.0, stats: Default::default(), targets: Default::default(), deaths: vec![], loot: vec![], zone: None, boss_killed: false, finished: true, self_id: None, names: Default::default(), allies: Default::default(), focus: None, tspan: Default::default(), tsec: Default::default(), tinfo: Default::default(), twatch: Default::default(), tscale: Default::default(), own_last: Default::default() };
         f.names.insert(9, ("NPC 2400002".into(), None));
         e.history.push_back(f);
         e.rename_npc(2400002, "Black Claw Manduri Fighter");
