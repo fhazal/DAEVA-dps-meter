@@ -1366,7 +1366,41 @@ impl Core {
             .set("solo", Obj::new().set("rank", s.solo.rank).set("chips", s.solo.chips).set("footer", s.solo.footer).build())
             .build();
         let alerts = self.alerts_view(now);
-        Obj::new().set("status", status).set("ui", ui).set("fight", fight).set("research", rec).set("alerts", alerts).build()
+        let party = self.party_view();
+        Obj::new().set("status", status).set("ui", ui).set("fight", fight).set("research", rec).set("alerts", alerts).set("party", party).build()
+    }
+
+    /// The party panel: who is in your party (class, server, gear score,
+    /// combat power, leader, Ready), and whether to show it now.
+    pub fn party_view(&self) -> Value {
+        let e = &self.pipeline.engine;
+        let Some(p) = &e.party_info else { return Value::Null };
+        let room = p.members.iter().any(|m| m.status.is_some());
+        let members: Vec<Value> = p
+            .members
+            .iter()
+            .map(|m| {
+                let server = m.server.and_then(|s| e.names.servers.get(&s).cloned());
+                let tag = server.as_ref().map(|n| n.chars().take(3).collect::<String>().to_uppercase()).or(m.server.map(|s| s.to_string()));
+                Obj::new()
+                    .set("name", m.name.as_str())
+                    .set("class", m.code.and_then(|c| e.names.party_class(c).cloned()))
+                    .set("server", server)
+                    .set("server_tag", tag)
+                    .set("gs", m.gs)
+                    .set("cp", m.cp)
+                    .set("leader", p.leader.is_some() && m.id == p.leader)
+                    .set("ready", m.status.map(|s| s & 0x02 != 0))
+                    .set("is_self", e.self_name.as_deref() == Some(m.name.as_str()))
+                    .build()
+            })
+            .collect();
+        Obj::new()
+            .set("title", p.title.clone())
+            .set("room", room)
+            .set("lobby", e.party_lobby())
+            .set("members", Value::Arr(members))
+            .build()
     }
 
     /// Event alerts for the overlay's next-events line and the alert window.

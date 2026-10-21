@@ -5,6 +5,7 @@ tagline: A new Solo layout, settings with tabs, and boss fights counted right fr
 
 ## New
 - 🪪 **Solo layout:** just you, in a small card (your DPS, rank, crit, double, perfect, front and back), switch with Ctrl+Shift+O
+- 🛡️ **Party panel:** who is in your party, their server, gear score and combat power, and who has clicked Ready
 - 🗂️ **Settings with tabs** and a search box, so every option is easy to find
 - 👥 **Players listed: Auto:** your party when you're in one, everyone when you're solo, with nothing to set
 - 🖱️ **Ctrl + mouse wheel** over the meter makes it bigger or smaller

@@ -180,6 +180,31 @@
   .nextev .live b { color: var(--good); }
   .nextev .soon b { color: var(--warn); }
 
+  /* ---- Party panel: in a party and not fighting (the lobby, the queue) ---- */
+  .pty { padding: 8px 4px 6px; }
+  .pty-h { display: flex; align-items: center; gap: 8px; padding: 0 8px 6px; }
+  .pty-h b { font-size: 13px; }
+  .pty-h .ttl { color: var(--muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+  .pty-rd { margin-left: auto; flex: none; font-size: 12px; font-weight: 700; padding: 1px 8px; border-radius: 10px; color: #e5675f; background: rgba(229,103,95,.12); border: 1px solid rgba(229,103,95,.35); }
+  .pty-rd.all { color: var(--good); background: rgba(111,207,142,.12); border-color: rgba(111,207,142,.3); }
+  .pty-bar { height: 3px; margin: 0 8px 8px; background: rgba(255,255,255,.07); border-radius: 2px; overflow: hidden; }
+  .pty-bar i { display: block; height: 100%; background: #e5675f; } .pty-bar i.all { background: var(--good); }
+  .pty-hd, .pty-m { display: grid; grid-template-columns: 1fr 40px 50px 50px 70px; align-items: center; gap: 6px; padding: 0 8px; }
+  .pty-hd { font-size: 9.5px; letter-spacing: .06em; color: #7d7a72; padding-bottom: 3px; } .pty-hd span:nth-child(n+2) { text-align: right; }
+  .pty-m { height: 28px; margin: 2px 0; border-radius: 6px; font-size: 12px; box-shadow: inset 3px 0 0 rgba(255,255,255,.12); padding-left: 10px; }
+  .pty-m.s-ok { box-shadow: inset 3px 0 0 var(--good); } .pty-m.s-no { box-shadow: inset 3px 0 0 #e5675f; } .pty-m.s-ld { box-shadow: inset 3px 0 0 var(--accent); }
+  .pty-m.me { background: rgba(255,255,255,.07); }
+  .pty-m .nm { display: flex; align-items: center; gap: 5px; min-width: 0; } .pty-m .nm .n { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+  .pty-m .metag { font-size: 9px; font-weight: 800; color: var(--accent); background: var(--accent-soft); padding: 0 4px; border-radius: 3px; flex: none; }
+  .pty-m .sv { font-size: 9.5px; color: var(--muted); background: rgba(255,255,255,.06); padding: 0 4px; border-radius: 3px; justify-self: end; }
+  .pty-m .num { text-align: right; font-variant-numeric: tabular-nums; color: var(--text); }
+  .pty-m .st { text-align: right; font-size: 11px; font-weight: 600; white-space: nowrap; }
+  .pty-m .st.ok { color: var(--good); } .pty-m .st.no { color: #e5675f; } .pty-m .st.ld { color: var(--accent); }
+  .pty-empty { height: 28px; margin: 2px 0; border: 1px dashed rgba(255,255,255,.10); border-radius: 6px; display: flex; align-items: center; justify-content: center; color: var(--dim); font-size: 11px; }
+  .pty-ft { display: flex; justify-content: flex-end; gap: 10px; padding: 6px 8px 0; font-size: 11px; color: var(--muted); } .pty-ft b { color: var(--text); }
+  .so-pty { display: flex; align-items: center; gap: 6px; margin: 4px 6px 0; padding: 3px 8px; border-radius: 6px; background: rgba(255,255,255,.04); font-size: 10.5px; color: var(--muted); }
+  .so-pty b { color: var(--text); } .so-pty .ok { color: var(--good); font-weight: 700; } .so-pty .no { color: #e5675f; font-weight: 700; }
+
   /* ---- Solo layout: just you, in a card the size of the window ---- */
   .solo { display: none; }
   body.lay-solo .titlebar, body.lay-solo #target, body.lay-solo .scroll, body.lay-solo #zonetip,
@@ -388,6 +413,10 @@
     if (solo) {
       // Classic redraws again from scratch when switched back.
       $("rows").__html = null; lastTargetHtml = "";
+    } else if (snap.party && snap.party.lobby) {
+      // In a party and not fighting yet: who's here and who's ready.
+      setProp($("target"), "hidden", true);
+      setHTML($("rows"), partyPanel(snap.party));
     } else if (!f || !f.players.length) {
       setProp($("target"), "hidden", true);
       if (setHTML($("rows"), emptyState(s, state, text))) wireEmpty();
@@ -715,6 +744,32 @@
     });
   }
 
+  // ---- Party panel (the lobby, the queue filling up) ----
+  // The stripe shows Ready: green ready, red not yet, gold the leader (who
+  // doesn't click Ready); grey in an open-world party (no ready check there).
+  function partyPanel(p) {
+    const ms = p.members || [];
+    const voters = ms.filter((m) => !m.leader && m.ready != null);
+    const readyN = voters.filter((m) => m.ready).length;
+    const all = p.room && voters.length > 0 && readyN === voters.length;
+    const head = `<div class="pty-h"><b>Party</b>${p.title ? `<span class="ttl" title="${D.esc(p.title)}">“${D.esc(p.title)}”</span>` : `<span class="ttl"></span>`}${p.room ? `<span class="pty-rd${all ? " all" : ""}">${all ? "✓ " : ""}${readyN}/${voters.length} ready</span>` : `<span class="pty-rd all" style="color:var(--muted);background:none;border-color:var(--line)">${ms.length} in party</span>`}</div>`
+      + (p.room ? `<div class="pty-bar"><i class="${all ? "all" : ""}" style="width:${voters.length ? Math.round((readyN / voters.length) * 100) : 0}%"></i></div>` : "");
+    const rows = ms.map((m) => {
+      const st = m.leader ? ["ld", "Leader"] : m.ready === true ? ["ok", "✓ Ready"] : m.ready === false ? ["no", "● Not ready"] : ["", ""];
+      return `<div class="pty-m${st[0] ? " s-" + st[0] : ""}${m.is_self ? " me" : ""}">
+        <span class="nm">${D.classIcon(m.class, 16)}${m.leader ? `<span title="Party leader">👑</span>` : ""}<span class="n">${D.esc(m.name)}</span>${m.is_self ? `<span class="metag">ME</span>` : ""}</span>
+        <span class="sv" title="${D.esc(m.server || "")}">${D.esc(m.server_tag || "")}</span>
+        <span class="num" title="Gear score">${m.gs ? m.gs.toLocaleString() : "–"}</span>
+        <span class="num" title="Combat power">${m.cp ? D.fmt(m.cp) : "–"}</span>
+        <span class="st ${st[0]}">${st[1]}</span></div>`;
+    }).join("");
+    const empty = p.room && ms.length < 5 ? `<div class="pty-empty">Looking for more members…</div>` : "";
+    const gs = ms.filter((m) => m.gs), cp = ms.filter((m) => m.cp);
+    const avg = (xs, k) => Math.round(xs.reduce((a, m) => a + m[k], 0) / xs.length);
+    const foot = gs.length ? `<div class="pty-ft"><span>Avg GS <b>${avg(gs, "gs").toLocaleString()}</b></span>${cp.length ? `<span>CP <b>${D.fmt(avg(cp, "cp"))}</b></span>` : ""}</div>` : "";
+    return `<div class="pty">${head}<div class="pty-hd"><span>Member</span><span>Server</span><span>GS</span><span>CP</span><span>Status</span></div>${rows}${empty}${foot}</div>`;
+  }
+
   // ---- Solo layout: the boss on top, your own card, Odyle/party/ping ----
   const SKULL = '<span class="tc-ic"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.5C4.5 1.5 2 4 2 7c0 1.9 1 3.3 2.3 4.1V13c0 .6.4 1 1 1h.7v-1.5h1V14h2v-1.5h1V14h.7c.6 0 1-.4 1-1v-1.9C13 10.3 14 8.9 14 7c0-3-2.5-5.5-6-5.5zM5.6 9.2a1.3 1.3 0 1 1 0-2.6 1.3 1.3 0 0 1 0 2.6zm4.8 0a1.3 1.3 0 1 1 0-2.6 1.3 1.3 0 0 1 0 2.6z"/></svg></span>';
   const clock = (sec) => { sec = Math.max(0, Math.floor(sec || 0)); return `${String(Math.floor(sec / 60)).padStart(2, "0")}:${String(sec % 60).padStart(2, "0")}`; };
@@ -769,7 +824,14 @@
     const ody = s.odyle != null ? `<span title="Odyle${s.odyle_bonus ? ` (+${Number(s.odyle_bonus).toLocaleString()} from Odyle Energy)` : ""}"><img class="ody" src="img/odyle.webp" alt=""> <b>${Number(s.odyle).toLocaleString()}</b>${s.odyle_bonus ? ` <span style="color:#4fb8e8">(+${Number(s.odyle_bonus).toLocaleString()})</span>` : ""}</span><i class="sep"></i>` : "";
     const btns = `<span class="btns"><button class="icon-btn hide-locked" data-act="settings" title="Settings">${D.icon("gear")}</button><button class="icon-btn${ui.click_through ? " on" : ""}" data-act="lock" title="Click-through (Ctrl+Shift+L)">${D.icon(ui.click_through ? "lock" : "unlock")}</button>${D.lights("classic")}</span>`;
     const ft = so.footer !== false ? `<div class="so-ft" data-drag>${ody}${pool.length > 1 ? `<span title="${grouped ? "Your party\x27s" : "Everyone\x27s"} DPS in this fight">${grouped ? "Party" : "All"} <b>${D.fmt(partyDps)}</b></span><i class="sep"></i>` : ""}${ping}${btns}</div>` : `<div class="so-ft" data-drag style="padding-top:3px;padding-bottom:3px">${btns}</div>`;
-    if (setHTML($("solo"), hd + card + ft)) runOdos();
+    // In a party and not fighting yet: one line, "Party 4/5 · 3/4 ready".
+    const pt = lastSnap && lastSnap.party;
+    let strip = "";
+    if (pt && pt.lobby) {
+      const v = (pt.members || []).filter((m) => !m.leader && m.ready != null), r = v.filter((m) => m.ready).length;
+      strip = `<div class="so-pty">👥 Party <b>${(pt.members || []).length}</b>${pt.title ? ` · <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px">“${D.esc(pt.title)}”</span>` : ""}${pt.room && v.length ? ` <span style="margin-left:auto" class="${r === v.length ? "ok" : "no"}">${r === v.length ? "✓ " : ""}${r}/${v.length} ready</span>` : ""}</div>`;
+    }
+    if (setHTML($("solo"), hd + card + strip + ft)) runOdos();
     fitSolo();
   }
   $("solo").addEventListener("click", (ev) => {

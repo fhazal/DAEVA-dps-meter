@@ -552,16 +552,35 @@ fn read_fields(r: &mut Reader<'_>, defs: &[FieldDef], parents: &[&Scope], out: &
                             let code = b.get(at..at + 4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]));
                             let code_ok = *marker != 0 || code.map_or(false, |c| (1..=64).contains(&c));
                             if code_ok && !n.chars().any(|c| c.is_control()) && !names.iter().any(|x| x.split('\t').next() == Some(n)) {
-                                match code {
-                                    Some(c) => names.push(format!("{n}\t{c}")),
-                                    None => names.push(n.to_string()),
-                                }
+                                // For the party panel: id, server, gear score
+                                // (after the class and the level), combat
+                                // power (after a 0x04 a few bytes on) and
+                                // the status byte (dungeon room only).
+                                let u32at = |k: usize| b.get(k..k + 4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]));
+                                let id = u32at(i + h).unwrap_or(0);
+                                let server = u16::from_le_bytes([b[i + h + 6], b[i + h + 7]]);
+                                let gs = u32at(at + 8).filter(|g| (1..=20_000).contains(g)).unwrap_or(0);
+                                let cp = (at + 12..(at + 22).min(b.len().saturating_sub(4)))
+                                    .find(|j| b[*j] == 0x04 && u32at(j + 1).map_or(false, |c| (1_000..=5_000_000).contains(&c)))
+                                    .and_then(|j| u32at(j + 1))
+                                    .unwrap_or(0);
+                                let status = if *marker == 0 { String::new() } else { b[i].to_string() };
+                                let c = code.map(|c| c.to_string()).unwrap_or_default();
+                                names.push(format!("{n}\t{c}\t{id}\t{server}\t{gs}\t{cp}\t{status}"));
                                 i = at;
                                 continue;
                             }
                         }
                     }
                     i += 1;
+                }
+                // The dungeon list starts with the room: its title (what the
+                // leader typed) and, a few bytes on, the leader's id.
+                if *marker != 0 && !names.is_empty() {
+                    let len = b.get(4).copied().unwrap_or(0) as usize;
+                    let title = b.get(5..5 + len).and_then(|t| std::str::from_utf8(t).ok()).filter(|t| !t.chars().any(|c| c.is_control())).unwrap_or("");
+                    let leader = (b.get(5 + len + 6) == Some(&0x03)).then(|| b.get(5 + len + 7..5 + len + 11)).flatten().map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).unwrap_or(0);
+                    names.insert(0, format!("@\t{}\t{leader}", title.replace(['\t', '\n'], " ")));
                 }
                 r.pos = r.buf.len();
                 FVal::S(names.join("\n"))
@@ -1050,11 +1069,35 @@ fn emit(e: &Emit, header: &Scope, scope: &Scope, ts: f64, out: &mut Vec<GameEven
                 if lines.is_empty() && e.map.iter().any(|(k, _)| k == "members") {
                     continue;
                 }
-                let split = |l: &String| match l.split_once('\t') {
-                    Some((n, c)) => (n.to_string(), c.parse::<u32>().ok()),
-                    None => (l.clone(), None),
-                };
-                GameEvent::Party { names: lines.iter().map(|l| split(l).0).collect(), codes: lines.iter().map(|l| split(l).1).collect() }
+                // "@\ttitle\tleader" (dungeon list), then one line per member:
+                // name, class number, id, server, gear score, combat power,
+                // status. Empty or 0 means not known.
+                let opt = |s: Option<&str>| s.and_then(|v| v.parse::<u64>().ok()).filter(|v| *v > 0);
+                let head = lines.first().filter(|l| l.starts_with("@\t")).map(|l| l.split('\t').collect::<Vec<_>>());
+                let members: Vec<crate::events::PartyMember> = lines
+                    .iter()
+                    .filter(|l| !l.starts_with("@\t"))
+                    .map(|l| {
+                        let f: Vec<&str> = l.split('\t').collect();
+                        crate::events::PartyMember {
+                            name: f[0].to_string(),
+                            code: f.get(1).and_then(|v| v.parse::<u32>().ok()),
+                            id: opt(f.get(2).copied()),
+                            server: opt(f.get(3).copied()).map(|v| v as u32),
+                            gs: opt(f.get(4).copied()).map(|v| v as u32),
+                            cp: opt(f.get(5).copied()).map(|v| v as u32),
+                            status: f.get(6).and_then(|v| v.parse::<u8>().ok()),
+                        }
+                    })
+                    .collect();
+                if !members.is_empty() || head.is_some() || lines.is_empty() {
+                    out.push(GameEvent::PartyInfo {
+                        title: head.as_ref().and_then(|h| h.get(1)).map(|s| s.to_string()).filter(|s| !s.trim().is_empty()),
+                        leader: opt(head.as_ref().and_then(|h| h.get(2)).copied()),
+                        members: members.clone(),
+                    });
+                }
+                GameEvent::Party { names: members.iter().map(|m| m.name.clone()).collect(), codes: members.iter().map(|m| m.code).collect() }
             }
             "keys" => match num("cur") {
                 Some(cur) if cur < 10_000 => GameEvent::Keys { cur },
@@ -1274,6 +1317,31 @@ mod party_tests {
         assert_eq!(names, vec!["Member01", "Member2", "Member3", "DewiHijau", "Membr4"]);
         // Each member's class number (DewiHijau is a Chanter: 36).
         assert_eq!(codes, vec![Some(34), Some(14), Some(24), Some(36), Some(14)]);
+    }
+
+    /// A real dungeon-room list (Draupnir lobby, other players renamed): the
+    /// party panel's title, leader, gear score, combat power and Ready.
+    #[test]
+    fn dungeon_room_list_for_the_party_panel() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
+        let mut d = Decoder::new(Arc::new(Definitions::from_json(&src).unwrap()), None);
+        let flow = FlowKey { src: Endpoint { ip: Ipv4Addr::new(9, 9, 9, 9), port: 13328 }, dst: Endpoint { ip: Ipv4Addr::new(10, 0, 0, 2), port: 5000 } };
+        let hex = "96 02 02 97 a9 eb 1c 00 10 31 31 31 31 31 31 31 31 31 31 31 31 31 31 31 31 05 e0 27 09 00 00 03 29 06 04 00 00 00 de 05 ff 02 02 05 0c 01 29 06 04 00 00 00 de 05 05 4d 65 6d 30 31 1e 00 00 00 2d 00 00 00 e9 03 00 00 de 05 de 05 04 32 db 00 00 00 00 00 00 00 01 01 0e 02 8a c8 03 00 00 00 ca 09 05 4d 65 6d 30 32 0b 00 00 00 2d 00 00 00 2d 05 00 00 ca 09 ca 09 04 c8 f6 00 00 00 00 00 00 00 01 01 0e 03 2d 09 04 00 00 00 c6 09 07 4d 65 6d 62 65 72 33 18 00 00 00 2d 00 00 00 70 07 00 00 c6 09 c6 09 04 c8 61 01 00 00 00 00 00 00 01 02 0e 04 ae e4 03 00 00 00 cc 09 09 44 65 77 69 48 69 6a 61 75 24 00 00 00 2d 00 00 00 fc 04 00 00 cc 09 cc 09 04 59 f3 00 00 00 00 00 00 00 01 02 0e 05 36 23 04 00 00 00 de 05 08 4d 65 6d 62 65 72 30 34 22 00 00 00 2d 00 00 00 dc 07 00 00 03 de 05 de 05 04 60 63 01 00 00 00 00 00 00 01 01 00 0a";
+        let bytes: Vec<u8> = hex.split_whitespace().map(|h| u8::from_str_radix(h, 16).unwrap()).collect();
+        let mut out = Vec::new();
+        d.push(flow, true, &bytes, false, 1.0, &mut out);
+        let (title, leader, members) = out.iter().find_map(|e| match e { GameEvent::PartyInfo { title, leader, members } => Some((title.clone(), *leader, members.clone())), _ => None }).expect("party info");
+        assert_eq!(title.as_deref(), Some("1111111111111111"));
+        assert_eq!(members.iter().map(|m| m.name.as_str()).collect::<Vec<_>>(), vec!["Mem01", "Mem02", "Member3", "DewiHijau", "Member04"]);
+        // The leader is the first member; not Ready (0x0c), the others are (0x0e).
+        assert_eq!(leader, members[0].id);
+        assert_eq!(members[0].status, Some(0x0c));
+        assert_eq!(members[3].status, Some(0x0e));
+        let me = &members[3];
+        assert_eq!((me.server, me.gs, me.cp, me.code), (Some(2508), Some(1276), Some(62297), Some(36)));
+        assert_eq!((members[2].gs, members[2].cp), (Some(1904), Some(90568)));
+        assert_eq!(members[4].gs, Some(2012));
+        assert!(members[4].cp.map_or(false, |c| (1_000..=5_000_000).contains(&c)), "{:?}", members[4]);
     }
 
     /// A real 0x9200 from an open-world party of two (another player's name

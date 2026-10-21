@@ -52,6 +52,20 @@ pub mod flags {
     pub const CAST_SHIFT: u32 = 16;
 }
 
+/// One member of a party list.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct PartyMember {
+    pub name: String,
+    /// Party-list class number (see names.json `party_class_ranges`).
+    pub code: Option<u32>,
+    pub id: Option<u64>,
+    pub server: Option<u32>,
+    pub gs: Option<u32>,
+    pub cp: Option<u32>,
+    /// Dungeon-room status byte (0x02 = Ready); none in an open-world list.
+    pub status: Option<u8>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum GameEvent {
     Damage { ts: f64, src: u64, tgt: u64, skill: u32, amount: u64, flags: u32 },
@@ -83,6 +97,8 @@ pub enum GameEvent {
     /// Names of your group (party) members, you included, and each member's
     /// class number from the same list (follows the class, see Names::party_codes).
     Party { names: Vec<String>, codes: Vec<Option<u32>> },
+    /// The same party list with what the party panel shows (sent together).
+    PartyInfo { title: Option<String>, leader: Option<u64>, members: Vec<PartyMember> },
     /// The game just sent a full picture (login or zone change).
     Fresh,
 }
@@ -104,6 +120,7 @@ impl GameEvent {
             GameEvent::Odyle { .. } => "odyle",
             GameEvent::Keys { .. } => "keys",
             GameEvent::Party { .. } => "party",
+            GameEvent::PartyInfo { .. } => "party_info",
             GameEvent::Fresh => "fresh",
         }
     }

@@ -446,6 +446,17 @@ impl Fight {
     }
 }
 
+/// What the party panel shows.
+#[derive(Debug, Clone)]
+pub struct PartyState {
+    pub title: Option<String>,
+    pub leader: Option<u64>,
+    pub members: Vec<crate::events::PartyMember>,
+    key: String,
+    /// Game time the line-up last changed.
+    pub since: f64,
+}
+
 // ---------------------------------------------------------------- engine
 
 #[derive(Debug, Clone)]
@@ -543,6 +554,8 @@ pub struct Engine {
     pub self_keys: Option<u64>,
     /// Your group members' names (from the game's party list).
     pub party: std::collections::HashSet<String>,
+    /// The party panel's details (title, leader, gear, ready), if in one.
+    pub party_info: Option<PartyState>,
     /// Each group member's class number from the party list.
     pub party_member_codes: HashMap<String, u32>,
     /// Class numbers that turned out to mean more than one class.
@@ -588,6 +601,7 @@ impl Engine {
             self_odyle: None,
             self_keys: None,
             party: Default::default(),
+            party_info: None,
             party_member_codes: HashMap::new(),
             bad_codes: Default::default(),
             zone_first_fight: 1,
@@ -1090,6 +1104,45 @@ impl Engine {
                 }
             }
             GameEvent::Keys { cur } => self.self_keys = Some(*cur),
+            GameEvent::PartyInfo { title, leader, members } => {
+                if members.len() < 2 {
+                    self.party_info = None;
+                } else {
+                    let mut names: Vec<&str> = members.iter().map(|m| m.name.as_str()).collect();
+                    names.sort();
+                    let key = names.join("
+");
+                    // When the line-up changed (not just a Ready click): the
+                    // panel shows until the next fight.
+                    let changed = self.party_info.as_ref().map_or(true, |p| p.key != key);
+                    let since = if changed { self.last_ts } else { self.party_info.as_ref().map_or(self.last_ts, |p| p.since) };
+                    // Open-world lists have no title or leader: keep the room's.
+                    let keep = self.party_info.as_ref().filter(|_| !changed);
+                    // The two lists alternate in a dungeon room; only one has
+                    // Ready (and sometimes the gear): keep what the other lacks.
+                    let members: Vec<crate::events::PartyMember> = members
+                        .iter()
+                        .map(|m| {
+                            let old = keep.and_then(|p| p.members.iter().find(|o| o.name == m.name));
+                            crate::events::PartyMember {
+                                status: m.status.or(old.and_then(|o| o.status)),
+                                gs: m.gs.or(old.and_then(|o| o.gs)),
+                                cp: m.cp.or(old.and_then(|o| o.cp)),
+                                server: m.server.or(old.and_then(|o| o.server)),
+                                id: m.id.or(old.and_then(|o| o.id)),
+                                ..m.clone()
+                            }
+                        })
+                        .collect();
+                    self.party_info = Some(PartyState {
+                        title: title.clone().or_else(|| keep.and_then(|p| p.title.clone())),
+                        leader: leader.or_else(|| keep.and_then(|p| p.leader)),
+                        members,
+                        key,
+                        since,
+                    });
+                }
+            }
             GameEvent::Party { names, codes } => {
                 self.party = names.iter().cloned().collect();
                 self.party_member_codes = names.iter().zip(codes.iter()).filter_map(|(n, c)| c.map(|c| (n.clone(), c))).collect();
@@ -1676,6 +1729,14 @@ impl Engine {
     /// never introduced ("Unknown monster"). Dungeons introduce monsters as
     /// you go and send no zone-load message, so "no zone load seen" alone
     /// isn't a reason to ask for a teleport.
+    /// Show the party panel: in a party, not fighting, and no fight since
+    /// the line-up last changed (the lobby, the queue filling up).
+    pub fn party_lobby(&self) -> bool {
+        let Some(p) = &self.party_info else { return false };
+        let fighting = self.current.as_ref().map_or(false, |f| !f.finished);
+        !fighting && self.display_fight().map_or(true, |f| f.end <= p.since)
+    }
+
     pub fn needs_zone(&self) -> bool {
         if self.self_id.is_none() {
             return false;
@@ -2580,6 +2641,26 @@ mod zone_notice_tests {
         };
         assert_eq!(run(true), 5000, "party: counts from the pull, without the summon");
         assert_eq!(run(false), 0, "a stranger's boss: still ignored");
+    }
+
+    #[test]
+    fn party_panel_shows_in_the_lobby_until_the_first_fight() {
+        let m = |n: &str| crate::events::PartyMember { name: n.into(), ..Default::default() };
+        let info = |names: &[&str]| GameEvent::PartyInfo { title: Some("DPS".into()), leader: None, members: names.iter().map(|n| m(n)).collect() };
+        let mut e = Engine::new(EngineConfig::default(), Names::from_json(r#"{"bosses": ["777"]}"#).unwrap());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&info(&["Me", "Ally"]));
+        assert!(e.party_lobby(), "in the lobby");
+        e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(6), owner: None, max_hp: Some(500) });
+        e.handle(&GameEvent::Damage { ts: 10.0, src: 1, tgt: 50, skill: 18_000_000, amount: 100, flags: 0 });
+        assert!(!e.party_lobby(), "fighting");
+        e.finish();
+        e.handle(&info(&["Me", "Ally"]));
+        assert!(!e.party_lobby(), "same party after a fight: the fight stays on screen");
+        e.handle(&info(&["Me", "Ally", "Third"]));
+        assert!(e.party_lobby(), "someone joined");
+        e.handle(&GameEvent::PartyInfo { title: None, leader: None, members: vec![] });
+        assert!(e.party_info.is_none() && !e.party_lobby(), "left the party");
     }
 
     #[test]
