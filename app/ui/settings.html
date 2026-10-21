@@ -172,7 +172,7 @@
     <section data-tab="look">
     <h2>Overlay look</h2><div class="f">
       ${F("Background opacity", rng("opacity", 0.2, 1, 0.02))}
-      ${F("Scale", rng("scale", 0.7, 1.6, 0.05))}
+      ${F("Scale", rng("scale", 0.7, 1.6, 0.05), "Quicker: hold Ctrl and turn the mouse wheel over the meter.")}
       ${F("Rows shown", num("rows", 1, 24))}
       ${F("Main number", sel("primary_metric", [["dps", "DPS"], ["dmg", "Total damage"], ["share", "Damage share"]]))}
       ${F("Accent colour", `<input type="color" data-k="accent">`)}
@@ -430,12 +430,17 @@
     const layIn = document.querySelector('[data-k="layout"]');
     let layTouched = false;
     document.querySelectorAll(".pick").forEach((p) => p.addEventListener("click", () => (layTouched = true)));
+    const scaleIn = document.querySelector('[data-k="scale"]');
+    let scaleTouched = false;
+    scaleIn.addEventListener("input", () => (scaleTouched = true));
     if (window.__setPoll) clearInterval(window.__setPoll);
     window.__setPoll = setInterval(async () => {
       try {
         const n = await D.call("get_settings");
         if (!posTouched && n.alerts.position !== posSel.value) { posSel.value = n.alerts.position; s.alerts.position = n.alerts.position; }
         if (!layTouched && n.layout !== layIn.value) { layIn.value = n.layout; s.layout = n.layout; paintPicks(); }
+        // Resized with Ctrl + wheel while Settings is open.
+        if (!scaleTouched && Math.abs(n.scale - Number(scaleIn.value)) > 0.001) { scaleIn.value = n.scale; s.scale = n.scale; updateRanges(); }
       } catch {}
     }, 1500);
     document.getElementById("bRestart").onclick = async () => { await D.call("restart_capture"); D.toast("Capture restarted"); };

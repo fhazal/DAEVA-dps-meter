@@ -216,7 +216,7 @@ impl Default for Settings {
     fn default() -> Self {
         Settings {
             opacity: 0.88,
-            scale: 1.0,
+            scale: 0.9,
             accent: "#d9a441".into(),
             rows: 8,
             show_heal: false,

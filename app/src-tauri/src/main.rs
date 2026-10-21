@@ -325,6 +325,15 @@ fn set_layout_inner(app: &AppHandle, shared: &Shared, layout: Option<&str>) -> S
     s.layout
 }
 
+/// Ctrl + mouse wheel over the meter: the overlay's Scale, 70-160%.
+#[tauri::command]
+fn set_scale(st: St<'_>, scale: f64) -> f64 {
+    let mut c = st.lock();
+    c.settings.scale = (scale * 20.0).round().clamp(14.0, 32.0) / 20.0;
+    c.settings_dirty = true;
+    c.settings.scale
+}
+
 #[tauri::command]
 fn set_layout(app: AppHandle, st: St<'_>, layout: Option<String>) -> String {
     set_layout_inner(&app, &st, layout.as_deref())
@@ -820,6 +829,7 @@ fn main() {
             save_settings,
             toggle_click_through,
             set_layout,
+            set_scale,
             set_demo,
             research_start,
             research_stop,

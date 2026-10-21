@@ -751,12 +751,14 @@ impl Engine {
                         // hit, also when your group pulls it before you get
                         // there (the game sends it once you're in the area).
                         let party_boss = self.party.len() >= 2
-                            // A player (class known, or named in the party list),
-                            // not a skill's helper object.
-                            && self.actors.get(&attacker).map_or(false, |a| Self::is_class_player(a) || a.name.as_ref().map_or(false, |n| self.party.contains(n)))
-                            && self.actors.get(tgt).and_then(|a| a.npc_id).map_or(false, |n| {
-                                self.npc_is_boss(n) || self.names.npc_ref(n, &self.actor_name(*tgt)).map_or(false, |r| self.npc_is_boss(r))
-                            });
+                            // A party member: named in the party list, or not
+                            // named yet but of a class a member still unmatched
+                            // has (an Elementalist's spirits aren't members).
+                            && self.actors.get(&attacker).map_or(false, |a| match &a.name {
+                                Some(n) => self.party.contains(n),
+                                None => Self::is_class_player(a) && self.actor_class(attacker).map_or(false, |c| self.party_has_unmatched(&c)),
+                            })
+                            && self.is_boss_actor(*tgt);
                         if !mine && !shared && !ally && !party_boss {
                             return finished;
                         }
@@ -771,10 +773,22 @@ impl Engine {
                 if extends {
                     self.pending_end = None;
                 }
-                let boss_down = self.current.as_ref().filter(|f| f.boss_killed).and_then(|f| f.main_target()).map_or(false, |m| {
-                    let npc = self.actors.get(&m).and_then(|a| a.npc_id);
-                    npc.map_or(false, |n| self.npc_is_boss(n))
-                });
+                let boss_down = self.current.as_ref().filter(|f| f.boss_killed).and_then(|f| f.main_target()).map_or(false, |m| self.is_boss_actor(m));
+                // The boss is down and you (or your group) start on another
+                // monster: that's a new fight. The boss fight ends as it was,
+                // and the card follows what you fight next.
+                // On your own you left a boss alone (no hit on it for 20 s)
+                // and moved on to other monsters: that's a new fight too. In
+                // a party, bosses have add phases, so their fight goes on.
+                let boss_left = self.party.len() < 2
+                    && self.current.as_ref().map_or(false, |f| {
+                        !f.finished && !f.targets.contains_key(tgt) && self.card_boss(f).map_or(false, |b| f.tspan.get(&b).map_or(false, |s| *ts - s.1 > 20.0))
+                    });
+                if (boss_down || boss_left) && extends && self.current.as_ref().map_or(false, |f| !f.finished && !f.targets.contains_key(tgt)) {
+                    if let Some(f) = self.finish() {
+                        finished = Some(f);
+                    }
+                }
                 let fight = self.ensure_fight(*ts);
                 if fight.boss_killed && extends && !fight.targets.contains_key(tgt) && !boss_down {
                     // moved on to a new mob: the kill flag described the old one
@@ -1226,6 +1240,22 @@ impl Engine {
     }
 
     /// Whether an NPC id is a boss or elite (definitions or monster rank).
+    /// A party member of this class that no player on screen has the name of.
+    fn party_has_unmatched(&self, class: &str) -> bool {
+        self.party_member_codes.iter().any(|(name, code)| {
+            Some(name) != self.self_name.as_ref()
+                && self.names.party_class(*code).map_or(false, |c| c == class)
+                && !self.actors.values().any(|a| Self::is_class_player(a) && a.name.as_deref() == Some(name.as_str()))
+        })
+    }
+
+    /// A boss or elite, also a dungeon version known only by its name.
+    pub fn is_boss_actor(&self, id: u64) -> bool {
+        self.actors.get(&id).and_then(|a| a.npc_id).map_or(false, |n| {
+            self.npc_is_boss(n) || self.names.npc_ref(n, &self.actor_name(id)).map_or(false, |r| self.npc_is_boss(r))
+        })
+    }
+
     pub fn npc_is_boss(&self, npc: u32) -> bool {
         self.names.bosses.contains(&npc) || self.names.ranks.get(&npc).map_or(false, |r| rank_is_boss_or_elite(r))
     }
@@ -2126,6 +2156,22 @@ mod tests {
     /// real health update does. And a stray hit by someone else on another
     /// monster after the kill no longer cancels "killed".
     #[test]
+    fn next_mob_after_a_boss_kill_is_a_new_fight() {
+        let mut e = Engine::new(EngineConfig::default(), Names::from_json(r#"{"bosses": ["777"]}"#).unwrap());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(10_000) });
+        e.handle(&GameEvent::Actor { id: 60, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(6), owner: None, max_hp: Some(500) });
+        e.handle(&dmg(1.0, 1, 50, 18000000, 10_000, 0));
+        e.handle(&GameEvent::Hp { ts: 1.0, id: 50, hp: 0, max_hp: None });
+        e.handle(&GameEvent::Death { ts: 1.1, target: 50, killer: None });
+        // Straight on to a mob, within the death grace.
+        let done = e.handle(&dmg(2.0, 1, 60, 18000000, 100, 0)).expect("the boss fight ends");
+        assert!(done.boss_killed && done.targets.contains_key(&50) && !done.targets.contains_key(&60));
+        let now = e.current.as_ref().unwrap();
+        assert!(now.targets.contains_key(&60) && !now.targets.contains_key(&50));
+    }
+
+    #[test]
     fn finished_fight_keeps_its_end_health() {
         let mut e = Engine::new(EngineConfig::default(), Names::from_json(r#"{"bosses": ["777"]}"#).unwrap());
         e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
@@ -2413,9 +2459,13 @@ mod zone_notice_tests {
             e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(100_000) });
             // Your group pulls the boss; you're still on the way.
             e.handle(&GameEvent::Damage { ts: 1.0, src: 2, tgt: 50, skill: 18_010_000, amount: 5000, flags: 0 });
+            // An unnamed thing using Chanter skills: Arthemis, the only
+            // Chanter, is already on screen, so it's a summon, not a member.
+            e.handle(&GameEvent::Actor { id: 3, name: None, class: None, kind: ActorKind::Player, npc_id: None, owner: None, max_hp: None });
+            e.handle(&GameEvent::Damage { ts: 1.5, src: 3, tgt: 50, skill: 18_020_000, amount: 70, flags: 0 });
             e.current.as_ref().map_or(0, |f| f.targets.get(&50).copied().unwrap_or(0))
         };
-        assert_eq!(run(true), 5000, "party: counts from the pull");
+        assert_eq!(run(true), 5000, "party: counts from the pull, without the summon");
         assert_eq!(run(false), 0, "a stranger's boss: still ignored");
     }
 

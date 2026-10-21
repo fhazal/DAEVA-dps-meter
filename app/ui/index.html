@@ -30,7 +30,10 @@
 
   /* Target card: portrait, name, HP current / max · %, health bar,
      kill-time estimate and damage on the target. */
-  .target { padding: 6px 7px 7px; border-bottom: 1px solid var(--line); }
+  .target { padding: 6px 7px 7px; border-bottom: 1px solid var(--line); container-type: inline-size; }
+  /* A narrow card keeps the rank and drops the family; nothing runs past the edge. */
+  @container (max-width: 330px) { .tc-bot .fam, .tc-bot .dotsep { display: none !important; } }
+  .tc-bot > span { min-width: 0; overflow: hidden; }
   /* Card colour follows the monster's rank from aion2.gaming.tools:
      --rk is the rank colour (border, bar, % and rank label). */
   .tcard { --rk: 232,103,126; position: relative; padding: 8px 11px 7px; border-radius: 10px;
@@ -282,6 +285,19 @@
   let lastFight = null;
 
   $("lights").outerHTML = D.lights("solo");
+  // Ctrl + mouse wheel over the meter: bigger or smaller (Scale, 5% steps).
+  let scaleToast = 0;
+  window.addEventListener("wheel", (ev) => {
+    if (!ev.ctrlKey) return;
+    ev.preventDefault();
+    const now = Number(ui.scale) || 1;
+    D.call("set_scale", { scale: now + (ev.deltaY < 0 ? 0.05 : -0.05) }).then((s) => {
+      ui.scale = s;
+      D.applyTheme(ui);
+      clearTimeout(scaleToast);
+      scaleToast = setTimeout(() => D.toast(`Size ${Math.round(s * 100)}% · Ctrl + mouse wheel to change`), 150);
+    });
+  }, { passive: false });
   // The window lights, in the title bar and on the Solo card.
   document.addEventListener("click", (ev) => {
     const b = ev.target.closest("[data-lt]");
@@ -482,7 +498,8 @@
   // it's an open-world boss, where the game only sends the hits of players
   // near you, and all of yours were recorded.
   let gaps = 0;
-  const WORLD_BOSS_PLAYERS = 5;
+  // Players from outside your party (a full dungeon party isn't a world boss).
+  const WORLD_BOSS_STRANGERS = 3;
   function hpCheck(t) {
     if (t.counted == null) return "";
     const c = t.counted, low = c < 0.97;
@@ -494,8 +511,8 @@
     // nearby-only rule (players arrive at different times), not missed hits,
     // and nothing was lost. Say so instead of warning.
     const f = lastFight;
-    const crowd = f && f.players ? f.players.length : 0;
-    if (low && !gaps && f && f.clock === "boss" && t.id === f.clock_target && crowd >= WORLD_BOSS_PLAYERS) {
+    const crowd = f && f.players ? f.players.filter((p) => !p.in_party && !p.is_self).length : 0;
+    if (low && !gaps && f && f.clock === "boss" && t.id === f.clock_target && crowd >= WORLD_BOSS_STRANGERS) {
       const tip = `World boss: the game only sends you the hits of players near you, so the meter saw ${D.pct(c, 1)} of its health go. Every one of your hits since you joined was recorded. The meter didn't see this boss at full health, so it can't confirm the fight from the pull.`;
       return ` · <span class="chk ow wb" title="${D.esc(tip)}">${D.icon("globe")} World Boss</span>`;
     }
@@ -519,7 +536,7 @@
     const showPct = dead ? 0 : pctv;
     const hp = showPct != null || dead ? `<div class="hp" title="Health left"><i style="width:${((showPct || 0) * 100).toFixed(1)}%"></i></div>` : "";
     const hpText = t.max_hp ? `${D.fmt(dead ? 0 : hpNow != null ? hpNow : t.max_hp)} / ${D.fmt(t.max_hp)} · ` : "";
-    const kill = showPct != null ? `<span class="meta" title="Health left">${hpText}<span class="pc">${D.pct(showPct, showPct > 0 && showPct < 0.1 ? 1 : 0)}</span></span>` : "";
+    const kill = showPct != null ? `<span class="meta" title="Health left">${hpText}<span class="pc">${D.pct(showPct < 1 ? Math.min(showPct, 0.999) : 1, (showPct > 0 && showPct < 0.1) || (showPct > 0.99 && showPct < 1) ? 1 : 0)}</span></span>` : "";
     // Kill-time estimate: HP left ÷ the group's damage rate on this target.
     const onTarget = t.dmg_taken || f.total || 0;
     const rate = onTarget / Math.max(1, secs);
@@ -594,7 +611,7 @@
   }
   const COLS = { crit: ["Crit", (p) => D.pct(p.crit_rate)], back: ["Back", (p) => D.pct(p.back_rate)], perfect: ["Perf", (p) => D.pct(p.perfect_rate)], hits: ["Hits", (p) => p.hits], max: ["Max", (p) => D.fmt(p.max_hit)], hps: ["HPS", (p) => D.fmt(p.hps)], taken: ["Taken", (p) => D.fmt(p.taken)], deaths: ["Died", (p) => p.deaths ? `<b style="color:var(--bad,#e5675f)">${p.deaths}</b>` : "–"] };
   const cols = () => (ui.columns || []).filter((c) => COLS[c]);
-  const xc = (p) => cols().length ? `<span class="xcs">${cols().map((c) => `<span>${COLS[c][1](p)}</span>`).join("")}</span>` : "";
+  const xc = (p, cc) => cc.length ? `<span class="xcs">${cc.map((c) => `<span>${COLS[c][1](p)}</span>`).join("")}</span>` : "";
   // ---- Live "digital dash" numbers: every figure counts smoothly to its new value
   const odoShown = {}; const trend = {};
   const FMT = { rate: (v) => D.fmt(v) + "/s", num: (v) => D.fmt(v), int: (v) => (v < 100000 ? Math.round(v).toLocaleString("en") : D.fmt(v)), pct: (v) => D.pct(v), pct1: (v) => D.pct(v, 1) };
@@ -651,12 +668,16 @@
     const top = Math.max(1, ...rows.map((p) => (m === "dps" ? p.dps : p.dmg)));
     const fk = f.fight_id + "_";
     for (const k of Object.keys(odoShown)) if (!k.startsWith(fk)) { delete odoShown[k]; delete trend[k]; delete anims[k]; }
-    const cc = cols();
-    $("rows").classList.toggle("cols", cc.length > 0);
-    $("rows").style.setProperty("--xc", cc.length * 44 + "px");
     // Figures on the right, each with its own label: [label, width in px].
     const vparts = m === "share" ? [["Dmg %", 66], ["DPS", 54]] : [[m === "dps" ? "DPS" : "Dmg", 66], [m === "dps" ? "Dmg" : "DPS", 54], ["Dmg %", 50]];
     if (ui.show_heal) vparts.splice(1, 0, ["Heal", 54]);
+    // A narrow meter drops extra columns (from the right) before a name
+    // gets squeezed out: every name keeps about 80 px.
+    const cc = cols();
+    const room = ($("rows").clientWidth || 380) - 34 - vparts.reduce((a, v) => a + v[1], 0);
+    while (cc.length && 80 + cc.length * 44 > room) cc.pop();
+    $("rows").classList.toggle("cols", cc.length > 0);
+    $("rows").style.setProperty("--xc", cc.length * 44 + "px");
     $("rows").style.setProperty("--vc", vparts.map((v) => v[1] + "px").join(" "));
     $("rows").style.setProperty("--vw", vparts.reduce((a, v) => a + v[1], 0) + "px");
     const head = cc.length ? `<div class="colhead" style="--xc:${cc.length * 44}px"><span>Player</span><span class="xcs">${cc.map((c) => `<span>${COLS[c][0]}</span>`).join("")}</span><span class="vh">${vparts.map((v) => `<span>${v[0]}</span>`).join("")}</span></div>` : "";
@@ -675,7 +696,7 @@
         <i class="fill" style="width:${((v / top) * 100).toFixed(1)}%;background:${color}"></i>
         <i class="edge" style="background:${color}"></i>
         <span class="who">${D.classIcon(p.class, 16)}<span class="nm">${D.esc(displayName(p, i))}</span></span>
-        ${xc(p)}<span class="val">${main}${heal}${sub}</span>
+        ${xc(p, cc)}<span class="val">${main}${heal}${sub}</span>
       </div>`;
     }).join("");
     // Nothing changed (idle, or a finished fight on screen): leave the rows be.
@@ -715,7 +736,7 @@
         const left = t.berserk - secs;
         enr = left > 0 ? `<span class="so-enr${left <= 60 ? " soon" : ""}" title="Enrage: the boss hits harder and faster">⏱ ${D.dur(left)}</span>` : `<span class="so-enr on">🔥 Enraged</span>`;
       }
-      const pc = dead ? `<span class="so-pc dead">✓ Killed</span>` : pctv != null ? `<span class="so-pc">${D.pct(pctv, pctv > 0 && pctv < 0.1 ? 1 : 0)}</span>` : "";
+      const pc = dead ? `<span class="so-pc dead">✓ Killed</span>` : pctv != null ? `<span class="so-pc">${D.pct(pctv < 1 ? Math.min(pctv, 0.999) : 1, (pctv > 0 && pctv < 0.1) || (pctv > 0.99 && pctv < 1) ? 1 : 0)}</span>` : "";
       const sub = t.max_hp ? `${D.fmt(dead ? 0 : hpNow != null ? hpNow : t.max_hp)} / ${D.fmt(t.max_hp)}` : t.rank ? D.esc(t.rank) : "";
       hd = `<div class="so-hd" data-drag>${rankIcon(t)}<div class="so-bn" data-drag><b>${D.esc(t.name)}</b><span>${sub}</span></div><div class="so-rt">${enr}<span class="so-clock">${clock(secs)}</span>${pc}</div></div>`
         + (pctv != null ? `<div class="so-hp"><i style="width:${(pctv * 100).toFixed(1)}%"></i></div>` : "");
