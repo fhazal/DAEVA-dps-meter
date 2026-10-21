@@ -494,14 +494,26 @@
     const now = Date.now() / 1000;
     if (a.show_next && a.next && a.next.length) {
       setProp(next, "hidden", false);
-      setHTML(next, a.next.map((o) => {
+      // Two places, what needs you soonest first: events on now that end
+      // soon, then events starting within the hour, then events open for
+      // hours (Arena), then anything later. Pointing at the line lists all.
+      const rank = (o) => {
+        const long = o.ends - o.starts > 90 * 60;
+        if (o.active) return long ? [2, o.ends] : [0, o.ends];
+        return o.starts - now <= 3600 ? [1, o.starts] : [3, o.starts];
+      };
+      const shown = a.next.slice().sort((x, y) => rank(x)[0] - rank(y)[0] || rank(x)[1] - rank(y)[1]).slice(0, 2);
+      setHTML(next, shown.map((o) => {
         const live = o.active;
         const t = live ? `Now · ${countdown(o.ends - now)} left` : countdown(o.starts - now);
         const cls = live ? "live" : o.starts - now < 600 ? "soon" : "";
-        const at = new Date(o.starts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-        return `<span class="${cls}" title="${D.esc(o.name)} · ${at}${o.note ? " · " + D.esc(o.note) : ""}">${D.eventIcon(o.id, o.emoji, 13)} ${D.esc(o.short)} <b>${t}</b></span>`;
+        return `<span class="${cls}">${D.eventIcon(o.id, o.emoji, 13)} ${D.esc(o.short)} <b>${t}</b></span>`;
       }).join(""));
-      setProp(next, "title", a.error ? "Event feed: " + a.error + " (showing last known times)" : "");
+      const all = a.next.slice().sort((x, y) => (y.active - x.active) || (x.active ? x.ends - y.ends : x.starts - y.starts)).map((o) => {
+        const at = new Date(o.starts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        return `${o.name} · ${o.active ? `ongoing, ${countdown(o.ends - now)} left` : `starts in ${countdown(o.starts - now)} (${at})`}${o.note ? " · " + o.note : ""}`;
+      });
+      setProp(next, "title", all.join("\n") + (a.error ? "\n\nEvent feed: " + a.error + " (showing last known times)" : ""));
     } else {
       setProp(next, "hidden", true);
     }
