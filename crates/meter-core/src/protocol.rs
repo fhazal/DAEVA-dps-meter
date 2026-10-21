@@ -784,7 +784,9 @@ fn find_sync(fr: &Framing, known: &dyn Fn(u64) -> bool, buf: &[u8]) -> Option<us
                     p += f.raw.len();
                     n += 1;
                     if n >= 3 || p == buf.len() {
-                        if first_known || n >= 3 {
+                        // A packet that is exactly one whole message (a new connection's
+                        // first, unknown login message) starts at a boundary.
+                        if first_known || n >= 3 || (start == 0 && p == buf.len()) {
                             return Some(start);
                         }
                         continue 'outer;
@@ -1224,6 +1226,25 @@ mod tests {
         let mut out2 = Vec::new();
         d2.push(flow(), true, &s2, true, 1.0, &mut out2);
         assert_eq!(out2.len(), 8);
+
+        // A new connection joined without its handshake: the first packet is
+        // one whole message the meter doesn't know (the game's login message),
+        // and somewhere inside it the bytes happen to look like a known
+        // message ending exactly at the packet's end. Start at the real
+        // message, not inside it (that hid the Shugo return's monsters).
+        let mut d3 = Decoder::new(d.defs.clone(), None);
+        let mut login = b"\x00\x2bsession-text".to_vec();
+        login.extend(frame(0x0101, &hit_body()));
+        let mut out3 = Vec::new();
+        d3.push(flow(), true, &frame(0x3615, &login), true, 1.0, &mut out3);
+        assert!(out3.is_empty(), "nothing read from inside the login message: {out3:?}");
+        assert_eq!(d3.stats.get(&(true, 0x3615)).map(|s| s.count), Some(1), "read as the login message: {:?}", d3.stats.keys());
+        let mut rest = Vec::new();
+        for _ in 0..4 {
+            rest.extend(frame(0x0101, &hit_body()));
+        }
+        d3.push(flow(), true, &rest, false, 1.1, &mut out3);
+        assert_eq!(out3.len(), 8, "{out3:?}");
     }
 
     #[test]

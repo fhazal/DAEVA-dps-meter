@@ -154,6 +154,20 @@ fn open_release(url: String) -> Result<(), String> {
     winsys::open_url(&url)
 }
 
+/// Opens one of the meter's own pages (Settings → Updates, About): a fixed
+/// list, never a URL from the page.
+#[tauri::command]
+fn open_link(which: String) -> Result<(), String> {
+    let url = match which.as_str() {
+        "github" => "https://github.com/fhazal/DAEVA-dps-meter",
+        "releases" => state::RELEASES_URL,
+        "discord" => "https://discord.gg/TCmm8cH3GE",
+        "site" => "https://aion2.bajubesi.org",
+        _ => return Err("unknown link".into()),
+    };
+    winsys::open_url(url)
+}
+
 #[tauri::command]
 fn get_alerts(st: St<'_>) -> String {
     st.lock().alerts_view(state::now_unix()).to_string()
@@ -837,6 +851,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             update_status,
             check_updates_now,
+            open_link,
             dismiss_update,
             open_release,
             get_snapshot,
