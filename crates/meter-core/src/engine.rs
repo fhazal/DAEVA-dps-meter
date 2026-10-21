@@ -877,6 +877,11 @@ impl Engine {
                     self.dead_at.insert(*target, *ts);
                 }
                 let main = self.current.as_ref().and_then(|f| f.main_target());
+                // A mob dying next to a living boss (it took more of your
+                // damage than the boss, say) doesn't end the fight or make it
+                // a kill: that would read as a kill of the boss.
+                let boss_lives = self.current.as_ref().and_then(|f| self.card_boss(f)).map_or(false, |b| b != *target && !self.dead_at.contains_key(&b));
+                let main = main.filter(|_| !boss_lives);
                 if let Some(f) = self.current.as_mut() {
                     f.deaths.push((*ts, *target, *killer));
                     if let Some(s) = f.stats.get_mut(target) {
@@ -2249,6 +2254,20 @@ mod tests {
         assert_eq!(t.str_or("clock", ""), "fight", "{}", t.to_string());
         // And the card shows the mob you hit last.
         assert_eq!(t.get("target").unwrap().f64_or("id", 0.0), 62.0);
+    }
+
+    #[test]
+    fn a_mob_dying_next_to_a_living_boss_is_not_a_kill() {
+        let mut e = Engine::new(EngineConfig::default(), Names::from_json(r#"{"bosses": ["777"]}"#).unwrap());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(160_000_000) });
+        e.handle(&GameEvent::Actor { id: 60, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(6), owner: None, max_hp: Some(119_700) });
+        e.handle(&dmg(0.0, 1, 50, 18000000, 20_000, 0));
+        e.handle(&dmg(2.0, 1, 60, 18010000, 119_700, 0)); // more damage than on the boss
+        e.handle(&GameEvent::Death { ts: 2.1, target: 60, killer: Some(1) });
+        let f = e.current.as_ref().unwrap();
+        assert!(!f.boss_killed, "the boss is alive");
+        assert!(e.tick(5.5).is_none(), "the fight goes on");
     }
 
     #[test]
