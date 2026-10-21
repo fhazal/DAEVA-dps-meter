@@ -44,7 +44,7 @@ html, body {
   border-radius: 10px;
   overflow: hidden;
 }
-/* A rim in your class colour (accent colour until it is known), drawn on top of everything on
+/* Abyss-style hairline in your class colour, drawn on top of everything on
    all four sides (set --cls on .shell; see Daeva.applyClassBorder). */
 .shell::after {
   content: "";
@@ -53,12 +53,9 @@ html, body {
   border-radius: inherit;
   pointer-events: none;
   z-index: 50;
-  /* Your accent colour until the meter knows your class. */
-  border: 1px solid color-mix(in srgb, var(--cls, var(--accent)) 75%, transparent);
-  border-top-color: color-mix(in srgb, var(--cls, var(--accent)) 95%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cls, var(--accent)) 18%, transparent),
-    inset 0 0 18px color-mix(in srgb, var(--cls, var(--accent)) 10%, transparent);
-  transition: border-color .4s, box-shadow .4s;
+  border: 1px solid color-mix(in srgb, var(--cls, #ffffff) 30%, rgba(255, 255, 255, 0.06));
+  border-top-color: color-mix(in srgb, var(--cls, #ffffff) 45%, rgba(255, 255, 255, 0.08));
+  transition: border-color .4s;
 }
 
 .titlebar {

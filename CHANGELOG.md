@@ -41,7 +41,6 @@ A new Solo layout, settings with tabs, and a long list of fixes from a day of re
 - **Longer boss pauses:** a boss fight now waits 150 s instead of 60 s through untargetable phases and walks back, since wipes are caught by the reset.
 - **Column titles always show:** PLAYER · DPS · DMG · DMG % stay on top with every extra column unticked (or dropped on a narrow meter), each figure under its title.
 - **Monsters named after the Shugo Festival:** coming back from the festival, the meter missed the start of the new connection to the world server and read the first messages from the wrong place, so the monsters around you stayed *Unknown monster*. It now starts at the right place (in the test recordings: *Rampaging Shulak Cart Worker*, *Young Slink*), and loses its place in the traffic far less often overall.
-- **Clearer window edge:** every window (meter, Settings, fight details, History) has a rim in your class colour, now easy to see; before the meter knows your class, it uses your accent colour.
 - **The installer has the Daeva Meter icon** instead of the default setup icon.
 - **Window buttons like on a Mac:** red quits, yellow minimises, green switches between Classic and Solo (the symbols show when you point at them). In Classic they're at the top left, in Solo at the end of the bottom line. The status light now sits after the name.
 
