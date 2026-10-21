@@ -1403,6 +1403,7 @@ impl Core {
             .set("title", p.title.clone())
             .set("room", room)
             .set("lobby", e.party_lobby())
+            .set("entering", p.entering)
             .set("ready", e.party_ready())
             .set("members", Value::Arr(members))
             .build()

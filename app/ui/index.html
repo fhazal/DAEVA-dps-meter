@@ -803,7 +803,7 @@
     const head = `<div class="pty-h"><b>Party</b>${p.title ? `<span class="ttl" title="${D.esc(p.title)}">“${D.esc(p.title)}”</span>` : `<span class="ttl"></span>`}${p.room ? `<span class="pty-rd${all ? " all" : ""}">${all ? "✓ " : ""}${readyN}/${voters.length} ready</span>` : `<span class="pty-rd all" style="color:var(--muted);background:none;border-color:var(--line)">${ms.length} in party</span>`}</div>`
       + (p.room ? `<div class="pty-bar"><i class="${all ? "all" : ""}" style="width:${voters.length ? Math.round((readyN / voters.length) * 100) : 0}%"></i></div>` : "");
     const rows = ms.map((m) => {
-      const st = m.leader ? ["ld", "Leader"] : m.ready === true ? ["ok", "✓ Ready"] : m.ready === false ? ["no", "● Not ready"] : ["", ""];
+      const st = m.leader && p.entering ? ["ok", "✓ Entering"] : m.leader ? ["ld", "Leader"] : m.ready === true ? ["ok", "✓ Ready"] : m.ready === false ? ["no", "● Not ready"] : ["", ""];
       return `<div class="pty-m${st[0] ? " s-" + st[0] : ""}${m.is_self ? " me" : ""}">
         <span class="nm">${D.classIcon(m.class, 16)}${m.leader ? `<span title="Party leader">👑</span>` : ""}<span class="n">${D.esc(m.name)}</span>${m.is_self ? `<span class="metag">ME</span>` : ""}</span>
         <span class="sv" title="${D.esc(m.server || "")}">${D.esc(m.server_tag || "")}</span>

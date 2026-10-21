@@ -6,7 +6,7 @@
 // updates after a game patch never need a new build.
 {
   "name": "AION 2 (global)",
-  "version": "0.6.17",
+  "version": "0.6.18",
   "process_names": ["aion2"],
   // Server ports, if they turn out to be fixed. Auto-detection by process
   // already finds the server, so this can stay empty.
@@ -215,6 +215,20 @@
     {"opcode": "0x9200", "name": "S_PARTY_INFO", "dir": "server",
      "fields": [{"name": "members", "type": "member_names", "marker": 0}],
      "emit": {"event": "party", "when": "1", "members": "members"}},
+    // Someone joined the dungeon room: one entry as in 0x9702 (status 0x0c,
+    // slot, id...), sent the moment they join; the full list can come 40 s
+    // later (rerun2 capture 2026-10-22).
+    {"opcode": "0x970b", "name": "S_ROOM_JOINED", "dir": "server",
+     "fields": [{"name": "members", "type": "member_names", "marker": 30, "header": 0}],
+     "emit": {"event": "party_join", "when": "1", "members": "members"}},
+    // A room member clicked Ready (1): their id, 0 0, server, flag.
+    {"opcode": "0x9716", "name": "S_ROOM_READY", "dir": "server",
+     "fields": ["id:u32le", "x:skip2", "server:u16le", "ready:u8"],
+     "emit": {"event": "party_ready", "when": "1", "id": "id", "ready": "ready"}},
+    // The leader clicked Enter dungeon (no body); the teleport follows.
+    {"opcode": "0x9319", "name": "S_ROOM_ENTER", "dir": "server",
+     "fields": [],
+     "emit": {"event": "party_entering", "when": "1"}},
     // You left an open-world party (no body, 3 s after "leave party").
     {"opcode": "0x9213", "name": "S_PARTY_LEAVE", "dir": "server",
      "fields": [],

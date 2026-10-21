@@ -34,7 +34,7 @@ pub enum FType {
     /// Group member names from a party list: entries start with the byte
     /// `marker`, an index, a u32 id, u16 0, u16 server, then a u8-length
     /// UTF-8 name. Reads to the end; names are joined with newlines.
-    MemberNames { marker: u8 },
+    MemberNames { marker: u8, header: bool },
     Bytes(LenSpec),
     StrVarint,
     StrU16Utf16,
@@ -345,7 +345,7 @@ fn parse_ftype(v: &Value, ctx: &str) -> Result<FType, String> {
         "varint" => FType::Varint,
         "svarint" | "zigzag" => FType::Svarint,
         "skip" => FType::Skip(v.u64_or("len", 0) as usize),
-        "member_names" => FType::MemberNames { marker: v.u64_or("marker", 0x1e) as u8 },
+        "member_names" => FType::MemberNames { marker: v.u64_or("marker", 0x1e) as u8, header: v.u64_or("header", 1) != 0 },
         "seek" => {
             let pattern: Vec<u8> = v
                 .str_or("pattern", "")
@@ -523,7 +523,7 @@ fn read_fields(r: &mut Reader<'_>, defs: &[FieldDef], parents: &[&Scope], out: &
                 r.skip(*n)?;
                 continue;
             }
-            FType::MemberNames { marker } => {
+            FType::MemberNames { marker, header } => {
                 let b = r.rest();
                 let mut names: Vec<String> = Vec::new();
                 let mut i = 0;
@@ -576,7 +576,7 @@ fn read_fields(r: &mut Reader<'_>, defs: &[FieldDef], parents: &[&Scope], out: &
                 }
                 // The dungeon list starts with the room: its title (what the
                 // leader typed) and, a few bytes on, the leader's id.
-                if *marker != 0 && !names.is_empty() {
+                if *marker != 0 && *header && !names.is_empty() {
                     let len = b.get(4).copied().unwrap_or(0) as usize;
                     let title = b.get(5..5 + len).and_then(|t| std::str::from_utf8(t).ok()).filter(|t| !t.chars().any(|c| c.is_control())).unwrap_or("");
                     let leader = (b.get(5 + len + 6) == Some(&0x03)).then(|| b.get(5 + len + 7..5 + len + 11)).flatten().map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).unwrap_or(0);
@@ -807,6 +807,21 @@ fn find_sync(fr: &Framing, known: &dyn Fn(u64) -> bool, buf: &[u8]) -> Option<us
         }
     }
     None
+}
+
+/// One member line, "name\tclass\tid\tserver\tgs\tcp\tstatus" (empty or 0 = not known).
+fn party_member(l: &str) -> crate::events::PartyMember {
+    let opt = |s: Option<&str>| s.and_then(|v| v.parse::<u64>().ok()).filter(|v| *v > 0);
+    let f: Vec<&str> = l.split('\t').collect();
+    crate::events::PartyMember {
+        name: f[0].to_string(),
+        code: f.get(1).and_then(|v| v.parse::<u32>().ok()),
+        id: opt(f.get(2).copied()),
+        server: opt(f.get(3).copied()).map(|v| v as u32),
+        gs: opt(f.get(4).copied()).map(|v| v as u32),
+        cp: opt(f.get(5).copied()).map(|v| v as u32),
+        status: f.get(6).and_then(|v| v.parse::<u8>().ok()),
+    }
 }
 
 // ---------------------------------------------------------------- decoder
@@ -1076,22 +1091,7 @@ fn emit(e: &Emit, header: &Scope, scope: &Scope, ts: f64, out: &mut Vec<GameEven
                 // status. Empty or 0 means not known.
                 let opt = |s: Option<&str>| s.and_then(|v| v.parse::<u64>().ok()).filter(|v| *v > 0);
                 let head = lines.first().filter(|l| l.starts_with("@\t")).map(|l| l.split('\t').collect::<Vec<_>>());
-                let members: Vec<crate::events::PartyMember> = lines
-                    .iter()
-                    .filter(|l| !l.starts_with("@\t"))
-                    .map(|l| {
-                        let f: Vec<&str> = l.split('\t').collect();
-                        crate::events::PartyMember {
-                            name: f[0].to_string(),
-                            code: f.get(1).and_then(|v| v.parse::<u32>().ok()),
-                            id: opt(f.get(2).copied()),
-                            server: opt(f.get(3).copied()).map(|v| v as u32),
-                            gs: opt(f.get(4).copied()).map(|v| v as u32),
-                            cp: opt(f.get(5).copied()).map(|v| v as u32),
-                            status: f.get(6).and_then(|v| v.parse::<u8>().ok()),
-                        }
-                    })
-                    .collect();
+                let members: Vec<crate::events::PartyMember> = lines.iter().filter(|l| !l.starts_with("@\t")).map(|l| party_member(l)).collect();
                 if !members.is_empty() || head.is_some() || lines.is_empty() {
                     out.push(GameEvent::PartyInfo {
                         title: head.as_ref().and_then(|h| h.get(1)).map(|s| s.to_string()).filter(|s| !s.trim().is_empty()),
@@ -1101,6 +1101,16 @@ fn emit(e: &Emit, header: &Scope, scope: &Scope, ts: f64, out: &mut Vec<GameEven
                 }
                 GameEvent::Party { names: members.iter().map(|m| m.name.clone()).collect(), codes: members.iter().map(|m| m.code).collect() }
             }
+            // One room entry, the moment someone joins.
+            "party_join" => match txt("members").and_then(|s| s.split('\n').find(|l| !l.is_empty() && !l.starts_with("@\t")).map(party_member)) {
+                Some(member) => GameEvent::PartyJoin { member },
+                None => continue,
+            },
+            "party_ready" => match num("id") {
+                Some(id) if id > 0 => GameEvent::PartyReady { id, ready: num("ready").unwrap_or(0) != 0 },
+                _ => continue,
+            },
+            "party_entering" => GameEvent::PartyEntering,
             "keys" => match num("cur") {
                 Some(cur) if cur < 10_000 => GameEvent::Keys { cur },
                 _ => continue,

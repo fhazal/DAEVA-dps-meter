@@ -99,6 +99,12 @@ pub enum GameEvent {
     Party { names: Vec<String>, codes: Vec<Option<u32>> },
     /// The same party list with what the party panel shows (sent together).
     PartyInfo { title: Option<String>, leader: Option<u64>, members: Vec<PartyMember> },
+    /// Someone joined the dungeon room (sent the moment they join).
+    PartyJoin { member: PartyMember },
+    /// A room member clicked Ready (or took it back).
+    PartyReady { id: u64, ready: bool },
+    /// The room leader clicked Enter dungeon (the teleport follows).
+    PartyEntering,
     /// The game just sent a full picture (login or zone change).
     Fresh,
 }
@@ -121,6 +127,9 @@ impl GameEvent {
             GameEvent::Keys { .. } => "keys",
             GameEvent::Party { .. } => "party",
             GameEvent::PartyInfo { .. } => "party_info",
+            GameEvent::PartyJoin { .. } => "party_join",
+            GameEvent::PartyReady { .. } => "party_ready",
+            GameEvent::PartyEntering => "party_entering",
             GameEvent::Fresh => "fresh",
         }
     }
