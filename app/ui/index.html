@@ -189,6 +189,11 @@
   body.lay-solo .shell { --k: var(--cls, var(--accent)); }
   .so-hd { display: flex; align-items: center; gap: 8px; padding: 5px 9px 3px; }
   .so-hd .gt-ic, .so-hd .tc-ic { width: 22px; height: 22px; border-radius: 6px; flex: none; }
+  .so-rk { --rk: 150,158,172; width: 22px; height: 22px; flex: none; display: grid; place-items: center; border-radius: 6px;
+    color: rgb(var(--rk)); background: rgba(var(--rk),0.14); border: 1px solid rgba(var(--rk),0.45); }
+  .so-rk svg { width: 14px; height: 14px; }
+  .so-rk.r-common { --rk: 150,158,172; } .so-rk.r-elite { --rk: 79,157,240; } .so-rk.r-heroic { --rk: 232,168,75; }
+  .so-rk.r-legendary, .so-rk.r-boss { --rk: 232,103,126; }
   .so-bn { min-width: 0; flex: 1; }
   .so-bn b { display: block; font-size: 12px; font-weight: 650; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .so-bn span { color: var(--muted); font-size: 9.5px; line-height: 1.1; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -688,6 +693,12 @@
   // ---- Solo layout: the boss on top, your own card, Odyle/party/ping ----
   const SKULL = '<span class="tc-ic"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.5C4.5 1.5 2 4 2 7c0 1.9 1 3.3 2.3 4.1V13c0 .6.4 1 1 1h.7v-1.5h1V14h2v-1.5h1V14h.7c.6 0 1-.4 1-1v-1.9C13 10.3 14 8.9 14 7c0-3-2.5-5.5-6-5.5zM5.6 9.2a1.3 1.3 0 1 1 0-2.6 1.3 1.3 0 0 1 0 2.6zm4.8 0a1.3 1.3 0 1 1 0-2.6 1.3 1.3 0 0 1 0 2.6z"/></svg></span>';
   const clock = (sec) => { sec = Math.max(0, Math.floor(sec || 0)); return `${String(Math.floor(sec / 60)).padStart(2, "0")}:${String(sec % 60).padStart(2, "0")}`; };
+  // Solo: the monster icon in its rank colour (Common, Elite, Heroic,
+  // Legendary/Boss), the same colours as the Classic card.
+  function rankIcon(t) {
+    const rk = String(t.rank || "").toLowerCase().replace(/monster$/, "").replace(/^hero(ic)?$/, "heroic").replace(/^normal$/, "common").replace(/[^a-z]/g, "");
+    return `<span class="so-rk${rk ? " r-" + rk : ""}"${t.rank ? ` title="${D.esc(t.rank)}"` : ""}>${SKULL.replace(/^<span class="tc-ic">|<\/span>$/g, "")}</span>`;
+  }
   function renderSolo(f, s, state, text, ping) {
     const so = ui.solo || {};
     const me = f && f.players ? f.players.find((p) => p.is_self) : null;
@@ -706,7 +717,7 @@
       }
       const pc = dead ? `<span class="so-pc dead">✓ Killed</span>` : pctv != null ? `<span class="so-pc">${D.pct(pctv, pctv > 0 && pctv < 0.1 ? 1 : 0)}</span>` : "";
       const sub = t.max_hp ? `${D.fmt(dead ? 0 : hpNow != null ? hpNow : t.max_hp)} / ${D.fmt(t.max_hp)}` : t.rank ? D.esc(t.rank) : "";
-      hd = `<div class="so-hd" data-drag>${D.npcIcon(t.art_npc || t.npc_id, 24) || SKULL}<div class="so-bn" data-drag><b>${D.esc(t.name)}</b><span>${sub}</span></div><div class="so-rt">${enr}<span class="so-clock">${clock(secs)}</span>${pc}</div></div>`
+      hd = `<div class="so-hd" data-drag>${rankIcon(t)}<div class="so-bn" data-drag><b>${D.esc(t.name)}</b><span>${sub}</span></div><div class="so-rt">${enr}<span class="so-clock">${clock(secs)}</span>${pc}</div></div>`
         + (pctv != null ? `<div class="so-hp"><i style="width:${(pctv * 100).toFixed(1)}%"></i></div>` : "");
     } else {
       hd = `<div class="so-hd" data-drag><div class="so-bn" data-drag><b>Daeva Meter${s.version ? ` <span>v${D.esc(s.version)}</span>` : ""}</b><span title="${D.esc(text)}">${D.esc(state === "live" || state === "idle" ? (s.server ? s.server + " · " : "") + (f ? "Fight over" : "Waiting for a fight") : text)}</span></div>${f && f.duration ? `<div class="so-rt"><span class="so-clock">${clock(f.duration)}</span></div>` : ""}</div>`;
