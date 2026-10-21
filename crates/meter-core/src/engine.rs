@@ -768,6 +768,12 @@ impl Engine {
                         if !mine && !shared && !ally && !party_boss {
                             return finished;
                         }
+                        // Someone who helped you, now hitting monsters you
+                        // never touched after you stopped: not your fight any
+                        // more (their DPS climbed while the clock stood still).
+                        if !mine && !shared && !party_boss && live.map_or(true, |f| *ts > f.end + 2.0) {
+                            return finished;
+                        }
                         extends = mine || shared || party_boss;
                         if shared && !mine {
                             if let Some(f) = self.current.as_mut() {
