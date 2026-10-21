@@ -817,11 +817,11 @@ impl Engine {
                     }
                     v[sec] += amount;
                 }
-                if fight.self_id.is_some() && fight.self_id == Some(attacker) {
+                // Your skills set what the card follows; your damage-over-time
+                // ticks on something you left don't pull it back.
+                if fight.self_id.is_some() && fight.self_id == Some(attacker) && fl & flags::DOT == 0 {
                     fight.focus = Some(*tgt);
-                    if fl & flags::DOT == 0 {
-                        fight.own_last.insert(*tgt, *ts);
-                    }
+                    fight.own_last.insert(*tgt, *ts);
                 }
                 let bucket = ((*ts - fight.start).max(0.0)) as usize;
                 let s = fight.stats.entry(attacker).or_insert_with(|| ActorStat { first: *ts, ..Default::default() });
@@ -1733,7 +1733,11 @@ impl Engine {
         // the enemy you hit last (a healer's few hits and damage-over-time
         // ticks often land on adds), and the biggest target only when you
         // haven't hit anything yourself (spectating a fight).
-        let main = target.or_else(|| self.card_boss(f)).or(f.focus).or_else(|| f.main_target());
+        // In a party the card stays on the boss (adds, healers' ticks); on
+        // your own it shows what you're fighting now: the last monster you
+        // used a skill on, so a mob you turn to next to a big monster shows.
+        let solo = self.party.len() < 2 && f.id == self.current.as_ref().map_or(0, |c| c.id);
+        let main = if solo { target.or(f.focus).or_else(|| self.card_boss(f)) } else { target.or_else(|| self.card_boss(f)).or(f.focus) }.or_else(|| f.main_target());
         let target_v = main.map(|t| {
             let a = self.actors.get(&t);
             let frozen = f.tinfo.get(&t).copied();
