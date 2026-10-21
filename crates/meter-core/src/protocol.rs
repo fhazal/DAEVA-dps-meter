@@ -538,9 +538,10 @@ fn read_fields(r: &mut Reader<'_>, defs: &[FieldDef], parents: &[&Scope], out: &
                         let server = u16::from_le_bytes([b[i + 6], b[i + 7]]);
                         (1000..=9999).contains(&server)
                     } else {
-                        // Entries start 0x1e, or 0x0e with one status bit clear
-                        // (seen for a member who joined through a dungeon room).
-                        b[i] | 0x10 == *marker | 0x10 && (1..=16).contains(&b[i + 1])
+                        // Entries start 0x0c, with status bits on top: 0x02 =
+                        // Ready in a dungeon room, 0x10 seen once in the
+                        // dungeon (0x0c, 0x0e and 0x1e all occur).
+                        b[i] | 0x12 == *marker | 0x12 && (1..=16).contains(&b[i + 1])
                     };
                     let name_at = i + h + 9;
                     if head && b[i + h + 4] == 0 && b[i + h + 5] == 0 && (2..=48).contains(&len) && name_at + len <= b.len() {
