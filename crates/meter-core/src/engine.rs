@@ -1115,7 +1115,10 @@ impl Engine {
                     // When the line-up changed (not just a Ready click): the
                     // panel shows until the next fight.
                     let changed = self.party_info.as_ref().map_or(true, |p| p.key != key);
-                    let since = if changed { self.last_ts } else { self.party_info.as_ref().map_or(self.last_ts, |p| p.since) };
+                    // Only someone joining (or a new party) brings the panel
+                    // back; people leaving after a run just update the list.
+                    let joined = self.party_info.as_ref().map_or(true, |p| members.iter().any(|m| !p.members.iter().any(|o| o.name == m.name)));
+                    let since = if joined { self.last_ts } else { self.party_info.as_ref().map_or(self.last_ts, |p| p.since) };
                     // Open-world lists have no title or leader: keep the room's.
                     let keep = self.party_info.as_ref().filter(|_| !changed);
                     // The two lists alternate in a dungeon room; only one has
@@ -2659,6 +2662,10 @@ mod zone_notice_tests {
         assert!(!e.party_lobby(), "same party after a fight: the fight stays on screen");
         e.handle(&info(&["Me", "Ally", "Third"]));
         assert!(e.party_lobby(), "someone joined");
+        e.handle(&GameEvent::Damage { ts: 20.0, src: 1, tgt: 50, skill: 18_000_000, amount: 100, flags: 0 });
+        e.finish();
+        e.handle(&info(&["Me", "Ally"]));
+        assert!(!e.party_lobby(), "someone left after the run: no panel");
         e.handle(&GameEvent::PartyInfo { title: None, leader: None, members: vec![] });
         assert!(e.party_info.is_none() && !e.party_lobby(), "left the party");
     }
