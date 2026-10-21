@@ -77,7 +77,7 @@ Monster and skill names and game icons arrive automatically. Anything new can be
 <td valign="top">
 
 ### 💎 Your character
-Your **Odyle** energy and **Shugo Festival keys** under the meter, your server, and your **ping** to the Beritra game server (checked once a minute: the game's own traffic goes through a nearby Cloudflare relay, which would show only a few ms). Switching characters is picked up automatically.
+Your **Odyle** energy and **Shugo Festival keys** under the meter, your server, and your **ping** to the game servers of your region (Tokyo for the Asia servers, checked once a minute: the game's own traffic goes through a nearby Cloudflare relay, which would show only a few ms). Switching characters is picked up automatically.
 
 </td>
 <td valign="top">

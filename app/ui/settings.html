@@ -422,7 +422,7 @@
     oss: ["Open-source licences", () => `<p>Daeva Meter is built with this free software. Thank you to everyone who makes it.</p><table>${(window.DAEVA_OSS || []).map(([n, l, w]) => `<tr><td>${D.esc(n)}</td><td>${D.esc(w)}</td><td>${D.esc(l)}</td></tr>`).join("")}</table><h4>Lucide</h4><pre>${D.esc(window.DAEVA_LUCIDE_LICENSE || "")}</pre><p>Npcap, which reads the network traffic, is installed separately and has its own licence (npcap.com).</p>`],
     privacy: ["Privacy", () => `<p>Daeva Meter reads the game's network traffic <b>on your own computer</b>. It never changes the game; its only contact with the game server is the ping check below. it.</p>
       <h4>What leaves your computer</h4><table>
-      <tr><td>Ping</td><td>While the game runs, once a minute: opens a connection to the Beritra game server and closes it again to time it. No data is sent.</td></tr>
+      <tr><td>Ping</td><td>While the game runs, once a minute: opens a connection to the game servers of your region (Tokyo for the Asia servers) and closes it again to time it. No data is sent. Regions whose game server isn't known yet show no ping.</td></tr>
       <tr><td>Update check</td><td>Asks GitHub for the latest version (Settings → Updates). Nothing about you is sent.</td></tr>
       <tr><td>Monster &amp; skill names</td><td>Downloads lists from aion2.gaming.tools at most once a day (Advanced → Data &amp; names).</td></tr>
       <tr><td>Event alerts</td><td>Reads the event schedule from aion2.bajubesi.org (Event alerts).</td></tr>

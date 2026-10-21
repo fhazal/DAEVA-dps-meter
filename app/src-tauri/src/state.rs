@@ -125,10 +125,13 @@ pub struct Core {
     pub pb_notice: Option<Value>,
     /// When Daeva Meter was opened again while running (for the notice).
     pub opened_again: Option<f64>,
-    /// The game server to time for the ping (from the Daeva feed), and the
-    /// last reading: milliseconds and when.
-    pub probe_target: Option<(String, u16)>,
-    pub game_rtt: Option<(f64, f64)>,
+    /// Game servers to time for the ping, per server number (from the Daeva
+    /// feed; the built-in Asia entry otherwise), and the last reading:
+    /// milliseconds, when, and where ("Tokyo"). `ping_note` says why there
+    /// is none: "region" (no server known for yours) or "unreachable".
+    pub probes: Vec<Probe>,
+    pub game_rtt: Option<(f64, f64, String)>,
+    pub ping_note: Option<&'static str>,
     /// Banner rectangles in the alert window (CSS px: x, y, w, h), so the
     /// window only catches the mouse over a banner, and only while unlocked.
     pub toast_rects: Vec<(f64, f64, f64, f64)>,
@@ -376,8 +379,9 @@ impl Core {
             bests: Bests::default(),
             pb_notice: None,
             opened_again: None,
-            probe_target: None,
+            probes: Vec::new(),
             game_rtt: None,
+            ping_note: None,
             gap_base: None,
             toast_rects: Vec::new(),
             alert_drag: None,
@@ -1315,15 +1319,11 @@ impl Core {
             .set("game_packets", p.game_packets)
             .set("game_bytes", p.game_bytes)
             // The game reaches its server through a nearby Cloudflare relay,
-            // which answers at once: the traffic's own timing is to the relay.
-            // The real server is timed directly (latency_probe); the relay
-            // timing is only a fallback.
-            .set("ping_ms", match self.game_rtt.filter(|(_, at)| now - at < 180.0) {
-                Some((ms, _)) => Some(ms),
-                None if now - p.ping.last_sample_ts < 10.0 => p.ping.ms(),
-                None => None,
-            })
-            .set("ping_kind", if self.game_rtt.map_or(false, |(_, at)| now - at < 180.0) { "server" } else { "relay" })
+            // which answers at once, so the traffic's own timing would show
+            // the relay (a few ms). Only the game server's timing is shown.
+            .set("ping_ms", self.game_rtt.as_ref().filter(|(_, at, _)| now - at < 180.0).map(|(ms, _, _)| *ms))
+            .set("ping_where", self.game_rtt.as_ref().filter(|(_, at, _)| now - at < 180.0).map(|(_, _, w)| w.as_str()))
+            .set("ping_note", self.ping_note)
             .set("game_idle", if p.last_game_ts > 0.0 { Some(now - p.last_game_ts) } else { None })
             .set("frames", p.decoder.frames_total)
             .set("resyncs", p.decoder.resyncs())
@@ -1750,21 +1750,18 @@ fn event_feed(shared: Arc<Shared>) {
                 .map_err(|e| format!("Event feed unreachable: {e}"))
                 .and_then(|r| r.into_string().map_err(|e| format!("Event feed read failed: {e}")))
                 .and_then(|body| {
-                    // Where to time the ping: the feed can move it if the game
-                    // server changes ({"latency_probe": {"code"}}, scrambled
-                    // like GAME_SERVER_X).
-                    let probe = meter_core::json::parse(&body).ok().and_then(|v| {
-                        let code = v.get("latency_probe")?.get("code")?.as_str()?.to_string();
-                        decode_server(&code)
-                    });
+                    // Where to time the ping, per server number; the feed can
+                    // move a server or add a region (addresses scrambled like
+                    // GAME_SERVER_X).
+                    let probe = meter_core::json::parse(&body).ok().and_then(|v| v.get("latency_probes")?.as_arr().map(|list| list.iter().filter_map(Probe::from_feed).collect::<Vec<_>>()));
                     schedule::parse_overview(&body).map(|o| (o, probe))
                 });
             let mut c = shared.lock();
             match result {
                 Ok((occs, probe)) => {
                     failures = 0;
-                    if probe.is_some() {
-                        c.probe_target = probe;
+                    if let Some(list) = probe {
+                        c.probes = list;
                     }
                     c.events.occurrences = occs;
                     c.events.fetched_at = now_unix();
@@ -1783,14 +1780,55 @@ fn event_feed(shared: Arc<Shared>) {
     }
 }
 
-/// The Beritra game server (Tokyo), where the bot measures latency too; the
-/// Daeva feed can replace it. Kept scrambled so the address of the server
+/// A game server to time for the players of some servers.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Probe {
+    /// Server numbers as inclusive ranges (Beritra is 2508).
+    servers: Vec<(u32, u32)>,
+    name: String,
+    host: String,
+    port: u16,
+}
+
+impl Probe {
+    /// {"servers": "1501-1510,2501-2510", "name": "Tokyo", "code": "..."}
+    fn from_feed(v: &meter_core::json::Value) -> Option<Probe> {
+        let servers = parse_ranges(v.get("servers")?.as_str()?);
+        let (host, port) = decode_server(v.get("code")?.as_str()?)?;
+        let name = v.get("name").and_then(|n| n.as_str()).unwrap_or("").chars().filter(|c| c.is_alphanumeric() || " -".contains(*c)).take(24).collect();
+        (!servers.is_empty()).then_some(Probe { servers, name, host, port })
+    }
+
+    fn covers(&self, server: u32) -> bool {
+        self.servers.iter().any(|(a, b)| (*a..=*b).contains(&server))
+    }
+}
+
+/// "1501-1510,2501-2510" (single numbers too).
+fn parse_ranges(s: &str) -> Vec<(u32, u32)> {
+    s.split(',')
+        .filter_map(|part| {
+            let mut it = part.trim().splitn(2, '-').map(|x| x.trim().parse::<u32>());
+            let a = it.next()?.ok()?;
+            let b = it.next().map_or(Some(a), |x| x.ok())?;
+            (a <= b).then_some((a, b))
+        })
+        .collect()
+}
+
+/// The Asia game servers (Tokyo), where the bot measures latency too; used
+/// when the feed hasn't answered. Kept scrambled so the address of the server
 /// behind Cloudflare isn't spelled out in the source.
 const GAME_SERVER_X: ([u8; 4], u16) = ([0x97, 0x7d, 0xc1, 0x22], 0x93b7);
 
-fn game_server() -> (String, u16) {
+fn built_in_probe() -> Probe {
     let ([a, b, c, d], p) = GAME_SERVER_X;
-    (format!("{}.{}.{}.{}", a ^ 0xa7, b ^ 0xa7, c ^ 0xa7, d ^ 0xa7), p ^ 0xa7a7)
+    Probe {
+        servers: vec![(1501, 1510), (2501, 2510)],
+        name: "Tokyo".into(),
+        host: format!("{}.{}.{}.{}", a ^ 0xa7, b ^ 0xa7, c ^ 0xa7, d ^ 0xa7),
+        port: p ^ 0xa7a7,
+    }
 }
 
 /// The feed's form: 12 hex digits, the four address bytes and the port, each
@@ -1804,6 +1842,11 @@ fn decode_server(code: &str) -> Option<(String, u16)> {
     (port > 0).then(|| (format!("{}.{}.{}.{}", b[0], b[1], b[2], b[3]), port))
 }
 
+/// The game server for a player's server number: the feed's list first.
+fn probe_for(list: &[Probe], server: u32) -> Option<Probe> {
+    list.iter().find(|p| p.covers(server)).cloned().or_else(|| Some(built_in_probe()).filter(|p| p.covers(server)))
+}
+
 #[cfg(test)]
 mod probe_tests {
     use super::*;
@@ -1812,40 +1855,71 @@ mod probe_tests {
     fn the_feed_code_and_the_built_in_server_agree() {
         // A documentation address, as in the bot's test.
         assert_eq!(decode_server("67a7a5ad93b7"), Some(("192.0.2.10".to_string(), 13328)));
-        let (host, port) = game_server();
-        let ip: Vec<u8> = host.split('.').map(|x| x.parse().unwrap()).collect();
-        let code: String = ip.iter().chain(port.to_be_bytes().iter()).map(|b| format!("{:02x}", b ^ 0xa7)).collect();
-        assert_eq!(decode_server(&code), Some((host, port)));
+        let p = built_in_probe();
+        let ip: Vec<u8> = p.host.split('.').map(|x| x.parse().unwrap()).collect();
+        let code: String = ip.iter().chain(p.port.to_be_bytes().iter()).map(|b| format!("{:02x}", b ^ 0xa7)).collect();
+        assert_eq!(decode_server(&code), Some((p.host.clone(), p.port)));
         assert_eq!(decode_server("not-a-code!!"), None);
+    }
+
+    #[test]
+    fn each_player_gets_the_game_server_of_their_region() {
+        let feed = meter_core::json::parse(r#"{"latency_probes": [
+            {"servers": "3001-3010", "name": "Seoul", "code": "67a7a5ad93b7"},
+            {"servers": "nonsense", "code": "67a7a5ad93b7"}]}"#).unwrap();
+        let list: Vec<Probe> = feed.get("latency_probes").unwrap().as_arr().unwrap().iter().filter_map(Probe::from_feed).collect();
+        assert_eq!(list.len(), 1);
+        // A server the feed lists.
+        assert_eq!(probe_for(&list, 3005).map(|p| (p.name, p.host)), Some(("Seoul".into(), "192.0.2.10".into())));
+        // Beritra: not in the feed's list, the built-in Asia entry.
+        assert_eq!(probe_for(&list, 2508).map(|p| p.name), Some("Tokyo".into()));
+        // Nobody knows this region's server yet: no ping rather than a wrong one.
+        assert_eq!(probe_for(&list, 9001), None);
+        assert_eq!(parse_ranges("1501-1510, 2508,9-1"), vec![(1501, 1510), (2508, 2508)]);
     }
 }
 
-/// Times a connection to the game server once a minute while the game runs,
-/// like a ping: the median of four tries, nothing sent. This is the latency
-/// players feel (about 80 ms from Malaysia), not the relay's.
+/// Times a connection to the player's game server once a minute while the
+/// game runs, like a ping: the median of four tries, nothing sent. This is the
+/// latency players feel (about 80 ms from Malaysia to Tokyo), not the relay's.
 fn latency_probe(shared: Arc<Shared>) {
     use std::net::{TcpStream, ToSocketAddrs};
     loop {
-        let (running, target) = {
+        let (running, list, server) = {
             let c = shared.lock();
-            (c.status.game_process.is_some(), c.probe_target.clone())
+            let e = &c.pipeline.engine;
+            (c.status.game_process.is_some(), c.probes.clone(), e.self_server.or(c.settings.last_server))
         };
         if running {
-            let (host, port) = target.unwrap_or_else(game_server);
-            if let Some(addr) = (host.as_str(), port).to_socket_addrs().ok().and_then(|mut a| a.next()) {
-                let mut times = Vec::new();
-                for i in 0..4 {
-                    if i > 0 {
-                        std::thread::sleep(Duration::from_millis(100));
-                    }
-                    let start = Instant::now();
-                    if TcpStream::connect_timeout(&addr, Duration::from_secs(2)).is_ok() {
-                        times.push(start.elapsed().as_secs_f64() * 1000.0);
-                    }
+            match server.and_then(|s| probe_for(&list, s)) {
+                // Server not known yet: wait for the game to say.
+                None if server.is_none() => {}
+                None => {
+                    let mut c = shared.lock();
+                    c.game_rtt = None;
+                    c.ping_note = Some("region");
                 }
-                if !times.is_empty() {
-                    times.sort_by(|a, b| a.total_cmp(b));
-                    shared.lock().game_rtt = Some((times[times.len() / 2], now_unix()));
+                Some(p) => {
+                    let mut times = Vec::new();
+                    if let Some(addr) = (p.host.as_str(), p.port).to_socket_addrs().ok().and_then(|mut a| a.next()) {
+                        for i in 0..4 {
+                            if i > 0 {
+                                std::thread::sleep(Duration::from_millis(100));
+                            }
+                            let start = Instant::now();
+                            if TcpStream::connect_timeout(&addr, Duration::from_secs(2)).is_ok() {
+                                times.push(start.elapsed().as_secs_f64() * 1000.0);
+                            }
+                        }
+                    }
+                    let mut c = shared.lock();
+                    if times.is_empty() {
+                        c.ping_note = Some("unreachable");
+                    } else {
+                        times.sort_by(|a, b| a.total_cmp(b));
+                        c.game_rtt = Some((times[times.len() / 2], now_unix(), p.name.clone()));
+                        c.ping_note = None;
+                    }
                 }
             }
         }

@@ -8,7 +8,7 @@ tagline: A Solo layout, a live party panel, settings like a pro app, and damage 
 - 🛡️ **Party panel:** who is in the room, their server, gear score and combat power, who is Ready and when the leader enters, the moment it happens
 - ✅ **Ready when you arrive:** after the teleport your party shows in the DPS list until the first hit
 - 🗂️ **New settings:** grouped like a pro app, with Help, Updates and an About page with our testers and contributors
-- 📶 **Real ping** to the Beritra server, and the status light in the bottom line (green in combat, blue idle)
+- 📶 **Real ping** to the game servers (Tokyo for Asia), and the status light in the bottom line (green in combat, blue idle)
 - 🎨 **New event icons**, Mac-style window buttons and a window edge in your class colour
 
 ## Fixed
