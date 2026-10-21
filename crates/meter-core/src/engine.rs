@@ -429,6 +429,9 @@ pub struct Fight {
     /// When you last used a skill on each target (damage-over-time ticks
     /// left out), to tell when you've moved on from a boss.
     pub own_last: HashMap<u64, f64>,
+    /// You were in a party during this fight: the boss clock and a card
+    /// that stays on the boss. On your own: the whole fight and your target.
+    pub grouped: bool,
 }
 
 impl Fight {
@@ -795,7 +798,9 @@ impl Engine {
                         finished = Some(f);
                     }
                 }
+                let grouped = self.party.len() >= 2;
                 let fight = self.ensure_fight(*ts);
+                fight.grouped |= grouped;
                 if fight.boss_killed && extends && !fight.targets.contains_key(tgt) && !boss_down {
                     // moved on to a new mob: the kill flag described the old one
                     // (a boss kill stands, and so does one when only someone
@@ -1125,6 +1130,7 @@ impl Engine {
                 twatch: Default::default(),
                 tscale: Default::default(),
                 own_last: Default::default(),
+                grouped: false,
             });
         }
         self.current.as_mut().unwrap()
@@ -1666,7 +1672,17 @@ impl Engine {
         // fight): damage on every enemy from the first hit on the boss to the
         // kill, adds included, divided by that time, like an encounter in
         // Details! or ACT. Trash and walking before the pull are left out.
+        // On your own, a big monster you farm between mobs isn't an
+        // encounter: when over a quarter of the damage from the pull on went
+        // into other monsters, the whole fight is the clock (else the mobs
+        // you turn to drop out of the DPS). Trash before the pull is fine.
         let boss = if self.cfg.dps_clock == DpsClock::Boss && target.is_none() { self.boss_target(f) } else { None };
+        let boss = boss.filter(|b| {
+            let pull = f.tspan.get(b).map_or(f.start, |s| s.0);
+            let others: u64 = f.targets.iter().filter(|(t, _)| *t != b && f.tspan.get(t).map_or(false, |s| s.1 >= pull)).map(|(_, d)| *d).sum();
+            let on_boss = f.targets.get(b).copied().unwrap_or(0);
+            f.grouped || others as f64 <= (on_boss + others) as f64 * 0.25
+        });
         let window = boss.and_then(|b| f.tspan.get(&b).copied());
         // Seconds of the fight timeline inside the boss fight, minus phases of
         // 10 s or more when nobody damaged the boss (barriers, untargetable
@@ -1736,7 +1752,7 @@ impl Engine {
         // In a party the card stays on the boss (adds, healers' ticks); on
         // your own it shows what you're fighting now: the last monster you
         // used a skill on, so a mob you turn to next to a big monster shows.
-        let solo = self.party.len() < 2 && f.id == self.current.as_ref().map_or(0, |c| c.id);
+        let solo = !f.grouped;
         let main = if solo { target.or(f.focus).or_else(|| self.card_boss(f)) } else { target.or_else(|| self.card_boss(f)).or(f.focus) }.or_else(|| f.main_target());
         let target_v = main.map(|t| {
             let a = self.actors.get(&t);
@@ -2211,6 +2227,25 @@ mod tests {
     }
 
     #[test]
+    fn solo_farming_next_to_a_big_monster_counts_the_mobs() {
+        let mut e = Engine::new(EngineConfig::default(), Names::from_json(r#"{"bosses": ["777"]}"#).unwrap());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(160_000_000) });
+        for (i, id) in [60u64, 61, 62].iter().enumerate() {
+            e.handle(&GameEvent::Actor { id: *id, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(6), owner: None, max_hp: Some(119_700) });
+            let t = i as f64 * 6.0;
+            e.handle(&dmg(t, 1, 50, 18000000, 2000, 0));
+            e.handle(&dmg(t + 3.0, 1, *id, 18010000, 6000, 0));
+        }
+        let f = e.current.as_ref().unwrap();
+        let t = e.fight_table(f, None);
+        // Mostly mobs: the whole fight is the clock, so the mobs count.
+        assert_eq!(t.str_or("clock", ""), "fight", "{}", t.to_string());
+        // And the card shows the mob you hit last.
+        assert_eq!(t.get("target").unwrap().f64_or("id", 0.0), 62.0);
+    }
+
+    #[test]
     fn finished_fight_keeps_its_end_health() {
         let mut e = Engine::new(EngineConfig::default(), Names::from_json(r#"{"bosses": ["777"]}"#).unwrap());
         e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
@@ -2374,7 +2409,7 @@ mod naming_tests {
         assert!(n.skill_named(17010230 | DOT_KEY));
         assert_eq!(n.skill(17020000), "Skill 17020000");
         let mut e = Engine::new(EngineConfig::default(), n);
-        let mut f = Fight { id: 1, start: 0.0, end: 1.0, started_unix: 0.0, stats: Default::default(), targets: Default::default(), deaths: vec![], loot: vec![], zone: None, boss_killed: false, finished: true, self_id: None, names: Default::default(), allies: Default::default(), focus: None, tspan: Default::default(), tsec: Default::default(), tinfo: Default::default(), twatch: Default::default(), tscale: Default::default(), own_last: Default::default() };
+        let mut f = Fight { id: 1, start: 0.0, end: 1.0, started_unix: 0.0, stats: Default::default(), targets: Default::default(), deaths: vec![], loot: vec![], zone: None, boss_killed: false, finished: true, self_id: None, names: Default::default(), allies: Default::default(), focus: None, tspan: Default::default(), tsec: Default::default(), tinfo: Default::default(), twatch: Default::default(), tscale: Default::default(), own_last: Default::default(), grouped: false };
         f.names.insert(9, ("NPC 2400002".into(), None));
         e.history.push_back(f);
         e.rename_npc(2400002, "Black Claw Manduri Fighter");

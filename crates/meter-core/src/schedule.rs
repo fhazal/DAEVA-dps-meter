@@ -196,8 +196,28 @@ impl Notifier {
 }
 
 /// The next `n` occurrences that are not muted and not over yet.
+/// What the next-events line shows: events running now that end within the
+/// hour (soonest end first), then the next ones to start, and last the
+/// long-running ones (Arena of Tactics is open for hours and would otherwise
+/// keep a spot all day, hiding an invasion that just started).
 pub fn upcoming<'a>(occs: &'a [Occurrence], now: f64, muted: &HashSet<String>, n: usize) -> Vec<&'a Occurrence> {
-    occs.iter().filter(|o| o.ends > now && !muted.contains(&o.id)).take(n).collect()
+    let mut list: Vec<&Occurrence> = occs.iter().filter(|o| o.ends > now && !muted.contains(&o.id)).collect();
+    let rank = |o: &Occurrence| -> (u8, f64) {
+        if o.starts > now {
+            (1, o.starts)
+        } else if o.ends - now <= 3600.0 {
+            (0, o.ends)
+        } else {
+            (2, o.ends)
+        }
+    };
+    list.sort_by(|a, b| {
+        let (ra, ka) = rank(a);
+        let (rb, kb) = rank(b);
+        ra.cmp(&rb).then(ka.total_cmp(&kb))
+    });
+    list.truncate(n);
+    list
 }
 
 pub fn occurrence_json(o: &Occurrence, now: f64) -> Value {
@@ -261,5 +281,19 @@ mod tests {
         let ga = Notifier::new(300.0, true, []).poll(g - 60.0, &occs);
         assert_eq!(ga[0].body, "Starts soon · Beritra · estimate from Aion2Timers");
         assert_eq!(upcoming(&occs, g - 60.0, &n.muted, 5).len(), 2);
+    }
+
+    #[test]
+    fn next_events_line_prefers_what_matters_now() {
+        let o = |id: &str, starts: f64, ends: f64| Occurrence { id: id.into(), name: id.into(), short: id.into(), emoji: String::new(), starts, ends, phase: None, note: None };
+        let now = 10_000.0;
+        let occs = vec![
+            o("arena_of_tactics", now - 3600.0, now + 9000.0), // open for hours
+            o("spacetime_rift", now - 1500.0, now + 1900.0),
+            o("dimensional_invasion", now - 60.0, now + 1500.0), // just started
+            o("shugo_festival", now + 1800.0, now + 2400.0),
+        ];
+        let ids: Vec<&str> = upcoming(&occs, now, &HashSet::new(), 3).iter().map(|o| o.id.as_str()).collect();
+        assert_eq!(ids, vec!["dimensional_invasion", "spacetime_rift", "shugo_festival"]);
     }
 }

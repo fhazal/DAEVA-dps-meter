@@ -1391,7 +1391,7 @@ impl Core {
             .set(
                 "next",
                 Value::Arr(if a.enabled {
-                    schedule::upcoming(&self.events.occurrences, now, &self.events.notifier.muted, 2).into_iter().map(|o| schedule::occurrence_json(o, now)).collect()
+                    schedule::upcoming(&self.events.occurrences, now, &self.events.notifier.muted, 3).into_iter().map(|o| schedule::occurrence_json(o, now)).collect()
                 } else {
                     vec![]
                 }),
