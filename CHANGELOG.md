@@ -43,6 +43,7 @@ A new Solo layout, settings with tabs, and a long list of fixes from a day of re
 - **Column titles always show:** PLAYER · DPS · DMG · DMG % stay on top with every extra column unticked (or dropped on a narrow meter), each figure under its title.
 - **Monsters named after the Shugo Festival:** coming back from the festival, the meter missed the start of the new connection to the world server and read the first messages from the wrong place, so the monsters around you stayed *Unknown monster*. It now starts at the right place (in the test recordings: *Rampaging Shulak Cart Worker*, *Young Slink*), and loses its place in the traffic far less often overall.
 - **Window edge in your class colour:** the thin line around the meter and every window now shows your class colour clearly (it was mostly white, so Cleric gold looked grey). Before the meter knows your class, it uses your accent colour.
+- **Status in the footer:** the status light moved from the title bar to the bottom line, before your server, with one short status after it: green *In combat · 2:41* (the fight's running time), blue *Idle · no combat for 30s*, grey *Waiting for AION 2 to start*, red for a problem.
 - **The installer has the Daeva Meter icon** instead of the default setup icon.
 - **Window buttons like on a Mac:** red quits, yellow minimises, green switches between Classic and Solo (the symbols show when you point at them). In Classic they're at the top left, in Solo at the end of the bottom line. The status light now sits after the name.
 

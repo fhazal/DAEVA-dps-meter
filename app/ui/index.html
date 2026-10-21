@@ -160,7 +160,16 @@
   .foot .fx.stale { opacity: .55; }
   .foot .ody { width: 13px; height: 13px; object-fit: contain; }
   /* Connected to your server: blue, so it isn't confused with the green "in combat" light. */
-  .foot .srv-dot { width: 6px; height: 6px; border-radius: 50%; background: #4fb8e8; box-shadow: 0 0 6px rgba(79,184,232,0.7); }
+  .foot .srv-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); flex: none; }
+  .foot .srv-dot.live { background: var(--good); box-shadow: 0 0 7px rgba(111,207,142,0.75); animation: livepulse 1.6s ease-in-out infinite; }
+  /* Idle: online and fine, just no fight right now. */
+  .foot .srv-dot.idle { background: #4fb8e8; box-shadow: 0 0 6px rgba(79,184,232,0.6); }
+  .foot .srv-dot.err, .foot .srv-dot.rec { background: var(--bad); box-shadow: 0 0 6px rgba(229,103,95,0.6); }
+  .foot .srv-dot.demo { background: #8f7ae0; }
+  @keyframes livepulse { 50% { box-shadow: 0 0 2px rgba(111,207,142,0.3); } }
+  .foot .fl .st b { color: var(--good); font-weight: 600; }
+  /* The light lives in the footer now; the title bar keeps the spacing. */
+  .titlebar .state-dot { visibility: hidden; width: 0; }
   .foot .fl { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
   .foot .fl .st { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
   .zonetip { flex: none; display: flex; align-items: center; gap: 8px; padding: 5px 10px; font-size: 11px; line-height: 1.35; color: #e8d3a6;
@@ -442,8 +451,8 @@
     // a divider); status messages otherwise. The full status is the tooltip.
     const srvOn = !snap.research && !!s.server && (state === "live" || state === "idle" || (state === "wait" && s.servers && s.servers.length));
     const footLeft = snap.research ? `<span title="${D.esc(text)}">● REC ${D.dur(snap.research.elapsed)}</span>`
-      : srvOn ? `<span class="fl" title="${D.esc(text)}"><span class="srv"><i class="srv-dot"></i>${D.esc(s.server)}</span>${state === "idle" ? '<i class="sep"></i><span class="st">Idle · no combat for 30s</span>' : ""}</span>`
-      : `<span title="${D.esc(text)}">${D.esc(text)}</span>`;
+      : srvOn ? `<span class="fl" title="${D.esc(text)}"><span class="srv"><i class="srv-dot ${state}"></i>${D.esc(s.server)}</span><i class="sep"></i><span class="st">${state === "live" ? `<b>In combat</b> · ${D.dur(f && f.duration || 0)}` : state === "idle" ? "Idle · no combat for 30s" : D.esc(text)}</span></span>`
+      : `<span class="fl" title="${D.esc(text)}"><i class="srv-dot ${state}"></i><span class="st">${D.esc(text)}</span></span>`;
     // Green under 100 ms, amber to 179 ms, red from 180 ms (typical Asia
     // pings, direct or through a tunnel, shouldn't sit on a boundary).
     const pc = s.ping_ms == null ? "" : s.ping_ms < 100 ? "good" : s.ping_ms < 180 ? "warn" : "bad";
