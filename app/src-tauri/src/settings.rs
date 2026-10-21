@@ -20,7 +20,7 @@ impl Default for Hotkeys {
             click_through: "Ctrl+Shift+L".into(),
             reset: "Ctrl+Shift+R".into(),
             hide: "Ctrl+Shift+H".into(),
-            marker: "Ctrl+Shift+M".into(),
+            marker: "Ctrl+Shift+B".into(),
             copy: "Ctrl+Shift+C".into(),
             report: "Ctrl+Shift+P".into(),
             layout: "Ctrl+Shift+O".into(),
@@ -222,7 +222,7 @@ impl Default for Settings {
             show_heal: false,
             show_target: true,
             show_players: "auto".into(),
-            settings_rev: 1,
+            settings_rev: 2,
             primary_metric: "dps".into(),
             anonymize_others: false,
             click_through: false,
@@ -275,6 +275,14 @@ impl Settings {
                 s.show_players = "auto".into();
             }
             s.settings_rev = 1;
+        }
+        // 0.5.0: Ctrl+Shift+M is Discord's mute, so the marker key never
+        // worked for most testers; it moves to Ctrl+Shift+B ("bug").
+        if s.settings_rev < 2 {
+            if s.hotkeys.marker == "Ctrl+Shift+M" {
+                s.hotkeys.marker = "Ctrl+Shift+B".into();
+            }
+            s.settings_rev = 2;
         }
         s
     }

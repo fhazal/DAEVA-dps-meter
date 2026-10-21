@@ -227,7 +227,7 @@
       ${F("Copy summary", txt("hotkeys.copy"))}
       ${F("Report a problem", txt("hotkeys.report"))}
       ${F("Switch layout", txt("hotkeys.layout"), "Classic ⇄ Solo.")}
-      ${F("Research marker", txt("hotkeys.marker"))}
+      ${F("Research marker", txt("hotkeys.marker"), "While a research recording runs: one press marks “⚑ bug here”.")}
     </div>
     <div class="errs" id="hkErr"></div>
     </section>
@@ -260,7 +260,7 @@
     <div class="f" style="margin-top:8px">${F("Names", `<div class="row-btns">${chk("lookup_names", "Get monster and skill names from aion2.gaming.tools")}${chk("game_art", "Show game icons (classes, skills, monsters)")}</div><div class="muted" id="namesStatus" style="font-size:11.5px;margin-top:4px">…</div>`, "Downloads their monster and skill lists at most once a day and keeps a copy for offline use. Names you type yourself always win. Game icons are NCSOFT's, shown via gaming.tools. With thanks to the AION 2 Global Database team.")}</div>
     <div class="f" style="margin-top:8px">${F("Updates", `<div class="row-btns">${chk("check_updates", "Check GitHub for new versions")}<button class="btn" id="bCheckUpd">Check now</button></div><div class="muted" id="updStatus" style="font-size:11.5px;margin-top:4px">…</div>`, "Asks GitHub for the latest published Daeva Meter release at start-up and every 6 hours. Nothing about you is sent. A new version shows a notice under the meter; Download opens the release page.")}</div>
     <div class="f" style="margin-top:8px">${F("Testers", chk("show_research", "Show research tools (flask button in the header)"), "Research mode records game traffic with markers, for decoding after a game patch. Most players don't need it: use Report a problem instead.")}</div>
-    <p class="muted sr" style="font-size:11.5px"><b>Report a problem</b> saves the last 3 minutes of game traffic plus what the meter showed as one zip on your Desktop (also Ctrl+Shift+P, even in game). Send that file when something looks wrong.</p>
+    <p class="muted sr" style="font-size:11.5px"><b>Report a problem</b> saves the last 5 minutes of game traffic, what the meter showed each second and what it noticed (fights, card, party, zone) as one zip on your Desktop (also Ctrl+Shift+P, even in game). Send that file when something looks wrong.</p>
     <p class="muted sr" style="font-size:11.5px">Drop an updated <span class="mono">aion2.json</span> or <span class="mono">names.json</span> in the definitions folder to override the bundled copy after a game patch.</p>
     </section>
     <div class="nohit" id="nohit">No settings match that search.</div>`;

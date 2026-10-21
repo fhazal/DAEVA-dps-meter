@@ -84,6 +84,9 @@ pub struct Core {
     /// Last few minutes of game traffic, kept in memory for problem reports.
     rolling: std::collections::VecDeque<(f64, Vec<u8>)>,
     rolling_bytes: usize,
+    /// For reports: what the meter noticed (fights, card, party, zone), and
+    /// once a second what it showed, so a report explains itself.
+    pub diary: Diary,
     health_at: f64,
     health_decoded: u64,
     health_frames: u64,
@@ -241,8 +244,34 @@ impl EventFeed {
     }
 }
 
-const ROLLING_SECS: f64 = 180.0;
+const ROLLING_SECS: f64 = 300.0;
 const ROLLING_MAX_BYTES: usize = 48 << 20;
+
+/// The meter's own notes for problem reports: events it noticed (automatic
+/// markers) and, once a second, what the overlay showed.
+#[derive(Default)]
+pub struct Diary {
+    pub events: std::collections::VecDeque<(f64, String)>,
+    pub screen: std::collections::VecDeque<(f64, Value)>,
+    last_sample: f64,
+    party: String,
+    fight: Option<u64>,
+    card: String,
+    self_id: Option<u64>,
+    self_name: Option<String>,
+    layout: String,
+    /// "Report saved" for the overlay: when, and the file name.
+    pub saved: Option<(f64, String)>,
+}
+
+impl Diary {
+    pub fn note(&mut self, ts: f64, what: impl Into<String>) {
+        self.events.push_back((ts, what.into()));
+        while self.events.front().map_or(false, |(t, _)| ts - t > ROLLING_SECS * 2.0) || self.events.len() > 2000 {
+            self.events.pop_front();
+        }
+    }
+}
 
 pub struct Shared {
     pub core: Mutex<Core>,
@@ -319,6 +348,7 @@ impl Core {
             last_settings_save: Instant::now(),
             rolling: Default::default(),
             rolling_bytes: 0,
+            diary: Diary::default(),
             health_at: 0.0,
             health_decoded: 0,
             health_frames: 0,
@@ -446,6 +476,10 @@ impl Core {
     }
 
     fn periodic(&mut self, now: f64) {
+        if now - self.diary.last_sample >= 1.0 {
+            self.diary.last_sample = now;
+            self.sample_diary(now);
+        }
         if let Some(sim) = self.sim.as_mut() {
             let evs = sim.step(now);
             for f in self.pipeline.push_events(&evs) {
@@ -953,6 +987,13 @@ impl Core {
 
     pub fn fight_finished(&mut self, f: Fight) {
         let mut rec = self.pipeline.engine.fight_record(&f);
+        {
+            let e = &self.pipeline.engine;
+            let main = e.boss_target(&f).or(f.focus).or_else(|| f.main_target());
+            let name = main.map(|t| e.fname(&f, t)).unwrap_or_else(|| "?".into());
+            let note = format!("fight #{} ended: {name}, {:.0} s{}", f.id, f.duration(), if f.boss_killed { ", killed" } else { "" });
+            self.auto_note(now_unix(), note);
+        }
         let gaps = self.fight_gaps(f.id);
         if let Value::Obj(m) = &mut rec {
             m.insert("gaps".into(), Value::from(gaps));
@@ -1107,6 +1148,8 @@ impl Core {
             .set("snapshot", self.snapshot(None))
             .set("decoder", self.research_view())
             .set("fights", Value::Arr(fights))
+            .set("diary", Value::Arr(self.diary.events.iter().map(|(t, s)| Obj::new().set("t", *t).set("what", s.as_str()).build()).collect()))
+            .set("screen", Value::Arr(self.diary.screen.iter().map(|(t, v)| Obj::new().set("t", *t).set("shown", v.clone()).build()).collect()))
             .set("settings", json::parse(&serde_json::to_string(&settings).unwrap_or_else(|_| "{}".into())).unwrap_or(Value::Null))
             .build();
         let stamp = now_unix() as i64;
@@ -1116,7 +1159,88 @@ impl Core {
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         let path = dir.join(format!("DaevaMeter-report-{stamp}.zip"));
         std::fs::write(&path, zip).map_err(|e| e.to_string())?;
+        self.diary.saved = Some((now_unix(), path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()));
         Ok(path.display().to_string())
+    }
+
+    /// A note for problem reports, and an automatic marker in a research
+    /// recording (so testers don't have to type what they're doing).
+    fn auto_note(&mut self, ts: f64, what: String) {
+        if let Some(r) = self.recorder.as_mut() {
+            r.markers.push((ts, format!("auto: {what}")));
+            r.save_markers();
+        }
+        self.diary.note(ts, what);
+    }
+
+    /// Once a second: what the overlay shows, and a note whenever the fight,
+    /// the card, the party, the zone or the layout changes.
+    fn sample_diary(&mut self, now: f64) {
+        let snap = self.snapshot(None);
+        let f = snap.get("fight").filter(|f| f.as_obj().is_some());
+        let t = f.and_then(|f| f.get("target")).filter(|t| t.as_obj().is_some());
+        let card = t.map(|t| format!("{} ({})", t.str_or("name", "?"), t.str_or("rank", "no rank"))).unwrap_or_default();
+        let rows: Vec<Value> = f
+            .and_then(|f| f.get("players"))
+            .and_then(|p| p.as_arr())
+            .map(|ps| {
+                ps.iter()
+                    .take(8)
+                    .map(|p| {
+                        let tag = if p.bool_or("is_self", false) { " (me)" } else if p.bool_or("in_party", false) { " *" } else { "" };
+                        Value::from(format!("{}{tag} {:.0}/s", p.str_or("name", "?"), p.f64_or("dps", 0.0)))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let shown = Obj::new()
+            .set("layout", self.settings.layout.as_str())
+            .set("fight", f.and_then(|f| f.get("fight_id")).cloned().unwrap_or(Value::Null))
+            .set("live", f.map_or(false, |f| f.bool_or("live", false)))
+            .set("secs", f.map(|f| (f.f64_or("duration", 0.0) * 10.0).round() / 10.0))
+            .set("card", card.as_str())
+            .set("hp", t.and_then(|t| t.get("hp_pct")).cloned().unwrap_or(Value::Null))
+            .set("rows", Value::Arr(rows))
+            .build();
+        self.diary.screen.push_back((now, shown));
+        while self.diary.screen.front().map_or(false, |(t0, _)| now - t0 > ROLLING_SECS) {
+            self.diary.screen.pop_front();
+        }
+        let e = &self.pipeline.engine;
+        let mut members: Vec<&String> = e.party.iter().collect();
+        members.sort();
+        let party = members.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ");
+        let fight = f.and_then(|f| f.get("fight_id")).and_then(|v| v.as_f64()).map(|v| v as u64);
+        let live = f.map_or(false, |f| f.bool_or("live", false));
+        let (self_id, self_name) = (e.self_id, e.self_name.clone());
+        let mut notes = Vec::new();
+        if party != self.diary.party {
+            notes.push(if party.is_empty() { "party: none (left)".to_string() } else { format!("party: {party}") });
+        }
+        if self_id != self.diary.self_id && self.diary.self_id.is_some() {
+            notes.push("zone change or relog (new character id)".to_string());
+        }
+        if self_name != self.diary.self_name {
+            notes.push(format!("you are {}", self_name.as_deref().unwrap_or("unknown")));
+        }
+        if fight != self.diary.fight && fight.is_some() && live {
+            notes.push(format!("fight #{} starts", fight.unwrap_or(0)));
+        }
+        if card != self.diary.card && !card.is_empty() {
+            notes.push(format!("card shows {card}"));
+        }
+        if self.settings.layout != self.diary.layout {
+            notes.push(format!("layout {}", self.settings.layout));
+        }
+        self.diary.party = party;
+        self.diary.fight = fight;
+        self.diary.card = card;
+        self.diary.self_id = self_id;
+        self.diary.self_name = self_name;
+        self.diary.layout = self.settings.layout.clone();
+        for n in notes {
+            self.auto_note(now, n);
+        }
     }
 
     // ------------------------------------------------------------ research
@@ -1220,6 +1344,8 @@ impl Core {
             .set("version", env!("CARGO_PKG_VERSION"))
             .set("warning", self.warning.clone())
             .set("pb", self.pb_notice.clone())
+            // "Report saved" for a few seconds after Ctrl+Shift+P.
+            .set("report_saved", self.diary.saved.as_ref().filter(|(t, _)| now_unix() - t < 6.0).map(|(_, n)| n.as_str()))
             .set("fight_gaps", e.display_fight().map(|f| self.fight_gaps(f.id)))
             .build();
         let ui = Obj::new()

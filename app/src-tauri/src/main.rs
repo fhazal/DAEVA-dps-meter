@@ -508,7 +508,11 @@ fn start_hotkeys(app: &AppHandle, shared: &Arc<Shared>) {
             }
         }
         "marker" => {
-            let _ = sh.lock().research_marker("hotkey marker");
+            // One key, nothing to type: "something looks wrong here".
+            let mut c = sh.lock();
+            if c.research_marker("⚑ bug here (marker key)").is_ok() {
+                winsys::play_wav(meter_core::chime::chime_wav("soon", (c.settings.alerts.volume / 100.0) as f32 * 0.4));
+            }
         }
         "layout" => {
             set_layout_inner(&app2, &sh, None);
@@ -517,9 +521,11 @@ fn start_hotkeys(app: &AppHandle, shared: &Arc<Shared>) {
             let _ = copy_summary_inner(&sh, None);
         }
         "report" => {
-            let r = sh.lock().report_problem("hotkey");
-            if let Ok(p) = r {
-                reveal(&p);
+            // In game: save quietly (a chime and a line on the meter), no
+            // Explorer window popping up over the game.
+            let mut c = sh.lock();
+            if c.report_problem("hotkey").is_ok() {
+                winsys::play_wav(meter_core::chime::chime_wav("soon", (c.settings.alerts.volume / 100.0) as f32 * 0.6));
             }
         }
         _ => {}

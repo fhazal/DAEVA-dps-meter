@@ -99,7 +99,7 @@ Summons and spirits count towards the player who summoned them. Show everyone fi
 | Hide / show overlay | `Ctrl+Shift+H` |
 | Copy summary for Discord | `Ctrl+Shift+C` |
 | Report a problem | `Ctrl+Shift+P` |
-| Research marker (testers) | `Ctrl+Shift+M` |
+| Research marker (testers) | `Ctrl+Shift+B` |
 
 All of them work while the game has focus and can be changed in Settings. Research tools for testers are under **Settings → Data → Show research tools**.
 
@@ -129,7 +129,7 @@ Daeva Meter only reads your network traffic; it never touches the game client. I
 
 ## 🩺 When something looks wrong
 
-Press **`Ctrl+Shift+P`** (or Settings → Report a problem). A `DaevaMeter-report-<time>.zip` appears on your Desktop with the last 3 minutes of game-server traffic and what the meter showed. Nothing else from your PC is included. If the meter notices the game traffic has stopped decoding, usually after a patch, a yellow warning appears under the overlay: click it for the same report.
+Press **`Ctrl+Shift+P`** (or Settings → Report a problem). A `DaevaMeter-report-<time>.zip` appears on your Desktop with the last 5 minutes of game-server traffic and what the meter showed. Nothing else from your PC is included. If the meter notices the game traffic has stopped decoding, usually after a patch, a yellow warning appears under the overlay: click it for the same report.
 
 <details>
 <summary><b>Where things live on your PC</b></summary>
