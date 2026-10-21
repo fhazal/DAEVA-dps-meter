@@ -109,6 +109,8 @@
     dimensional_invasion: "dimensional_invasion",
     artifact_siege: "artifact_siege",
     arena_of_tactics: "arena_of_tactics",
+    daily_reset: "reset",
+    weekly_reset: "reset",
     watcher_kaira: "field_boss",
     executor_bosses: "field_boss",
     guardian_nahma: "field_boss",
