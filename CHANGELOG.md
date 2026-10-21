@@ -2,6 +2,8 @@
 
 ## 0.5.0
 
+A new Solo layout, settings with tabs, and a long list of fixes from a day of real dungeon and open-world testing (0.4.5 was never released: its fixes are here too).
+
 - **Solo layout: just you.** A small card the size of a game window, for players who only want their own numbers. On top, the boss with its HP left, the fight clock, the enrage countdown and HP %. Below, your card: class crest, name, combat power, your rank and share in the party, your live DPS in big numbers, and five chips (crit, double, perfect, front and back hits). At the bottom, Odyle, party DPS and ping. The frame (the same thin line as Classic), the frame around your class icon and the share line are in your class colour. Switch with the new panels button on the meter (either layout) or **Ctrl+Shift+O**; each layout keeps its own window size. Click your card for your full breakdown.
 - **Settings with tabs.** General, Layout, Overlay look, Fights, Event alerts, Hotkeys, Daeva bot and Capture down the side, instead of one long page, plus a search box that finds any setting by name. The window opens on the tab you used last. Every setting is still there, just grouped.
 - **Layout tab:** pick Classic or Solo, and choose what the Solo card shows (rank and share, the five chips, the bottom line).
@@ -17,9 +19,11 @@
 - **Dungeon-room members who aren't Ready yet are seen.** In a dungeon room the game marks each member as Ready or not; members not yet Ready were skipped, so the meter knew only part of the party (and Solo said *#1 of 2*). Assassins are now recognised by their party-list number too.
 - **Open-world parties too.** The meter only read the party list the game sends in dungeons, so a party out in the world (two friends at a field boss, say) was never seen. It now also reads the list the game sends whenever you join a party or someone joins or leaves it, anywhere.
 - **Leaving a party is noticed**, in the open world and in dungeons. The meter used to keep your old party until the game sent a new list, so former members could still count as your party.
+- **Solo shows the monster's rank by colour:** in place of the monster picture, the monster icon in its rank colour (grey Common, blue Elite, orange Heroic, pink-red Legendary/Boss), the same colours as the Classic card.
+- **Clearer hotkey message:** when another program already uses one of the meter's hotkeys (Discord uses Ctrl+Shift+M, for example), Save names it and the Hotkeys tab gets a red dot, instead of *Saved, but some hotkeys failed*.
+- **Test alerts check themselves:** *Show a test alert* now says whether the banner really appeared, and where.
+- **The installer has the Daeva Meter icon** instead of the default setup icon.
 - **Window buttons like on a Mac:** red quits, yellow minimises, green switches between Classic and Solo (the symbols show when you point at them). In Classic they're at the top left, in Solo at the end of the bottom line. The status light now sits after the name.
-
-## 0.4.5
 
 - **Party members named from the first boss:** in dungeons the game often sends a player's name late (minutes into the run) or not at all, so the first bosses showed *Player #6377* instead of your party, and those fights couldn't count for them on the Daeva bot's DPS boards. The party list the game sends as you enter has every member with a number that follows their class; the meter now matches each member to the fighter of that class as soon as they use a skill. When the game does send a name late, earlier fights of the same dungeon are filled in too. It never guesses: two members of the same class (two Gladiators) stay unnamed until the game names them, and strangers in the open world are never taken for party members.
 - **Your own name instead of *You*:** if the meter was started after you logged in, the game hadn't told it your character's name, so your row said *You* for the whole session. It now takes your name from the party list (you are the party's only member of your class) and fills it into earlier fights too. In a party with two of your class it still says *You* until the game names you.
