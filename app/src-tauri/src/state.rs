@@ -125,6 +125,10 @@ pub struct Core {
     pub pb_notice: Option<Value>,
     /// When Daeva Meter was opened again while running (for the notice).
     pub opened_again: Option<f64>,
+    /// The game server to time for the ping (from the Daeva feed), and the
+    /// last reading: milliseconds and when.
+    pub probe_target: Option<(String, u16)>,
+    pub game_rtt: Option<(f64, f64)>,
     /// Banner rectangles in the alert window (CSS px: x, y, w, h), so the
     /// window only catches the mouse over a banner, and only while unlocked.
     pub toast_rects: Vec<(f64, f64, f64, f64)>,
@@ -372,6 +376,8 @@ impl Core {
             bests: Bests::default(),
             pb_notice: None,
             opened_again: None,
+            probe_target: None,
+            game_rtt: None,
             gap_base: None,
             toast_rects: Vec::new(),
             alert_drag: None,
@@ -1308,7 +1314,16 @@ impl Core {
             .set("packets", p.packets)
             .set("game_packets", p.game_packets)
             .set("game_bytes", p.game_bytes)
-            .set("ping_ms", if now - p.ping.last_sample_ts < 10.0 { p.ping.ms() } else { None })
+            // The game reaches its server through a nearby Cloudflare relay,
+            // which answers at once: the traffic's own timing is to the relay.
+            // The real server is timed directly (latency_probe); the relay
+            // timing is only a fallback.
+            .set("ping_ms", match self.game_rtt.filter(|(_, at)| now - at < 180.0) {
+                Some((ms, _)) => Some(ms),
+                None if now - p.ping.last_sample_ts < 10.0 => p.ping.ms(),
+                None => None,
+            })
+            .set("ping_kind", if self.game_rtt.map_or(false, |(_, at)| now - at < 180.0) { "server" } else { "relay" })
             .set("game_idle", if p.last_game_ts > 0.0 { Some(now - p.last_game_ts) } else { None })
             .set("frames", p.decoder.frames_total)
             .set("resyncs", p.decoder.resyncs())
@@ -1662,6 +1677,8 @@ pub fn start_threads(shared: Arc<Shared>) {
     {
         let s = shared.clone();
         std::thread::Builder::new().name("event-feed".into()).spawn(move || event_feed(s)).ok();
+        let s = shared.clone();
+        std::thread::Builder::new().name("latency-probe".into()).spawn(move || latency_probe(s)).ok();
     }
     {
         let s = shared.clone();
@@ -1732,11 +1749,23 @@ fn event_feed(shared: Arc<Shared>) {
                 .call()
                 .map_err(|e| format!("Event feed unreachable: {e}"))
                 .and_then(|r| r.into_string().map_err(|e| format!("Event feed read failed: {e}")))
-                .and_then(|body| schedule::parse_overview(&body));
+                .and_then(|body| {
+                    // Where to time the ping: the feed can move it if the game
+                    // server changes ({"latency_probe": {"code"}}, scrambled
+                    // like GAME_SERVER_X).
+                    let probe = meter_core::json::parse(&body).ok().and_then(|v| {
+                        let code = v.get("latency_probe")?.get("code")?.as_str()?.to_string();
+                        decode_server(&code)
+                    });
+                    schedule::parse_overview(&body).map(|o| (o, probe))
+                });
             let mut c = shared.lock();
             match result {
-                Ok(occs) => {
+                Ok((occs, probe)) => {
                     failures = 0;
+                    if probe.is_some() {
+                        c.probe_target = probe;
+                    }
                     c.events.occurrences = occs;
                     c.events.fetched_at = now_unix();
                     c.events.error = None;
@@ -1751,6 +1780,76 @@ fn event_feed(shared: Arc<Shared>) {
             }
         }
         std::thread::sleep(Duration::from_millis(500));
+    }
+}
+
+/// The Beritra game server (Tokyo), where the bot measures latency too; the
+/// Daeva feed can replace it. Kept scrambled so the address of the server
+/// behind Cloudflare isn't spelled out in the source.
+const GAME_SERVER_X: ([u8; 4], u16) = ([0x97, 0x7d, 0xc1, 0x22], 0x93b7);
+
+fn game_server() -> (String, u16) {
+    let ([a, b, c, d], p) = GAME_SERVER_X;
+    (format!("{}.{}.{}.{}", a ^ 0xa7, b ^ 0xa7, c ^ 0xa7, d ^ 0xa7), p ^ 0xa7a7)
+}
+
+/// The feed's form: 12 hex digits, the four address bytes and the port, each
+/// byte scrambled the same way.
+fn decode_server(code: &str) -> Option<(String, u16)> {
+    if code.len() != 12 || !code.is_ascii() {
+        return None;
+    }
+    let b: Vec<u8> = (0..6).map(|i| u8::from_str_radix(&code[i * 2..i * 2 + 2], 16).map(|x| x ^ 0xa7)).collect::<Result<_, _>>().ok()?;
+    let port = u16::from_be_bytes([b[4], b[5]]);
+    (port > 0).then(|| (format!("{}.{}.{}.{}", b[0], b[1], b[2], b[3]), port))
+}
+
+#[cfg(test)]
+mod probe_tests {
+    use super::*;
+
+    #[test]
+    fn the_feed_code_and_the_built_in_server_agree() {
+        // A documentation address, as in the bot's test.
+        assert_eq!(decode_server("67a7a5ad93b7"), Some(("192.0.2.10".to_string(), 13328)));
+        let (host, port) = game_server();
+        let ip: Vec<u8> = host.split('.').map(|x| x.parse().unwrap()).collect();
+        let code: String = ip.iter().chain(port.to_be_bytes().iter()).map(|b| format!("{:02x}", b ^ 0xa7)).collect();
+        assert_eq!(decode_server(&code), Some((host, port)));
+        assert_eq!(decode_server("not-a-code!!"), None);
+    }
+}
+
+/// Times a connection to the game server once a minute while the game runs,
+/// like a ping: the median of four tries, nothing sent. This is the latency
+/// players feel (about 80 ms from Malaysia), not the relay's.
+fn latency_probe(shared: Arc<Shared>) {
+    use std::net::{TcpStream, ToSocketAddrs};
+    loop {
+        let (running, target) = {
+            let c = shared.lock();
+            (c.status.game_process.is_some(), c.probe_target.clone())
+        };
+        if running {
+            let (host, port) = target.unwrap_or_else(game_server);
+            if let Some(addr) = (host.as_str(), port).to_socket_addrs().ok().and_then(|mut a| a.next()) {
+                let mut times = Vec::new();
+                for i in 0..4 {
+                    if i > 0 {
+                        std::thread::sleep(Duration::from_millis(100));
+                    }
+                    let start = Instant::now();
+                    if TcpStream::connect_timeout(&addr, Duration::from_secs(2)).is_ok() {
+                        times.push(start.elapsed().as_secs_f64() * 1000.0);
+                    }
+                }
+                if !times.is_empty() {
+                    times.sort_by(|a, b| a.total_cmp(b));
+                    shared.lock().game_rtt = Some((times[times.len() / 2], now_unix()));
+                }
+            }
+        }
+        std::thread::sleep(Duration::from_secs(60));
     }
 }
 
