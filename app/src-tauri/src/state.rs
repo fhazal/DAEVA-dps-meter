@@ -123,6 +123,8 @@ pub struct Core {
     pub bests: Bests,
     /// "New personal best" shown under the meter after a kill.
     pub pb_notice: Option<Value>,
+    /// When Daeva Meter was opened again while running (for the notice).
+    pub opened_again: Option<f64>,
     /// Banner rectangles in the alert window (CSS px: x, y, w, h), so the
     /// window only catches the mouse over a banner, and only while unlocked.
     pub toast_rects: Vec<(f64, f64, f64, f64)>,
@@ -369,6 +371,7 @@ impl Core {
             update_checked: 0.0,
             bests: Bests::default(),
             pb_notice: None,
+            opened_again: None,
             gap_base: None,
             toast_rects: Vec::new(),
             alert_drag: None,
@@ -1345,6 +1348,7 @@ impl Core {
             .set("warning", self.warning.clone())
             .set("pb", self.pb_notice.clone())
             // "Report saved" for a few seconds after Ctrl+Shift+P.
+            .set("opened_again", self.opened_again.filter(|t| now_unix() - t < 6.0))
             .set("report_saved", self.diary.saved.as_ref().filter(|(t, _)| now_unix() - t < 6.0).map(|(_, n)| n.as_str()))
             .set("fight_gaps", e.display_fight().map(|f| self.fight_gaps(f.id)))
             .build();

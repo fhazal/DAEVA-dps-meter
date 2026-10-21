@@ -350,7 +350,7 @@
   $("bLock").onclick = async () => { const on = await D.call("toggle_click_through"); D.toast(on ? "Click-through on — Ctrl+Shift+L to unlock" : "Click-through off"); };
 
   let lastSnap = null;
-  let lastReport = null;
+  let lastReport = null, lastOpened = null;
   let anonMap = new Map();
   let lastUiKey = "", lastFootKey = "", borderClass, savedClass = null;
   try { savedClass = localStorage.getItem("daeva.selfClass"); } catch {}
@@ -395,6 +395,8 @@
     // Ctrl+Shift+P saved a report: say so here (no window pops up in game).
     if (s.report_saved && s.report_saved !== lastReport) D.toast("📋 Report saved to your Desktop: " + s.report_saved);
     lastReport = s.report_saved || lastReport;
+    if (s.opened_again && s.opened_again !== lastOpened) D.toast("Daeva Meter is already open");
+    lastOpened = s.opened_again || lastOpened;
     if (snap.fight && snap.fight.live) lastCombatAt = Date.now();
     // Window border follows your class colour (remembered between sessions).
     const myClass = s.self_class || (f0(snap) || {}).class || savedClass;

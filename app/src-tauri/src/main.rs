@@ -649,6 +649,18 @@ fn toast_positioner(handle: AppHandle, sh: Arc<Shared>) {
 
 fn main() {
     tauri::Builder::default()
+        // One meter at a time: opening it again brings the running one forward
+        // (two copies would read the game twice).
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+            if let Some(sh) = app.try_state::<Arc<Shared>>() {
+                sh.lock().opened_again = Some(state::now_unix());
+            }
+        }))
         .setup(|app| {
             let data = app.path().app_data_dir()?;
             let resources = app.path().resource_dir()?;
@@ -676,8 +688,12 @@ fn main() {
                             sized = Some(!ct);
                         }
                         if ct {
+                            // The bottom line grows with Scale (Solo is drawn a bit
+                            // larger), so the strip does too: the whole lock button
+                            // stays clickable at any size.
+                            let (user, solo) = { let c = sh.lock(); (c.settings.scale, c.settings.layout == "solo") };
                             if let (Some((cx, cy)), Ok(pos), Ok(size), Ok(scale)) = (winsys::cursor_pos(), w.outer_position(), w.outer_size(), w.scale_factor()) {
-                                let foot = (26.0 * scale) as i32;
+                                let foot = ((if solo { 28.0 } else { 24.0 } * user).max(26.0) * scale) as i32;
                                 let bottom = pos.y + size.height as i32;
                                 let inside_x = cx >= pos.x && cx < pos.x + size.width as i32;
                                 if inside_x && cy >= bottom - foot && cy < bottom {
