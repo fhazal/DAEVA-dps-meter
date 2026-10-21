@@ -180,6 +180,28 @@ fn toast_rects(st: St<'_>, rects: Vec<[f64; 4]>) {
     st.lock().toast_rects = rects.iter().map(|r| (r[0], r[1], r[2], r[3])).collect();
 }
 
+/// For "Show a test alert": is the alert window there, where, and did it
+/// draw a banner?
+#[tauri::command]
+fn alert_debug(app: AppHandle, st: St<'_>) -> String {
+    let drawn = st.lock().toast_rects.len();
+    let w = app.get_webview_window("toast");
+    let (visible, pos, size) = match &w {
+        Some(t) => (t.is_visible().unwrap_or(false), t.outer_position().ok().map(|p| (p.x, p.y)), t.outer_size().ok().map(|s| (s.width, s.height))),
+        None => (false, None, None),
+    };
+    meter_core::json::Obj::new()
+        .set("exists", w.is_some())
+        .set("visible", visible)
+        .set("drawn", drawn)
+        .set("x", pos.map(|p| p.0 as f64))
+        .set("y", pos.map(|p| p.1 as f64))
+        .set("w", size.map(|s| s.0 as f64))
+        .set("h", size.map(|s| s.1 as f64))
+        .build()
+        .to_string()
+}
+
 /// Starts dragging a banner. The alert window first shifts so the banner
 /// sits at its top edge (custom spots stack downwards), then follows the
 /// mouse; the positioner saves the spot when it stops moving.
@@ -815,6 +837,7 @@ fn main() {
             get_events,
             test_alert,
             toast_rects,
+            alert_debug,
             alert_drag,
             set_name,
             get_names,

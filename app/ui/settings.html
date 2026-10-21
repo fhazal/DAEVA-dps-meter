@@ -33,6 +33,7 @@
   .tab.on { background: var(--accent-soft); color: var(--accent); box-shadow: inset 2px 0 0 var(--accent); }
   .tab .badge { margin-left: auto; font-size: 9.5px; font-weight: 700; letter-spacing: .04em; color: var(--accent); background: var(--accent-soft); padding: 0 5px; border-radius: 4px; }
   .tab .badge.adv { color: var(--muted); background: rgba(255,255,255,0.06); }
+  .tab.warn::after { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--bad); margin-left: auto; }
   .side .ver { margin-top: auto; padding: 8px 10px 0; font-size: 11px; color: var(--dim); border-top: 1px solid var(--line); }
   .split .scroll { flex: 1; }
   section[data-tab] { display: none; }
@@ -196,7 +197,7 @@
       ${F("During fights", chk("alerts.hold_in_fight", "Hold banners until the fight ends (the chime still plays)"), "So nothing pops up in the middle of a boss. Events that start during the fight show as soon as it's over.")}
       ${F("Alert me for", `<div class="row-btns" id="evList"><span class="muted">Loading events…</span></div>`, "Hourly events (Shugo Festival, Dimensional Invasion) are off by default.")}
       ${F("Schedule feed", txt("alerts.feed_url"), `<span id="evStatus"></span>`)}
-      ${F("", `<button class="btn" id="bTestAlert">Show a test alert</button>`, "It stays 30 seconds: drag it where you want event alerts.")}
+      ${F("", `<button class="btn" id="bTestAlert">Show a test alert</button><div class="muted" id="alertCheck" style="font-size:11.5px;margin-top:4px"></div>`, "It stays 30 seconds: drag it where you want event alerts.")}
     </div>
     </section>
     <section data-tab="fights">
@@ -406,7 +407,20 @@
         show("bad", "✕ Couldn't reach the server.", "Check your internet connection and the endpoint.");
       }
     };
-    document.getElementById("bTestAlert").onclick = async () => { await D.call("test_alert"); D.toast("Test alert shown: unlock the meter and drag it where you want alerts"); };
+    // After a test alert, check that the alert window really drew it.
+    document.getElementById("bTestAlert").onclick = async () => {
+      const out = document.getElementById("alertCheck");
+      await D.call("test_alert");
+      out.className = "muted"; out.textContent = "Checking the alert window…";
+      setTimeout(async () => {
+        try {
+          const d = JSON.parse(await D.call("alert_debug"));
+          const where = d.x != null ? ` at ${d.x}, ${d.y} (${d.w}×${d.h} px)` : "";
+          if (d.drawn > 0 && d.visible) { out.className = "st-ok"; out.innerHTML = "<b>✓ Banner shown</b> <span class=\"muted\">" + D.esc(where) + ". Unlock the meter and drag it where you want alerts.</span>"; }
+          else { out.className = "st-bad"; out.innerHTML = "<b>✕ The banner didn't appear</b> <span class=\"muted\">(" + D.esc(!d.exists ? "no alert window" : !d.visible ? "alert window hidden" : "alert window drew nothing") + D.esc(where) + "). Press Ctrl+Shift+P now to save a report and send it to us.</span>"; }
+        } catch (e) { out.textContent = String(e); }
+      }, 2500);
+    };
     // A banner dragged while Settings is open sets "Where I dragged them";
     // follow it here so Save doesn't put the old choice back.
     const posSel = document.querySelector('[data-k="alerts.position"]');
@@ -444,8 +458,11 @@
     try {
       const errs = await D.call("save_settings", { settings: next });
       s = next;
-      document.getElementById("hkErr").textContent = (errs || []).join(" · ");
-      D.toast(errs && errs.length ? "Saved, but some hotkeys failed" : "Saved");
+      const HK = { click_through: "Toggle click-through", reset: "End fight", hide: "Hide / show overlay", copy: "Copy summary", report: "Report a problem", marker: "Research marker", layout: "Switch layout" };
+      const nice = (errs || []).map((e) => e.replace(/^([a-z_]+) \(/, (m, k) => (HK[k] || k) + " (").replace("is already used by another program", "is taken by another program (Discord uses Ctrl+Shift+M, for example)"));
+      document.getElementById("hkErr").textContent = nice.length ? "⚠ " + nice.join(" · ") + ". Pick another key, or leave it empty." : "";
+      document.querySelector('.tab[data-t="hotkeys"]').classList.toggle("warn", nice.length > 0);
+      D.toast(nice.length ? "Saved. One hotkey couldn't be set: " + nice[0] + " (see Hotkeys)" : "Saved");
     } catch (e) { D.toast("Could not save: " + e); }
   };
 
