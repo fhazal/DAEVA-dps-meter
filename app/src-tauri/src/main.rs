@@ -270,7 +270,7 @@ fn solo_size(w: &tauri::WebviewWindow, s: &Settings) -> (u32, u32) {
         return (width.clamp(200, 4000), height.clamp(60, 3000));
     }
     let scale = w.scale_factor().unwrap_or(1.0) * s.scale;
-    ((372.0 * scale) as u32, (150.0 * scale) as u32)
+    ((476.0 * scale) as u32, (180.0 * scale) as u32)
 }
 
 /// Switches the overlay to `layout` ("classic" / "solo"; None = the other

@@ -181,13 +181,11 @@
   .solo { display: none; }
   body.lay-solo .titlebar, body.lay-solo #target, body.lay-solo .scroll, body.lay-solo #zonetip,
   body.lay-solo #nextev, body.lay-solo #foot { display: none !important; }
-  body.lay-solo .solo { display: block; }
+  /* Same frame as Classic (the hairline in your class colour); the card is
+     drawn 1.28x, about 476 x 178 like other meters' solo cards. */
+  body.lay-solo .solo { display: block; zoom: 1.28; }
   /* The window fits the card's height; nothing below it. */
   body.lay-solo .shell { bottom: auto; }
-  /* Metallic rim in your class colour. */
-  body.lay-solo .shell::after { border: 0; padding: 1.5px;
-    background: linear-gradient(160deg, color-mix(in srgb, var(--k) 55%, #fff), var(--k) 30%, color-mix(in srgb, var(--k) 80%, #000) 55%, color-mix(in srgb, var(--k) 75%, #fff) 80%, var(--k));
-    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
   body.lay-solo .shell { --k: var(--cls, var(--accent)); }
   .so-hd { display: flex; align-items: center; gap: 8px; padding: 5px 9px 3px; }
   .so-hd .gt-ic, .so-hd .tc-ic { width: 22px; height: 22px; border-radius: 6px; flex: none; }
@@ -748,7 +746,7 @@
     }
   });
   // Solo is a fixed card, 372 wide (times Scale); the window fits it.
-  const SOLO_W = 372;
+  const SOLO_W = 476;
   let fitting = false;
   function fitSolo() {
     if (fitting) return;

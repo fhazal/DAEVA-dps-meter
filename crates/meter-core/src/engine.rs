@@ -1697,8 +1697,13 @@ impl Engine {
         let target_v = main.map(|t| {
             let a = self.actors.get(&t);
             let frozen = f.tinfo.get(&t).copied();
-            let hp = a.map(|a| a.hp).or(frozen.map(|x| x.0)).flatten();
-            let max_hp = a.map(|a| a.max_hp).or(frozen.map(|x| x.1)).flatten();
+            // A finished fight shows the health at its end: a monster that
+            // respawns, or a boss that resets after a wipe, is back at full
+            // health while the card still shows that fight.
+            let (hp, max_hp) = match frozen.filter(|_| f.finished) {
+                Some((h, m, _)) if h.is_some() || m.is_some() => (h, m.or(a.and_then(|a| a.max_hp))),
+                _ => (a.map(|a| a.hp).or(frozen.map(|x| x.0)).flatten(), a.map(|a| a.max_hp).or(frozen.map(|x| x.1)).flatten()),
+            };
             let hp_pct = match (hp, max_hp) {
                 (Some(h), Some(m)) if m > 0 => Some(h as f64 / m as f64),
                 _ => None,
@@ -2120,6 +2125,20 @@ mod tests {
     /// for you. A spawn's "full" health doesn't count as watching: only a
     /// real health update does. And a stray hit by someone else on another
     /// monster after the kill no longer cancels "killed".
+    #[test]
+    fn finished_fight_keeps_its_end_health() {
+        let mut e = Engine::new(EngineConfig::default(), Names::from_json(r#"{"bosses": ["777"]}"#).unwrap());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(100_000) });
+        e.handle(&dmg(0.5, 1, 50, 18000000, 1000, 0));
+        e.handle(&GameEvent::Hp { ts: 0.5, id: 50, hp: 40_000, max_hp: None });
+        let f = e.finish().expect("fight");
+        // A wipe: the boss resets to full while the card still shows that fight.
+        e.handle(&GameEvent::Hp { ts: 90.0, id: 50, hp: 100_000, max_hp: None });
+        let t = e.fight_table(&f, None);
+        assert_eq!(t.get("target").unwrap().f64_or("hp_pct", 0.0), 0.4, "{}", t.to_string());
+    }
+
     #[test]
     fn open_world_boss_watched_from_full() {
         let run = |first_hp: u64| {
