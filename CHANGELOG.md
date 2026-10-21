@@ -30,6 +30,7 @@ A new Solo layout, settings with tabs, and a long list of fixes from a day of re
 - **Easier testing and bug reports:** Ctrl+Shift+P saves a report quietly (a soft chime and *Report saved* on the meter) instead of opening the Desktop over the game. Reports now cover the last 5 minutes and include what the meter showed each second and what it noticed: party joins and leaves, zone changes, each fight's start and end, kills and the boss card. A research recording marks those by itself, and **Ctrl+Shift+B** adds *⚑ bug here* with one press, nothing to type (it was Ctrl+Shift+M, which is Discord's mute; moved once for everyone who had it).
 - **Clearer hotkey message:** when another program already uses one of the meter's hotkeys (Discord uses Ctrl+Shift+M, for example), Save names it and the Hotkeys tab gets a red dot, instead of *Saved, but some hotkeys failed*.
 - **Test alerts check themselves:** *Show a test alert* now says whether the banner really appeared, and where.
+- **Alert banners all read the same way:** the event name on top, and the line below says what is happening (*Starts in 5 min* or *Started · runs 30 min*). Long names like *Dimensional Invasion in 5 min* no longer get cut off with "…".
 - **The installer has the Daeva Meter icon** instead of the default setup icon.
 - **Window buttons like on a Mac:** red quits, yellow minimises, green switches between Classic and Solo (the symbols show when you point at them). In Classic they're at the top left, in Solo at the end of the bottom line. The status light now sits after the name.
 

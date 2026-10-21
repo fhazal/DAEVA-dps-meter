@@ -1459,8 +1459,8 @@ impl Core {
         self.events.push(Alert {
             key: format!("test|{now}"),
             id: "test".into(),
-            title: "Spacetime Rift in 5 min".into(),
-            body: "Test alert · this is how events will look".into(),
+            title: "Spacetime Rift".into(),
+            body: "Starts in 5 min · test alert".into(),
             emoji: "🌀".into(),
             kind: "soon",
             starts: now + 300.0,

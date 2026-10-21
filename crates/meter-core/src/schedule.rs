@@ -180,14 +180,16 @@ impl Notifier {
             let note = o.note.clone().map(|n| format!(" · {n}")).unwrap_or_default();
             if self.lead_secs > 0.0 && until > 0.0 && until <= self.lead_secs {
                 let mins = (until / 60.0).ceil().max(1.0) as i64;
-                fire("soon", format!("{} in {mins} min", o.name), format!("Starts soon{note}"));
+                // Title: the event; line below: what's happening (long names
+                // like Dimensional Invasion fit the banner this way).
+                fire("soon", o.name.clone(), format!("Starts in {mins} min{note}"));
             } else if self.at_start && until <= 0.0 && -until < START_GRACE && now < o.ends.max(o.starts + 60.0) {
                 let body = match &o.phase {
-                    Some((label, end)) if *end > now => format!("{label} for {} min{note}", ((end - now) / 60.0).ceil() as i64),
-                    _ if o.ends - o.starts > 90.0 => format!("Runs {} min{note}", ((o.ends - o.starts) / 60.0).round() as i64),
-                    _ => format!("Now{note}"),
+                    Some((label, end)) if *end > now => format!("Started · {label} for {} min{note}", ((end - now) / 60.0).ceil() as i64),
+                    _ if o.ends - o.starts > 90.0 => format!("Started · runs {} min{note}", ((o.ends - o.starts) / 60.0).round() as i64),
+                    _ => format!("Started now{note}"),
                 };
-                fire("start", format!("{} has started", o.name), body);
+                fire("start", o.name.clone(), body);
             }
         }
         self.fired.retain(|_, starts| now - *starts < 3600.0);
@@ -268,18 +270,19 @@ mod tests {
         assert!(n.poll(rift - 400.0, &occs).is_empty());
         let a = n.poll(rift - 290.0, &occs);
         assert_eq!(a.len(), 1);
-        assert_eq!(a[0].title, "Spacetime Rift in 5 min");
+        assert_eq!(a[0].title, "Spacetime Rift");
+        assert_eq!(a[0].body, "Starts in 5 min");
         assert!(n.poll(rift - 200.0, &occs).is_empty(), "fires once");
         let s = n.poll(rift + 5.0, &occs);
-        assert_eq!(s[0].title, "Spacetime Rift has started");
-        assert_eq!(s[0].body, "Portal open for 10 min");
+        assert_eq!(s[0].title, "Spacetime Rift");
+        assert_eq!(s[0].body, "Started · Portal open for 10 min");
         // Started long ago when the meter launched: no alert.
         let mut late = Notifier::new(300.0, true, []);
         assert!(late.poll(rift + 600.0, &occs).iter().all(|a| a.id != "spacetime_rift"));
         // Gartua carries its source.
         let g = parse_iso_utc("2026-10-17T10:30:00Z").unwrap();
         let ga = Notifier::new(300.0, true, []).poll(g - 60.0, &occs);
-        assert_eq!(ga[0].body, "Starts soon · Beritra · estimate from Aion2Timers");
+        assert_eq!(ga[0].body, "Starts in 1 min · Beritra · estimate from Aion2Timers");
         assert_eq!(upcoming(&occs, g - 60.0, &n.muted, 5).len(), 2);
     }
 
