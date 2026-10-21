@@ -191,8 +191,9 @@
   .pty-bar i { display: block; height: 100%; background: #e5675f; } .pty-bar i.all { background: var(--good); }
   .pty-hd, .pty-m { display: grid; grid-template-columns: 1fr 40px 50px 50px 70px; align-items: center; gap: 6px; padding: 0 8px; }
   .pty-hd { font-size: 9.5px; letter-spacing: .06em; color: #7d7a72; padding-bottom: 3px; } .pty-hd span:nth-child(n+2) { text-align: right; }
-  .pty-m { height: 28px; margin: 2px 0; border-radius: 6px; font-size: 12px; box-shadow: inset 3px 0 0 rgba(255,255,255,.12); padding-left: 10px; }
-  .pty-m.s-ok { box-shadow: inset 3px 0 0 var(--good); } .pty-m.s-no { box-shadow: inset 3px 0 0 #e5675f; } .pty-m.s-ld { box-shadow: inset 3px 0 0 var(--accent); }
+  .pty-m { position: relative; height: 28px; margin: 2px 0; border-radius: 6px; font-size: 12px; padding-left: 10px; }
+  .pty-m::before { content: ""; position: absolute; left: 0; top: 4px; bottom: 4px; width: 3px; border-radius: 2px; background: rgba(255,255,255,.12); }
+  .pty-m.s-ok::before { background: var(--good); } .pty-m.s-no::before { background: #e5675f; } .pty-m.s-ld::before { background: var(--accent); }
   .pty-m.me { background: rgba(255,255,255,.07); }
   .pty-m .nm { display: flex; align-items: center; gap: 5px; min-width: 0; } .pty-m .nm .n { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
   .pty-m .metag { font-size: 9px; font-weight: 800; color: var(--accent); background: var(--accent-soft); padding: 0 4px; border-radius: 3px; flex: none; }
