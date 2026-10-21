@@ -1089,7 +1089,11 @@ impl Engine {
                 self.party_member_codes = names.iter().zip(codes.iter()).filter_map(|(n, c)| c.map(|c| (n.clone(), c))).collect();
                 self.bind_party_names();
             }
-            GameEvent::Fresh => self.fresh_view = true,
+            GameEvent::Fresh => {
+                self.fresh_view = true;
+                // Fights from here on are in the newly loaded view.
+                self.zone_first_fight = self.zone_first_fight.max(self.next_id);
+            }
             GameEvent::Odyle { cur, bonus } => {
                 let (c0, b0) = self.self_odyle.unwrap_or((0, 0));
                 let c = cur.unwrap_or(c0);
@@ -1667,11 +1671,15 @@ impl Engine {
     /// you go and send no zone-load message, so "no zone load seen" alone
     /// isn't a reason to ask for a teleport.
     pub fn needs_zone(&self) -> bool {
-        if self.fresh_view || self.self_id.is_none() {
+        if self.self_id.is_none() {
             return false;
         }
         self.display_fight().map_or(false, |f| {
-            f.targets.keys().any(|t| self.actors.get(t).map_or(false, |a| a.npc_id.is_none() && a.kind == ActorKind::Npc))
+            // After a zone load the game introduced everything, so an older
+            // fight's unknown monster doesn't count. One still unknown in a
+            // fight since then (back from the Shugo Festival, say) does.
+            (!self.fresh_view || f.id >= self.zone_first_fight)
+                && f.targets.keys().any(|t| self.actors.get(t).map_or(false, |a| a.npc_id.is_none() && a.kind == ActorKind::Npc))
         })
     }
 
@@ -2679,6 +2687,12 @@ mod zone_notice_tests {
         // After a zone load the game has introduced everything.
         e.handle(&GameEvent::Fresh);
         assert!(!e.needs_zone());
+        // Unless a monster in a fight after it is still unknown (back from the
+        // Shugo Festival, the world's monsters weren't introduced).
+        e.finish();
+        e.handle(&GameEvent::Actor { id: 70, name: None, class: None, kind: ActorKind::Npc, npc_id: None, owner: None, max_hp: None });
+        e.handle(&GameEvent::Damage { ts: 30.0, src: 1, tgt: 70, skill: 17_010_000, amount: 10, flags: 0 });
+        assert!(e.needs_zone());
     }
 
     /// Enrage timers are listed for the base boss; variants find them by name.
