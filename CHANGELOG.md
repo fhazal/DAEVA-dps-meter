@@ -33,6 +33,7 @@ A new Solo layout, settings with tabs, and a long list of fixes from a day of re
 - **Alert banners all read the same way:** the event name on top, and the line below says what is happening (*Starts in 5 min* or *Started · runs 30 min*). Long names like *Dimensional Invasion in 5 min* no longer get cut off with "…".
 - **Ready stripes like the meter rows:** the party panel's Ready colours (green Ready, red not yet, gold leader) and the open Settings tab now use the same short rounded bar as your row on the meter, instead of a line that bent around the corners.
 - **Immortal Gartua banners:** one *Starts in 5 min* banner per spawn, even when the estimate moves a little afterwards (it used to show a second one), and *Spawning now* when it's due instead of *runs 15 min*: a world boss has no set length.
+- **Banners fit on one line:** Gartua's line reads *Beritra · estimate* (it was cut off when the banner stands on its own), and long events show hours: Arena of Tactics *runs 3 h* instead of *runs 180 min*.
 - **The installer has the Daeva Meter icon** instead of the default setup icon.
 - **Window buttons like on a Mac:** red quits, yellow minimises, green switches between Classic and Solo (the symbols show when you point at them). In Classic they're at the top left, in Solo at the end of the bottom line. The status light now sits after the name.
 

@@ -123,11 +123,8 @@ pub fn parse_overview(body: &str) -> Result<Vec<Occurrence>, String> {
     }
     if let Some(g) = v.get("gartua").filter(|g| g.as_obj().is_some()) {
         if let Some(spawn) = g.get("spawnAt").and_then(|x| x.as_str()).and_then(parse_iso_utc) {
-            let source = match g.str_or("source", "") {
-                "aion2timers" => "estimate from Aion2Timers",
-                "manual" => "estimate set by a Daeva member",
-                _ => "estimate",
-            };
+            // Kept short so the banner line fits (Aion2Timers or a member's report).
+            let source = if g.str_or("source", "") == "manual" { "member estimate" } else { "estimate" };
             out.push(Occurrence {
                 id: "gartua".into(),
                 name: "Immortal Gartua".into(),
@@ -156,6 +153,16 @@ pub struct Notifier {
 /// An event that started longer ago than this gets no "started" alert
 /// (meter launched mid-event).
 const START_GRACE: f64 = 90.0;
+
+/// "15 min", "3 h", "1 h 30 min".
+fn span(secs: f64) -> String {
+    let m = (secs / 60.0).round() as i64;
+    match (m / 60, m % 60) {
+        (0, m) => format!("{m} min"),
+        (h, 0) => format!("{h} h"),
+        (h, m) => format!("{h} h {m} min"),
+    }
+}
 
 impl Notifier {
     pub fn new(lead_secs: f64, at_start: bool, muted: impl IntoIterator<Item = String>) -> Notifier {
@@ -191,7 +198,7 @@ impl Notifier {
                     // A world boss has no set length: it's up until killed.
                     _ if o.id == "gartua" => format!("Spawning now{note}"),
                     Some((label, end)) if *end > now => format!("Started · {label} for {} min{note}", ((end - now) / 60.0).ceil() as i64),
-                    _ if o.ends - o.starts > 90.0 => format!("Started · runs {} min{note}", ((o.ends - o.starts) / 60.0).round() as i64),
+                    _ if o.ends - o.starts > 90.0 => format!("Started · runs {}{note}", span(o.ends - o.starts)),
                     _ => format!("Started now{note}"),
                 };
                 fire("start", o.name.clone(), body);
@@ -287,8 +294,15 @@ mod tests {
         // Gartua carries its source.
         let g = parse_iso_utc("2026-10-17T10:30:00Z").unwrap();
         let ga = Notifier::new(300.0, true, []).poll(g - 60.0, &occs);
-        assert_eq!(ga[0].body, "Starts in 1 min · Beritra · estimate from Aion2Timers");
+        assert_eq!(ga[0].body, "Starts in 1 min · Beritra · estimate");
         assert_eq!(upcoming(&occs, g - 60.0, &n.muted, 5).len(), 2);
+    }
+
+    #[test]
+    fn long_events_read_in_hours() {
+        assert_eq!(span(900.0), "15 min");
+        assert_eq!(span(3.0 * 3600.0), "3 h");
+        assert_eq!(span(5400.0), "1 h 30 min");
     }
 
     #[test]
@@ -320,8 +334,8 @@ mod tests {
             t += 15.0;
         }
         assert_eq!(log, [
-            "-300 soon Immortal Gartua | Starts in 5 min · Beritra · estimate from Aion2Timers",
-            "+0 start Immortal Gartua | Spawning now · Beritra · estimate from Aion2Timers",
+            "-300 soon Immortal Gartua | Starts in 5 min · Beritra · estimate",
+            "+0 start Immortal Gartua | Spawning now · Beritra · estimate",
         ]);
         // The bot moves the estimate a little after the first banner: no second one.
         let moved = parse_overview(&feed("2026-10-21T10:45:01.000Z")).unwrap();
