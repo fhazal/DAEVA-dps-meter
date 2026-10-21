@@ -521,7 +521,7 @@ pub fn rank_is_boss_or_elite(rank: &str) -> bool {
 
 impl Default for EngineConfig {
     fn default() -> Self {
-        EngineConfig { idle_timeout: 8.0, min_fight_damage: 1, merge_summons: true, end_on_target_death: true, only_my_targets: true, boss_idle_timeout: 60.0, death_grace: 3.0, history_size: 50, dps_clock: DpsClock::Boss }
+        EngineConfig { idle_timeout: 8.0, min_fight_damage: 1, merge_summons: true, end_on_target_death: true, only_my_targets: true, boss_idle_timeout: 150.0, death_grace: 3.0, history_size: 50, dps_clock: DpsClock::Boss }
     }
 }
 
@@ -563,6 +563,9 @@ pub struct Engine {
     /// Fights from this id on are in the current zone: entity ids are
     /// reassigned on a zone change, so a late name only fills these in.
     zone_first_fight: u64,
+    /// When you last changed zone (teleport, relog): the party panel is for
+    /// before that, the ready list for after.
+    zone_at: f64,
     /// True once the meter has seen a login or zone change, i.e. the game
     /// has introduced everything around you (names, monsters, health).
     pub fresh_view: bool,
@@ -605,6 +608,7 @@ impl Engine {
             party_member_codes: HashMap::new(),
             bad_codes: Default::default(),
             zone_first_fight: 1,
+            zone_at: f64::NEG_INFINITY,
             fresh_view: false,
             self_live: false,
             npc_max_hp: HashMap::new(),
@@ -991,6 +995,7 @@ impl Engine {
                         finished = self.finish();
                         self.actors.clear();
                         self.zone_first_fight = self.next_id;
+                        self.zone_at = self.last_ts;
                         self.pending_end = None;
                     }
                 }
@@ -1038,6 +1043,7 @@ impl Engine {
                     }
                     a.taken_at_hp = a.taken;
                 }
+                let old_hp = a.hp;
                 if a.hp.map_or(true, |old| *hp > old) {
                     // Healed or reset (training dummies refill at 1 HP).
                     a.taken_base = a.taken;
@@ -1074,6 +1080,13 @@ impl Engine {
                     if *hp > m {
                         a.max_hp = Some(*hp);
                     }
+                }
+                // A wipe: the fight's boss is back at (nearly) full health. That
+                // try is over; the next pull is a new fight. (Heals are smaller.)
+                let max = self.actors.get(id).and_then(|a| a.max_hp).unwrap_or(0) as f64;
+                let reset = max > 0.0 && old_hp.map_or(false, |o| o as f64 <= 0.90 * max) && *hp as f64 >= 0.97 * max;
+                if reset && self.current.as_ref().map_or(false, |f| !f.finished && self.card_boss(f) == Some(*id)) {
+                    finished = self.finish();
                 }
             }
             GameEvent::Zone { ts, zone_id } => {
@@ -1733,11 +1746,20 @@ impl Engine {
     /// you go and send no zone-load message, so "no zone load seen" alone
     /// isn't a reason to ask for a teleport.
     /// Show the party panel: in a party, not fighting, and no fight since
-    /// the line-up last changed (the lobby, the queue filling up).
+    /// the line-up last changed (the lobby, the queue filling up), unless
+    /// you have changed zone since (teleported into the dungeon).
     pub fn party_lobby(&self) -> bool {
         let Some(p) = &self.party_info else { return false };
         let fighting = self.current.as_ref().map_or(false, |f| !f.finished);
-        !fighting && self.display_fight().map_or(true, |f| f.end <= p.since)
+        !fighting && p.since > self.zone_at && self.display_fight().map_or(true, |f| f.end <= p.since)
+    }
+
+    /// Show the party in the DPS rows with dashes: in a party, after a zone
+    /// change and before the first fight there (the meter is ready).
+    pub fn party_ready(&self) -> bool {
+        let Some(p) = &self.party_info else { return false };
+        let fighting = self.current.as_ref().map_or(false, |f| !f.finished);
+        p.members.len() > 1 && !fighting && !self.party_lobby() && self.display_fight().map_or(true, |f| f.end <= self.zone_at)
     }
 
     pub fn needs_zone(&self) -> bool {
@@ -2191,7 +2213,26 @@ mod tests {
         assert!(e.tick(30.0).is_none(), "boss phase pause must not end the fight");
         e.handle(&dmg(31.0, 1, 50, 18000000, 10, 0));
         assert_eq!(e.current.as_ref().unwrap().total(), 20);
-        assert!(e.tick(95.0).is_some());
+        assert!(e.tick(95.0).is_none(), "a minute-long untargetable phase is still the same fight");
+        assert!(e.tick(185.0).is_some());
+    }
+
+    #[test]
+    fn a_wipe_ends_the_try() {
+        let mut e = Engine::new(EngineConfig::default(), Names::from_json(r#"{"bosses": ["777"]}"#).unwrap());
+        e.handle(&GameEvent::SelfId { id: 1, name: None });
+        e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(1000) });
+        e.handle(&dmg(0.0, 1, 50, 18000000, 300, 0));
+        e.handle(&GameEvent::Hp { ts: 1.0, id: 50, hp: 700, max_hp: None });
+        // The boss heals a bit: same try.
+        e.handle(&GameEvent::Hp { ts: 5.0, id: 50, hp: 820, max_hp: None });
+        assert!(e.current.as_ref().map_or(false, |f| !f.finished));
+        e.handle(&GameEvent::Hp { ts: 6.0, id: 50, hp: 700, max_hp: None });
+        // Party wiped: the boss resets (seen at 99%, someone already hit it).
+        let done = e.handle(&GameEvent::Hp { ts: 40.0, id: 50, hp: 990, max_hp: None });
+        assert!(done.is_some(), "the try ends at the reset");
+        e.handle(&dmg(45.0, 1, 50, 18000000, 10, 0));
+        assert_eq!(e.current.as_ref().unwrap().total(), 10, "the next pull is a new fight");
     }
 
     #[test]
@@ -2666,8 +2707,23 @@ mod zone_notice_tests {
         e.finish();
         e.handle(&info(&["Me", "Ally"]));
         assert!(!e.party_lobby(), "someone left after the run: no panel");
+        e.handle(&info(&["Me", "Ally", "Fourth"]));
+        assert!(e.party_lobby(), "someone joined again");
+        // Teleport into the dungeon: you get a new id.
+        e.handle(&GameEvent::Damage { ts: 30.0, src: 1, tgt: 50, skill: 18_000_000, amount: 1, flags: 0 });
+        e.finish();
+        e.handle(&info(&["Me", "Ally", "Fourth", "Fifth"]));
+        e.handle(&GameEvent::SelfId { id: 2, name: Some("Me".into()) });
+        assert!(!e.party_lobby() && e.party_ready(), "in the dungeon: the ready list");
+        e.handle(&info(&["Me", "Ally", "Fourth", "Fifth"]));
+        assert!(e.party_ready(), "the list resent in the dungeon changes nothing");
+        e.handle(&GameEvent::Actor { id: 60, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(6), owner: None, max_hp: Some(500) });
+        e.handle(&GameEvent::Damage { ts: 40.0, src: 2, tgt: 60, skill: 18_000_000, amount: 100, flags: 0 });
+        assert!(!e.party_ready() && !e.party_lobby(), "first hit: the fight");
+        e.finish();
+        assert!(!e.party_ready(), "after it: that fight stays on screen");
         e.handle(&GameEvent::PartyInfo { title: None, leader: None, members: vec![] });
-        assert!(e.party_info.is_none() && !e.party_lobby(), "left the party");
+        assert!(e.party_info.is_none() && !e.party_lobby() && !e.party_ready(), "left the party");
     }
 
     #[test]

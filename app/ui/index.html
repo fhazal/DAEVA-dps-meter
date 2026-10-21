@@ -85,6 +85,11 @@
   .odo.main.up { color: #b8f5c8; text-shadow: 0 0 8px rgba(120,230,150,.45); }
   .odo.main.down { color: #ffd0cc; }
   .rows.cols .row { grid-template-columns: 1fr var(--xc) auto; }
+  .rdy { display: flex; align-items: center; gap: 6px; margin: 4px 4px 8px; padding: 7px 10px; border-radius: 8px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.07); font-size: 11.5px; color: var(--muted); }
+  .rdy b { color: var(--good); font-weight: 700; }
+  .rdy i { width: 7px; height: 7px; border-radius: 50%; background: var(--good); box-shadow: 0 0 6px var(--good); animation: rdyp 1.6s ease-in-out infinite; }
+  @keyframes rdyp { 50% { opacity: .35; } }
+  .rows.cols.nox .row, .rows.cols.nox .colhead { grid-template-columns: 1fr auto; }
   .xcs { display: grid; grid-auto-flow: column; grid-auto-columns: 44px; text-align: right; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
   .xcs b { color: var(--text); font-weight: 600; }
   /* Underlined by a thin line that fades at both ends (softer over the game). */
@@ -420,6 +425,11 @@
       // In a party and not fighting yet: who's here and who's ready.
       setProp($("target"), "hidden", true);
       setHTML($("rows"), partyPanel(snap.party));
+    } else if (snap.party && snap.party.ready) {
+      // In a party, after a zone change and before the first fight there: the
+      // party in the usual rows, dashes for figures, so the meter reads ready.
+      setProp($("target"), "hidden", true);
+      setHTML($("rows"), readyRoster(snap.party, m));
     } else if (!f || !f.players.length) {
       setProp($("target"), "hidden", true);
       if (setHTML($("rows"), emptyState(s, state, text))) wireEmpty();
@@ -693,6 +703,29 @@
       }));
     });
   }
+  function readyRoster(p, m) {
+    const cc = cols();
+    const vparts = m === "share" ? [["Dmg %", 66], ["DPS", 54]] : [[m === "dps" ? "DPS" : "Dmg", 66], [m === "dps" ? "Dmg" : "DPS", 54], ["Dmg %", 50]];
+    const rowsEl = $("rows");
+    rowsEl.classList.add("cols");
+    rowsEl.classList.toggle("nox", cc.length === 0);
+    rowsEl.style.setProperty("--xc", cc.length * 44 + "px");
+    rowsEl.style.setProperty("--vc", vparts.map((v) => v[1] + "px").join(" "));
+    rowsEl.style.setProperty("--vw", vparts.reduce((a, v) => a + v[1], 0) + "px");
+    const xh = cc.length ? `<span class="xcs">${cc.map((c) => `<span>${COLS[c][0]}</span>`).join("")}</span>` : "";
+    const head = `<div class="colhead"><span>Player</span>${xh}<span class="vh">${vparts.map((v) => `<span>${v[0]}</span>`).join("")}</span></div>`;
+    const dash = '<span class="dim">–</span>';
+    const mem = (p.members || []).slice().sort((a, b) => (b.is_self ? 1 : 0) - (a.is_self ? 1 : 0));
+    const rows = mem.map((x) => {
+      const color = D.classColor(x.class, x.name);
+      return `<div class="row${x.is_self ? " self" : ""}"><i class="edge" style="background:${color}"></i>
+        <span class="who">${D.classIcon(x.class, 16)}<span class="nm">${D.esc(x.name)}</span></span>
+        ${cc.length ? `<span class="xcs">${cc.map(() => `<span>${dash}</span>`).join("")}</span>` : ""}<span class="val">${vparts.map(() => `<span>${dash}</span>`).join("")}</span></div>`;
+    }).join("");
+    const ready = `<div class="rdy"><i></i><b>Ready</b> · ${mem.length} in party · waiting for the first hit</div>`;
+    return ready + head + rows;
+  }
+
   function renderRows(f, m) {
     // Auto: your party once another member of it is in the fight, else everyone.
     const inParty = f.players.some((p) => p.in_party && !p.is_self);
@@ -712,11 +745,14 @@
     const cc = cols();
     const room = ($("rows").clientWidth || 380) - 34 - vparts.reduce((a, v) => a + v[1], 0);
     while (cc.length && 80 + cc.length * 44 > room) cc.pop();
-    $("rows").classList.toggle("cols", cc.length > 0);
+    // The titles and the labelled figures stay with no extra column too.
+    $("rows").classList.add("cols");
+    $("rows").classList.toggle("nox", cc.length === 0);
     $("rows").style.setProperty("--xc", cc.length * 44 + "px");
     $("rows").style.setProperty("--vc", vparts.map((v) => v[1] + "px").join(" "));
     $("rows").style.setProperty("--vw", vparts.reduce((a, v) => a + v[1], 0) + "px");
-    const head = cc.length ? `<div class="colhead" style="--xc:${cc.length * 44}px"><span>Player</span><span class="xcs">${cc.map((c) => `<span>${COLS[c][0]}</span>`).join("")}</span><span class="vh">${vparts.map((v) => `<span>${v[0]}</span>`).join("")}</span></div>` : "";
+    const xh = cc.length ? `<span class="xcs">${cc.map((c) => `<span>${COLS[c][0]}</span>`).join("")}</span>` : "";
+    const head = `<div class="colhead" style="--xc:${cc.length * 44}px"><span>Player</span>${xh}<span class="vh">${vparts.map((v) => `<span>${v[0]}</span>`).join("")}</span></div>`;
     const html = head + rows.map((p, i) => {
       const v = m === "dps" ? p.dps : p.dmg;
       const color = D.classColor(p.class, p.name);

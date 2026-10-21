@@ -36,6 +36,10 @@ A new Solo layout, settings with tabs, and a long list of fixes from a day of re
 - **Banners fit on one line:** Gartua's line reads *Beritra · estimate* (it was cut off when the banner stands on its own), and long events show hours: Arena of Tactics *runs 3 h* instead of *runs 180 min*.
 - **Only one meter at a time:** opening Daeva Meter while it's already running brings the open meter to the front (even if minimised) with *Daeva Meter is already open*, instead of starting a second copy that reads the game twice.
 - **The lock button works at any size:** with the meter locked, the strip at the bottom that still takes clicks now grows with Scale, in Classic and Solo. At 120% and up, the top of the lock button used to click through to the game.
+- **Ready as soon as you arrive:** when you teleport into a dungeon (or leave it), your party shows in the usual DPS rows with dashes and *Ready · waiting for the first hit*, instead of the party panel staying up until the first fight. The figures fill in on the first hit. The party panel (Ready check, GS, CP) is still there in the waiting room.
+- **Each wipe is its own fight:** when a boss resets to full health after a wipe, that try ends, and the next pull is a new fight with its own DPS. Two wipes on Bakarma used to show as one long fight. A boss's own heals don't count as a reset.
+- **Longer boss pauses:** a boss fight now waits 150 s instead of 60 s through untargetable phases and walks back, since wipes are caught by the reset.
+- **Column titles always show:** PLAYER · DPS · DMG · DMG % stay on top with every extra column unticked (or dropped on a narrow meter), each figure under its title.
 - **The installer has the Daeva Meter icon** instead of the default setup icon.
 - **Window buttons like on a Mac:** red quits, yellow minimises, green switches between Classic and Solo (the symbols show when you point at them). In Classic they're at the top left, in Solo at the end of the bottom line. The status light now sits after the name.
 
