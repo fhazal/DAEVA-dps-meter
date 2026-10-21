@@ -53,8 +53,9 @@ html, body {
   border-radius: inherit;
   pointer-events: none;
   z-index: 50;
-  border: 1px solid color-mix(in srgb, var(--cls, #ffffff) 30%, rgba(255, 255, 255, 0.06));
-  border-top-color: color-mix(in srgb, var(--cls, #ffffff) 45%, rgba(255, 255, 255, 0.08));
+  /* Your accent colour until the meter knows your class. */
+  border: 1px solid color-mix(in srgb, var(--cls, var(--accent)) 65%, rgba(255, 255, 255, 0.06));
+  border-top-color: color-mix(in srgb, var(--cls, var(--accent)) 85%, rgba(255, 255, 255, 0.08));
   transition: border-color .4s;
 }
 
