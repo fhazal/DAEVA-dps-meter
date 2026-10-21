@@ -157,6 +157,7 @@ impl Pipeline {
         self.game_packets += 1;
         self.game_bytes += seg.payload.len() as u64;
         self.last_game_ts = ts;
+        self.engine.see_time(ts);
         if from_server && !seg.payload.is_empty() {
             self.last_server_data_ts = ts;
         }

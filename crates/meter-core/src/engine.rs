@@ -1220,6 +1220,12 @@ impl Engine {
         self.current.as_mut().unwrap()
     }
 
+    /// The game is talking at `ts`: times of events that carry none (party
+    /// list, zone change) follow the traffic, not only the last hit.
+    pub fn see_time(&mut self, ts: f64) {
+        self.last_ts = self.last_ts.max(ts);
+    }
+
     /// Call periodically with the current capture time.
     pub fn tick(&mut self, now: f64) -> Option<Fight> {
         // A fighter's class is known from their first skill: try the party list.
@@ -2685,6 +2691,22 @@ mod zone_notice_tests {
         };
         assert_eq!(run(true), 5000, "party: counts from the pull, without the summon");
         assert_eq!(run(false), 0, "a stranger's boss: still ignored");
+    }
+
+    #[test]
+    fn party_panel_after_a_run_when_a_new_party_forms() {
+        let m = |n: &str| crate::events::PartyMember { name: n.into(), ..Default::default() };
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(6), owner: None, max_hp: Some(500) });
+        e.handle(&GameEvent::Damage { ts: 10.0, src: 1, tgt: 50, skill: 18_000_000, amount: 100, flags: 0 });
+        e.finish();
+        // Back to town (no fighting since), then a new party: real times, not the last hit's.
+        e.see_time(50.0);
+        e.handle(&GameEvent::SelfId { id: 2, name: Some("Me".into()) });
+        e.see_time(60.0);
+        e.handle(&GameEvent::PartyInfo { title: None, leader: None, members: vec![m("Me"), m("New")] });
+        assert!(e.party_lobby(), "the waiting room shows the party panel");
     }
 
     #[test]
