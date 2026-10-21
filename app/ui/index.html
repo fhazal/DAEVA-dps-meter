@@ -713,8 +713,10 @@
     }
     // Your card.
     const fk = f ? f.fight_id + "_" : "x_";
-    const party = f ? f.players.filter((p) => p.in_party || p.is_self) : [];
-    const pool = party.length > 1 ? party : f ? f.players : [];
+    // Rank and share both count everyone on the fight's damage list (you and
+    // whoever fought with you), as Details and ACT do, so they always agree.
+    const pool = f ? f.players : [];
+    const grouped = pool.some((p) => p.in_party && !p.is_self);
     const rank = me ? pool.indexOf(me) + 1 : 0;
     const name = (me && me.name) || s.self_name || "You";
     const cls = (me && me.class) || s.self_class || savedClass;
@@ -730,7 +732,7 @@
     const partyDps = pool.reduce((a, p) => a + (p.dps || 0), 0);
     const ody = s.odyle != null ? `<span title="Odyle${s.odyle_bonus ? ` (+${Number(s.odyle_bonus).toLocaleString()} from Odyle Energy)` : ""}"><img class="ody" src="img/odyle.webp" alt=""> <b>${Number(s.odyle).toLocaleString()}</b>${s.odyle_bonus ? ` <span style="color:#4fb8e8">(+${Number(s.odyle_bonus).toLocaleString()})</span>` : ""}</span><i class="sep"></i>` : "";
     const btns = `<span class="btns"><button class="icon-btn hide-locked" data-act="settings" title="Settings">${D.icon("gear")}</button><button class="icon-btn${ui.click_through ? " on" : ""}" data-act="lock" title="Click-through (Ctrl+Shift+L)">${D.icon(ui.click_through ? "lock" : "unlock")}</button>${D.lights("classic")}</span>`;
-    const ft = so.footer !== false ? `<div class="so-ft" data-drag>${ody}${pool.length > 1 ? `<span>Party <b>${D.fmt(partyDps)}</b></span><i class="sep"></i>` : ""}${ping}${btns}</div>` : `<div class="so-ft" data-drag style="padding-top:3px;padding-bottom:3px">${btns}</div>`;
+    const ft = so.footer !== false ? `<div class="so-ft" data-drag>${ody}${pool.length > 1 ? `<span title="${grouped ? "Your party\x27s" : "Everyone\x27s"} DPS in this fight">${grouped ? "Party" : "All"} <b>${D.fmt(partyDps)}</b></span><i class="sep"></i>` : ""}${ping}${btns}</div>` : `<div class="so-ft" data-drag style="padding-top:3px;padding-bottom:3px">${btns}</div>`;
     if (setHTML($("solo"), hd + card + ft)) runOdos();
     fitSolo();
   }
