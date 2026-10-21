@@ -1148,7 +1148,11 @@ impl Engine {
         }
         let idle = match &self.current {
             Some(f) if !f.finished => {
-                let limit = if self.boss_alive(f) { self.cfg.boss_idle_timeout } else { self.cfg.idle_timeout };
+                // A living boss gets a long pause (phases, untargetable). On
+                // your own only while the boss is what you last hit: a mob
+                // you killed next to a big monster ends the fight as usual.
+                let on_boss = f.grouped || self.card_boss(f).map_or(false, |b| f.focus == Some(b));
+                let limit = if on_boss && self.boss_alive(f) { self.cfg.boss_idle_timeout } else { self.cfg.idle_timeout };
                 now - f.end > limit
             }
             _ => false,
@@ -2156,6 +2160,8 @@ mod tests {
         let names = Names::from_json(r#"{"bosses": ["777"]}"#).unwrap();
         let mut e = Engine::new(EngineConfig::default(), names);
         e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        // A dungeon boss, with your party (barrier phases keep the fight open).
+        e.handle(&GameEvent::Party { names: vec!["Me".into(), "Ally".into()], codes: vec![None, None] });
         e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(10_000) });
         e.handle(&dmg(0.0, 1, 50, 18000000, 1000, 0));
         // The boss heals itself off our hit: reported like a tick, not damage.
