@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/branding/Daeva DPS Meter Fantasy Emblem.png" alt="Daeva Meter" width="260">
+<img src="docs/branding/Daeva DPS Meter Fantasy Emblem.png" alt="Daeva Meter" width="100%">
 
 # Daeva Meter
 
