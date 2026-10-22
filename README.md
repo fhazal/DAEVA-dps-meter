@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/branding/daeva-meter-banner.png" alt="Daeva Meter" width="260">
+<img src="docs/branding/DAEVA DPS Meter_ AION 2 Skylands.png" alt="Daeva Meter" width="260">
 
 # Daeva Meter
 
