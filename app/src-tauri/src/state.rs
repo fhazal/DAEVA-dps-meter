@@ -84,6 +84,9 @@ pub struct Core {
     /// Last few minutes of game traffic, kept in memory for problem reports.
     rolling: std::collections::VecDeque<(f64, Vec<u8>)>,
     rolling_bytes: usize,
+    /// For reports: what the meter noticed (fights, card, party, zone), and
+    /// once a second what it showed, so a report explains itself.
+    pub diary: Diary,
     health_at: f64,
     health_decoded: u64,
     health_frames: u64,
@@ -120,6 +123,15 @@ pub struct Core {
     pub bests: Bests,
     /// "New personal best" shown under the meter after a kill.
     pub pb_notice: Option<Value>,
+    /// When Daeva Meter was opened again while running (for the notice).
+    pub opened_again: Option<f64>,
+    /// Game servers to time for the ping, per server number (from the Daeva
+    /// feed; the built-in Asia entry otherwise), and the last reading:
+    /// milliseconds, when, and where ("Tokyo"). `ping_note` says why there
+    /// is none: "region" (no server known for yours) or "unreachable".
+    pub probes: Vec<Probe>,
+    pub game_rtt: Option<(f64, f64, String)>,
+    pub ping_note: Option<&'static str>,
     /// Banner rectangles in the alert window (CSS px: x, y, w, h), so the
     /// window only catches the mouse over a banner, and only while unlocked.
     pub toast_rects: Vec<(f64, f64, f64, f64)>,
@@ -241,8 +253,34 @@ impl EventFeed {
     }
 }
 
-const ROLLING_SECS: f64 = 180.0;
+const ROLLING_SECS: f64 = 300.0;
 const ROLLING_MAX_BYTES: usize = 48 << 20;
+
+/// The meter's own notes for problem reports: events it noticed (automatic
+/// markers) and, once a second, what the overlay showed.
+#[derive(Default)]
+pub struct Diary {
+    pub events: std::collections::VecDeque<(f64, String)>,
+    pub screen: std::collections::VecDeque<(f64, Value)>,
+    last_sample: f64,
+    party: String,
+    fight: Option<u64>,
+    card: String,
+    self_id: Option<u64>,
+    self_name: Option<String>,
+    layout: String,
+    /// "Report saved" for the overlay: when, and the file name.
+    pub saved: Option<(f64, String)>,
+}
+
+impl Diary {
+    pub fn note(&mut self, ts: f64, what: impl Into<String>) {
+        self.events.push_back((ts, what.into()));
+        while self.events.front().map_or(false, |(t, _)| ts - t > ROLLING_SECS * 2.0) || self.events.len() > 2000 {
+            self.events.pop_front();
+        }
+    }
+}
 
 pub struct Shared {
     pub core: Mutex<Core>,
@@ -319,6 +357,7 @@ impl Core {
             last_settings_save: Instant::now(),
             rolling: Default::default(),
             rolling_bytes: 0,
+            diary: Diary::default(),
             health_at: 0.0,
             health_decoded: 0,
             health_frames: 0,
@@ -339,6 +378,10 @@ impl Core {
             update_checked: 0.0,
             bests: Bests::default(),
             pb_notice: None,
+            opened_again: None,
+            probes: Vec::new(),
+            game_rtt: None,
+            ping_note: None,
             gap_base: None,
             toast_rects: Vec::new(),
             alert_drag: None,
@@ -377,6 +420,9 @@ impl Core {
         // The dragged alert spot is set by Move alerts, not by the form.
         s.alerts.custom = self.settings.alerts.custom;
         s.alerts.custom_monitor = self.settings.alerts.custom_monitor.clone();
+        // So are the window's spot and sizes (the form may hold old ones).
+        s.window = self.settings.window;
+        s.solo_size = self.settings.solo_size;
         let demo_changed = s.demo != self.settings.demo;
         self.pipeline.engine.cfg = engine_cfg(&s);
         if s.alerts.feed_url != self.settings.alerts.feed_url || s.alerts.enabled != self.settings.alerts.enabled {
@@ -443,6 +489,10 @@ impl Core {
     }
 
     fn periodic(&mut self, now: f64) {
+        if now - self.diary.last_sample >= 1.0 {
+            self.diary.last_sample = now;
+            self.sample_diary(now);
+        }
         if let Some(sim) = self.sim.as_mut() {
             let evs = sim.step(now);
             for f in self.pipeline.push_events(&evs) {
@@ -950,6 +1000,13 @@ impl Core {
 
     pub fn fight_finished(&mut self, f: Fight) {
         let mut rec = self.pipeline.engine.fight_record(&f);
+        {
+            let e = &self.pipeline.engine;
+            let main = e.boss_target(&f).or(f.focus).or_else(|| f.main_target());
+            let name = main.map(|t| e.fname(&f, t)).unwrap_or_else(|| "?".into());
+            let note = format!("fight #{} ended: {name}, {:.0} s{}", f.id, f.duration(), if f.boss_killed { ", killed" } else { "" });
+            self.auto_note(now_unix(), note);
+        }
         let gaps = self.fight_gaps(f.id);
         if let Value::Obj(m) = &mut rec {
             m.insert("gaps".into(), Value::from(gaps));
@@ -1104,6 +1161,8 @@ impl Core {
             .set("snapshot", self.snapshot(None))
             .set("decoder", self.research_view())
             .set("fights", Value::Arr(fights))
+            .set("diary", Value::Arr(self.diary.events.iter().map(|(t, s)| Obj::new().set("t", *t).set("what", s.as_str()).build()).collect()))
+            .set("screen", Value::Arr(self.diary.screen.iter().map(|(t, v)| Obj::new().set("t", *t).set("shown", v.clone()).build()).collect()))
             .set("settings", json::parse(&serde_json::to_string(&settings).unwrap_or_else(|_| "{}".into())).unwrap_or(Value::Null))
             .build();
         let stamp = now_unix() as i64;
@@ -1113,7 +1172,88 @@ impl Core {
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         let path = dir.join(format!("DaevaMeter-report-{stamp}.zip"));
         std::fs::write(&path, zip).map_err(|e| e.to_string())?;
+        self.diary.saved = Some((now_unix(), path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()));
         Ok(path.display().to_string())
+    }
+
+    /// A note for problem reports, and an automatic marker in a research
+    /// recording (so testers don't have to type what they're doing).
+    fn auto_note(&mut self, ts: f64, what: String) {
+        if let Some(r) = self.recorder.as_mut() {
+            r.markers.push((ts, format!("auto: {what}")));
+            r.save_markers();
+        }
+        self.diary.note(ts, what);
+    }
+
+    /// Once a second: what the overlay shows, and a note whenever the fight,
+    /// the card, the party, the zone or the layout changes.
+    fn sample_diary(&mut self, now: f64) {
+        let snap = self.snapshot(None);
+        let f = snap.get("fight").filter(|f| f.as_obj().is_some());
+        let t = f.and_then(|f| f.get("target")).filter(|t| t.as_obj().is_some());
+        let card = t.map(|t| format!("{} ({})", t.str_or("name", "?"), t.str_or("rank", "no rank"))).unwrap_or_default();
+        let rows: Vec<Value> = f
+            .and_then(|f| f.get("players"))
+            .and_then(|p| p.as_arr())
+            .map(|ps| {
+                ps.iter()
+                    .take(8)
+                    .map(|p| {
+                        let tag = if p.bool_or("is_self", false) { " (me)" } else if p.bool_or("in_party", false) { " *" } else { "" };
+                        Value::from(format!("{}{tag} {:.0}/s", p.str_or("name", "?"), p.f64_or("dps", 0.0)))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let shown = Obj::new()
+            .set("layout", self.settings.layout.as_str())
+            .set("fight", f.and_then(|f| f.get("fight_id")).cloned().unwrap_or(Value::Null))
+            .set("live", f.map_or(false, |f| f.bool_or("live", false)))
+            .set("secs", f.map(|f| (f.f64_or("duration", 0.0) * 10.0).round() / 10.0))
+            .set("card", card.as_str())
+            .set("hp", t.and_then(|t| t.get("hp_pct")).cloned().unwrap_or(Value::Null))
+            .set("rows", Value::Arr(rows))
+            .build();
+        self.diary.screen.push_back((now, shown));
+        while self.diary.screen.front().map_or(false, |(t0, _)| now - t0 > ROLLING_SECS) {
+            self.diary.screen.pop_front();
+        }
+        let e = &self.pipeline.engine;
+        let mut members: Vec<&String> = e.party.iter().collect();
+        members.sort();
+        let party = members.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ");
+        let fight = f.and_then(|f| f.get("fight_id")).and_then(|v| v.as_f64()).map(|v| v as u64);
+        let live = f.map_or(false, |f| f.bool_or("live", false));
+        let (self_id, self_name) = (e.self_id, e.self_name.clone());
+        let mut notes = Vec::new();
+        if party != self.diary.party {
+            notes.push(if party.is_empty() { "party: none (left)".to_string() } else { format!("party: {party}") });
+        }
+        if self_id != self.diary.self_id && self.diary.self_id.is_some() {
+            notes.push("zone change or relog (new character id)".to_string());
+        }
+        if self_name != self.diary.self_name {
+            notes.push(format!("you are {}", self_name.as_deref().unwrap_or("unknown")));
+        }
+        if fight != self.diary.fight && fight.is_some() && live {
+            notes.push(format!("fight #{} starts", fight.unwrap_or(0)));
+        }
+        if card != self.diary.card && !card.is_empty() {
+            notes.push(format!("card shows {card}"));
+        }
+        if self.settings.layout != self.diary.layout {
+            notes.push(format!("layout {}", self.settings.layout));
+        }
+        self.diary.party = party;
+        self.diary.fight = fight;
+        self.diary.card = card;
+        self.diary.self_id = self_id;
+        self.diary.self_name = self_name;
+        self.diary.layout = self.settings.layout.clone();
+        for n in notes {
+            self.auto_note(now, n);
+        }
     }
 
     // ------------------------------------------------------------ research
@@ -1178,7 +1318,12 @@ impl Core {
             .set("packets", p.packets)
             .set("game_packets", p.game_packets)
             .set("game_bytes", p.game_bytes)
-            .set("ping_ms", if now - p.ping.last_sample_ts < 10.0 { p.ping.ms() } else { None })
+            // The game reaches its server through a nearby Cloudflare relay,
+            // which answers at once, so the traffic's own timing would show
+            // the relay (a few ms). Only the game server's timing is shown.
+            .set("ping_ms", self.game_rtt.as_ref().filter(|(_, at, _)| now - at < 180.0).map(|(ms, _, _)| *ms))
+            .set("ping_where", self.game_rtt.as_ref().filter(|(_, at, _)| now - at < 180.0).map(|(_, _, w)| w.as_str()))
+            .set("ping_note", self.ping_note)
             .set("game_idle", if p.last_game_ts > 0.0 { Some(now - p.last_game_ts) } else { None })
             .set("frames", p.decoder.frames_total)
             .set("resyncs", p.decoder.resyncs())
@@ -1217,6 +1362,9 @@ impl Core {
             .set("version", env!("CARGO_PKG_VERSION"))
             .set("warning", self.warning.clone())
             .set("pb", self.pb_notice.clone())
+            // "Report saved" for a few seconds after Ctrl+Shift+P.
+            .set("opened_again", self.opened_again.filter(|t| now_unix() - t < 6.0))
+            .set("report_saved", self.diary.saved.as_ref().filter(|(t, _)| now_unix() - t < 6.0).map(|(_, n)| n.as_str()))
             .set("fight_gaps", e.display_fight().map(|f| self.fight_gaps(f.id)))
             .build();
         let ui = Obj::new()
@@ -1233,9 +1381,47 @@ impl Core {
             .set("show_research", s.show_research)
             .set("columns", Value::Arr(s.columns.iter().take(3).map(|c| Value::from(c.as_str())).collect()))
             .set("dps_clock", s.dps_clock.as_str())
+            .set("layout", s.layout.as_str())
+            .set("solo", Obj::new().set("rank", s.solo.rank).set("chips", s.solo.chips).set("footer", s.solo.footer).build())
             .build();
         let alerts = self.alerts_view(now);
-        Obj::new().set("status", status).set("ui", ui).set("fight", fight).set("research", rec).set("alerts", alerts).build()
+        let party = self.party_view();
+        Obj::new().set("status", status).set("ui", ui).set("fight", fight).set("research", rec).set("alerts", alerts).set("party", party).build()
+    }
+
+    /// The party panel: who is in your party (class, server, gear score,
+    /// combat power, leader, Ready), and whether to show it now.
+    pub fn party_view(&self) -> Value {
+        let e = &self.pipeline.engine;
+        let Some(p) = &e.party_info else { return Value::Null };
+        let room = p.members.iter().any(|m| m.status.is_some());
+        let members: Vec<Value> = p
+            .members
+            .iter()
+            .map(|m| {
+                let server = m.server.and_then(|s| e.names.servers.get(&s).cloned());
+                let tag = server.as_ref().map(|n| n.chars().take(3).collect::<String>().to_uppercase()).or(m.server.map(|s| s.to_string()));
+                Obj::new()
+                    .set("name", m.name.as_str())
+                    .set("class", m.code.and_then(|c| e.names.party_class(c).cloned()))
+                    .set("server", server)
+                    .set("server_tag", tag)
+                    .set("gs", m.gs)
+                    .set("cp", m.cp)
+                    .set("leader", p.leader.is_some() && m.id == p.leader)
+                    .set("ready", m.status.map(|s| s & 0x02 != 0))
+                    .set("is_self", e.self_name.as_deref() == Some(m.name.as_str()))
+                    .build()
+            })
+            .collect();
+        Obj::new()
+            .set("title", p.title.clone())
+            .set("room", room)
+            .set("lobby", e.party_lobby())
+            .set("entering", p.entering)
+            .set("ready", e.party_ready())
+            .set("members", Value::Arr(members))
+            .build()
     }
 
     /// Event alerts for the overlay's next-events line and the alert window.
@@ -1260,7 +1446,7 @@ impl Core {
             .set(
                 "next",
                 Value::Arr(if a.enabled {
-                    schedule::upcoming(&self.events.occurrences, now, &self.events.notifier.muted, 2).into_iter().map(|o| schedule::occurrence_json(o, now)).collect()
+                    schedule::upcoming(&self.events.occurrences, now, &self.events.notifier.muted, 8).into_iter().map(|o| schedule::occurrence_json(o, now)).collect()
                 } else {
                     vec![]
                 }),
@@ -1294,8 +1480,8 @@ impl Core {
         self.events.push(Alert {
             key: format!("test|{now}"),
             id: "test".into(),
-            title: "Spacetime Rift in 5 min".into(),
-            body: "Test alert · this is how events will look".into(),
+            title: "Spacetime Rift".into(),
+            body: "Starts in 5 min · test alert".into(),
             emoji: "🌀".into(),
             kind: "soon",
             starts: now + 300.0,
@@ -1491,6 +1677,8 @@ pub fn start_threads(shared: Arc<Shared>) {
     {
         let s = shared.clone();
         std::thread::Builder::new().name("event-feed".into()).spawn(move || event_feed(s)).ok();
+        let s = shared.clone();
+        std::thread::Builder::new().name("latency-probe".into()).spawn(move || latency_probe(s)).ok();
     }
     {
         let s = shared.clone();
@@ -1561,11 +1749,20 @@ fn event_feed(shared: Arc<Shared>) {
                 .call()
                 .map_err(|e| format!("Event feed unreachable: {e}"))
                 .and_then(|r| r.into_string().map_err(|e| format!("Event feed read failed: {e}")))
-                .and_then(|body| schedule::parse_overview(&body));
+                .and_then(|body| {
+                    // Where to time the ping, per server number; the feed can
+                    // move a server or add a region (addresses scrambled like
+                    // GAME_SERVER_X).
+                    let probe = meter_core::json::parse(&body).ok().and_then(|v| v.get("latency_probes")?.as_arr().map(|list| list.iter().filter_map(Probe::from_feed).collect::<Vec<_>>()));
+                    schedule::parse_overview(&body).map(|o| (o, probe))
+                });
             let mut c = shared.lock();
             match result {
-                Ok(occs) => {
+                Ok((occs, probe)) => {
                     failures = 0;
+                    if let Some(list) = probe {
+                        c.probes = list;
+                    }
                     c.events.occurrences = occs;
                     c.events.fetched_at = now_unix();
                     c.events.error = None;
@@ -1580,6 +1777,153 @@ fn event_feed(shared: Arc<Shared>) {
             }
         }
         std::thread::sleep(Duration::from_millis(500));
+    }
+}
+
+/// A game server to time for the players of some servers.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Probe {
+    /// Server numbers as inclusive ranges (Beritra is 2508).
+    servers: Vec<(u32, u32)>,
+    name: String,
+    host: String,
+    port: u16,
+}
+
+impl Probe {
+    /// {"servers": "1501-1510,2501-2510", "name": "Tokyo", "code": "..."}
+    fn from_feed(v: &meter_core::json::Value) -> Option<Probe> {
+        let servers = parse_ranges(v.get("servers")?.as_str()?);
+        let (host, port) = decode_server(v.get("code")?.as_str()?)?;
+        let name = v.get("name").and_then(|n| n.as_str()).unwrap_or("").chars().filter(|c| c.is_alphanumeric() || " -".contains(*c)).take(24).collect();
+        (!servers.is_empty()).then_some(Probe { servers, name, host, port })
+    }
+
+    fn covers(&self, server: u32) -> bool {
+        self.servers.iter().any(|(a, b)| (*a..=*b).contains(&server))
+    }
+}
+
+/// "1501-1510,2501-2510" (single numbers too).
+fn parse_ranges(s: &str) -> Vec<(u32, u32)> {
+    s.split(',')
+        .filter_map(|part| {
+            let mut it = part.trim().splitn(2, '-').map(|x| x.trim().parse::<u32>());
+            let a = it.next()?.ok()?;
+            let b = it.next().map_or(Some(a), |x| x.ok())?;
+            (a <= b).then_some((a, b))
+        })
+        .collect()
+}
+
+/// The Asia game servers (Tokyo), where the bot measures latency too; used
+/// when the feed hasn't answered. Kept scrambled so the address of the server
+/// behind Cloudflare isn't spelled out in the source.
+const GAME_SERVER_X: ([u8; 4], u16) = ([0x97, 0x7d, 0xc1, 0x22], 0x93b7);
+
+fn built_in_probe() -> Probe {
+    let ([a, b, c, d], p) = GAME_SERVER_X;
+    Probe {
+        servers: vec![(1501, 1510), (2501, 2510)],
+        name: "Tokyo".into(),
+        host: format!("{}.{}.{}.{}", a ^ 0xa7, b ^ 0xa7, c ^ 0xa7, d ^ 0xa7),
+        port: p ^ 0xa7a7,
+    }
+}
+
+/// The feed's form: 12 hex digits, the four address bytes and the port, each
+/// byte scrambled the same way.
+fn decode_server(code: &str) -> Option<(String, u16)> {
+    if code.len() != 12 || !code.is_ascii() {
+        return None;
+    }
+    let b: Vec<u8> = (0..6).map(|i| u8::from_str_radix(&code[i * 2..i * 2 + 2], 16).map(|x| x ^ 0xa7)).collect::<Result<_, _>>().ok()?;
+    let port = u16::from_be_bytes([b[4], b[5]]);
+    (port > 0).then(|| (format!("{}.{}.{}.{}", b[0], b[1], b[2], b[3]), port))
+}
+
+/// The game server for a player's server number: the feed's list first.
+fn probe_for(list: &[Probe], server: u32) -> Option<Probe> {
+    list.iter().find(|p| p.covers(server)).cloned().or_else(|| Some(built_in_probe()).filter(|p| p.covers(server)))
+}
+
+#[cfg(test)]
+mod probe_tests {
+    use super::*;
+
+    #[test]
+    fn the_feed_code_and_the_built_in_server_agree() {
+        // A documentation address, as in the bot's test.
+        assert_eq!(decode_server("67a7a5ad93b7"), Some(("192.0.2.10".to_string(), 13328)));
+        let p = built_in_probe();
+        let ip: Vec<u8> = p.host.split('.').map(|x| x.parse().unwrap()).collect();
+        let code: String = ip.iter().chain(p.port.to_be_bytes().iter()).map(|b| format!("{:02x}", b ^ 0xa7)).collect();
+        assert_eq!(decode_server(&code), Some((p.host.clone(), p.port)));
+        assert_eq!(decode_server("not-a-code!!"), None);
+    }
+
+    #[test]
+    fn each_player_gets_the_game_server_of_their_region() {
+        let feed = meter_core::json::parse(r#"{"latency_probes": [
+            {"servers": "3001-3010", "name": "Seoul", "code": "67a7a5ad93b7"},
+            {"servers": "nonsense", "code": "67a7a5ad93b7"}]}"#).unwrap();
+        let list: Vec<Probe> = feed.get("latency_probes").unwrap().as_arr().unwrap().iter().filter_map(Probe::from_feed).collect();
+        assert_eq!(list.len(), 1);
+        // A server the feed lists.
+        assert_eq!(probe_for(&list, 3005).map(|p| (p.name, p.host)), Some(("Seoul".into(), "192.0.2.10".into())));
+        // Beritra: not in the feed's list, the built-in Asia entry.
+        assert_eq!(probe_for(&list, 2508).map(|p| p.name), Some("Tokyo".into()));
+        // Nobody knows this region's server yet: no ping rather than a wrong one.
+        assert_eq!(probe_for(&list, 9001), None);
+        assert_eq!(parse_ranges("1501-1510, 2508,9-1"), vec![(1501, 1510), (2508, 2508)]);
+    }
+}
+
+/// Times a connection to the player's game server once a minute while the
+/// game runs, like a ping: the median of four tries, nothing sent. This is the
+/// latency players feel (about 80 ms from Malaysia to Tokyo), not the relay's.
+fn latency_probe(shared: Arc<Shared>) {
+    use std::net::{TcpStream, ToSocketAddrs};
+    loop {
+        let (running, list, server) = {
+            let c = shared.lock();
+            let e = &c.pipeline.engine;
+            (c.status.game_process.is_some(), c.probes.clone(), e.self_server.or(c.settings.last_server))
+        };
+        if running {
+            match server.and_then(|s| probe_for(&list, s)) {
+                // Server not known yet: wait for the game to say.
+                None if server.is_none() => {}
+                None => {
+                    let mut c = shared.lock();
+                    c.game_rtt = None;
+                    c.ping_note = Some("region");
+                }
+                Some(p) => {
+                    let mut times = Vec::new();
+                    if let Some(addr) = (p.host.as_str(), p.port).to_socket_addrs().ok().and_then(|mut a| a.next()) {
+                        for i in 0..4 {
+                            if i > 0 {
+                                std::thread::sleep(Duration::from_millis(100));
+                            }
+                            let start = Instant::now();
+                            if TcpStream::connect_timeout(&addr, Duration::from_secs(2)).is_ok() {
+                                times.push(start.elapsed().as_secs_f64() * 1000.0);
+                            }
+                        }
+                    }
+                    let mut c = shared.lock();
+                    if times.is_empty() {
+                        c.ping_note = Some("unreachable");
+                    } else {
+                        times.sort_by(|a, b| a.total_cmp(b));
+                        c.game_rtt = Some((times[times.len() / 2], now_unix(), p.name.clone()));
+                        c.ping_note = None;
+                    }
+                }
+            }
+        }
+        std::thread::sleep(Duration::from_secs(60));
     }
 }
 

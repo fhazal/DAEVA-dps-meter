@@ -108,6 +108,9 @@
     shugo_festival: "shugo_festival",
     dimensional_invasion: "dimensional_invasion",
     artifact_siege: "artifact_siege",
+    arena_of_tactics: "arena_of_tactics",
+    daily_reset: "reset",
+    weekly_reset: "reset",
     watcher_kaira: "field_boss",
     executor_bosses: "field_boss",
     guardian_nahma: "field_boss",
@@ -218,7 +221,16 @@
     unlock: '<g transform="scale(0.6667)" stroke-width="2.4"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></g>',
     flask: '<g transform="scale(0.6667)" stroke-width="2.4"><path d="M14 2v6a2 2 0 0 0 .245.96l5.51 10.08A2 2 0 0 1 18 22H6a2 2 0 0 1-1.755-2.96l5.51-10.08A2 2 0 0 0 10 8V2"/><path d="M6.453 15h11.094"/><path d="M8.5 2h7"/></g>',
     metric: '<g transform="scale(0.6667)" stroke-width="2.4"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></g>',
+    // Panels from Lucide (lucide.dev, ISC licence), 24-unit grid: switch layout.
+    layout: '<g transform="scale(0.6667)" stroke-width="2.4"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></g>',
   };
+  // Red quit, yellow minimise, green switch layout (`to`: the other layout).
+  function lights(to) {
+    const g = to === "solo" ? "Switch to Solo: just you" : "Switch to Classic: the whole party";
+    return `<span class="lights hide-locked"><button type="button" class="lt r" data-lt="close" title="Quit Daeva Meter"><svg viewBox="0 0 8 8"><path d="M2 2l4 4M6 2L2 6"/></svg></button>`
+      + `<button type="button" class="lt y" data-lt="min" title="Minimise"><svg viewBox="0 0 8 8"><path d="M1.6 4h4.8"/></svg></button>`
+      + `<button type="button" class="lt g" data-lt="layout" data-to="${to}" title="${g} (Ctrl+Shift+O)"><svg viewBox="0 0 8 8"><path d="M2.2 5.8L5.8 2.2M3.4 2.2h2.4v2.4"/></svg></button></span>`;
+  }
   function icon(name) {
     return `<svg viewBox="0 0 16 16">${ICONS[name] || ""}</svg>`;
   }
@@ -251,5 +263,5 @@
     if (e.target.closest && e.target.closest("[data-drag]")) e.preventDefault();
   });
 
-  window.Daeva = { call, callJSON, fmt, pct, dur, when, esc, classColor, classIcon, skillIcon, npcIcon, eventIcon, loadArt, art, applyTheme, applyClassBorder, toast, icon, winAction, params, wireTitlebar };
+  window.Daeva = { call, callJSON, fmt, pct, dur, when, esc, classColor, classIcon, skillIcon, npcIcon, eventIcon, loadArt, art, applyTheme, applyClassBorder, toast, icon, lights, winAction, params, wireTitlebar };
 })();

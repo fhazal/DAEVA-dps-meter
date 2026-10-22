@@ -35,7 +35,7 @@ Live DPS · boss target card · skill breakdowns · event alerts · fight histor
 <td width="50%" valign="top">
 
 ### 📊 Live overlay
-DPS, total damage and share for everyone in the fight, coloured by class, in a small always-on-top window with opacity and scale. Lock it in place with `Ctrl+Shift+L`; a status light shows when you're fighting (green) or idle (pulsing amber).
+DPS, total damage and share for everyone in the fight, coloured by class, in a small always-on-top window with opacity and scale. Lock it in place with `Ctrl+Shift+L`; the status light in the bottom line shows when you're fighting (green, with the fight's time) or idle (blue). Two layouts: **Classic** (the whole party) and **Solo** (just you), switch with `Ctrl+Shift+O`.
 
 </td>
 <td width="50%" valign="top">
@@ -77,7 +77,7 @@ Monster and skill names and game icons arrive automatically. Anything new can be
 <td valign="top">
 
 ### 💎 Your character
-Your **Odyle** energy and **Shugo Festival keys** under the meter, your server, and your **ping** to the game server (also through tunnels such as Mudfish). Switching characters is picked up automatically.
+Your **Odyle** energy and **Shugo Festival keys** under the meter, your server, and your **ping** to the game servers of your region (Tokyo for the Asia servers, checked once a minute: the game's own traffic goes through a nearby Cloudflare relay, which would show only a few ms). Switching characters is picked up automatically.
 
 </td>
 <td valign="top">
@@ -99,9 +99,10 @@ Summons and spirits count towards the player who summoned them. Show everyone fi
 | Hide / show overlay | `Ctrl+Shift+H` |
 | Copy summary for Discord | `Ctrl+Shift+C` |
 | Report a problem | `Ctrl+Shift+P` |
-| Research marker (testers) | `Ctrl+Shift+M` |
+| Switch layout (Classic ⇄ Solo) | `Ctrl+Shift+O` |
+| Research marker (testers) | `Ctrl+Shift+B` |
 
-All of them work while the game has focus and can be changed in Settings. Research tools for testers are under **Settings → Data → Show research tools**.
+All of them work while the game has focus and can be changed in Settings. Research tools for testers are under **Settings → Help & feedback → Show research tools**.
 
 </details>
 
@@ -129,7 +130,7 @@ Daeva Meter only reads your network traffic; it never touches the game client. I
 
 ## 🩺 When something looks wrong
 
-Press **`Ctrl+Shift+P`** (or Settings → Report a problem). A `DaevaMeter-report-<time>.zip` appears on your Desktop with the last 3 minutes of game-server traffic and what the meter showed. Nothing else from your PC is included. If the meter notices the game traffic has stopped decoding, usually after a patch, a yellow warning appears under the overlay: click it for the same report.
+Press **`Ctrl+Shift+P`** (or Settings → Help & feedback → Report a problem). A `DaevaMeter-report-<time>.zip` appears on your Desktop with the last 5 minutes of game-server traffic and what the meter showed. Nothing else from your PC is included. If the meter notices the game traffic has stopped decoding, usually after a patch, a yellow warning appears under the overlay: click it for the same report.
 
 <details>
 <summary><b>Where things live on your PC</b></summary>

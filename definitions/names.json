@@ -21,8 +21,28 @@
  "npcs": {},
  "zones": {},
  "items": {},
+ "servers_note": "Asia game servers (world numbers), from the official server list (same as the Daeva bot's roster).",
  "servers": {
-  "2508": "Beritra"
+  "1501": "Siel",
+  "1502": "Nezekan",
+  "1503": "Vaizel",
+  "1504": "Kaisinel",
+  "1505": "Yustiel",
+  "1506": "Ariel",
+  "1507": "Fregion",
+  "1508": "Meslamtaeda",
+  "1509": "Hithanya",
+  "1510": "Nania",
+  "2501": "Israphel",
+  "2502": "Zikel",
+  "2503": "Triniel",
+  "2504": "Lumiel",
+  "2505": "Marchutan",
+  "2506": "Azphel",
+  "2507": "Ereshkigal",
+  "2508": "Beritra",
+  "2509": "Nemon",
+  "2510": "Hadala"
  },
  "berserk_note": "Enrage (\"berserk\") seconds from the first hit on the boss (in game it may show as Frenzy). Community-reported, not verified per difficulty; dungeon variants use the entry with the same name.",
  "berserk": {
@@ -41,7 +61,7 @@
   "2700694": 300,
   "2701399": 300
  },
- "party_class_codes_note": "Party-list class numbers, from real party lists (Urugugu and Bakarma runs, Oct 2026). Each class has a block of four numbers (Gladiator 5-8, Templar 9-12, ...); only blocks confirmed by a real party member are listed. Ranger is 13-16 (Aretgal, 16); Assassin (17-20) is learned as the meter sees one.",
+ "party_class_codes_note": "Party-list class numbers, from real party lists (Urugugu and Bakarma runs, Oct 2026). Each class has a block of four numbers (Gladiator 5-8, Templar 9-12, ...); only blocks confirmed by a real party member are listed. Ranger is 13-16 (Aretgal, 16); Assassin 17-20 (two in a dungeon room, 17 and 20).",
  "party_class_codes": {
   "5": "Gladiator",
   "6": "Gladiator",
@@ -85,6 +105,10 @@
   "Ranger": [
    13,
    16
+  ],
+  "Assassin": [
+   17,
+   20
   ]
  }
 }

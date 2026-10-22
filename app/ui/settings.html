@@ -23,26 +23,90 @@
   .cmd { color: var(--accent); font-weight: 600; }
   .st-ok b { color: var(--good); } .st-bad b { color: var(--bad); } .st-save { color: var(--warn); font-weight: 600; }
   .warnbox { border: 1px solid rgba(231,180,76,0.35); background: rgba(231,180,76,0.08); border-radius: 8px; padding: 8px 10px; font-size: 12px; color: var(--muted); margin: 6px 0 10px; }
+  /* Tabs down the side; one section at a time (all of them while searching). */
+  .split { flex: 1; min-height: 0; display: flex; }
+  .side { width: 184px; flex: none; display: flex; flex-direction: column; padding: 10px 8px; background: rgba(255,255,255,0.025); border-right: 1px solid var(--line); }
+  .side .find { margin: 0 2px 10px; width: auto; }
+  .tab { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border: 0; border-radius: 7px; background: none; color: #cfccc4; font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; margin-bottom: 2px; }
+  .tab:hover { background: rgba(255,255,255,0.05); color: var(--text); }
+  .tab svg { width: 15px; height: 15px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; opacity: .85; }
+  .tab.on { position: relative; background: var(--accent-soft); color: var(--accent); }
+  .tab.on::before { content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 3px; border-radius: 2px; background: var(--accent); }
+  .tab .badge { margin-left: auto; font-size: 9.5px; font-weight: 700; letter-spacing: .04em; color: var(--accent); background: var(--accent-soft); padding: 0 5px; border-radius: 4px; }
+  .tab .badge.adv { color: var(--muted); background: rgba(255,255,255,0.06); }
+  .tab.warn::after { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--bad); margin-left: auto; }
+  .side .grp { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); padding: 12px 10px 4px; }
+  .side .grp:first-of-type { padding-top: 2px; }
+  .card { border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,0.03); padding: 14px 16px; margin: 4px 0 14px; display: flex; gap: 14px; align-items: center; }
+  .card .ic { width: 44px; height: 44px; border-radius: 10px; flex: none; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); font-size: 22px; }
+  .card .tx { flex: 1; } .card .tx b { font-size: 13.5px; } .card .tx p { margin: 2px 0 0; font-size: 11.5px; color: var(--muted); }
+  .about { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px; padding: 14px 0 18px; border-bottom: 1px solid var(--line); margin-bottom: 14px; }
+  .about img { width: 72px; height: 72px; margin-bottom: 6px; }
+  .about > b { font-size: 17px; } .about p { max-width: 380px; font-size: 12px; color: var(--muted); margin: 6px 0 10px; }
+  .credits { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 18px; margin: 4px 0 16px; }
+  .cg h3 { margin: 0 0 6px; font-size: 10.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--dim); }
+  .cr { display: flex; flex-direction: column; padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+  .cr b { font-size: 12.5px; } .cr span { font-size: 11px; color: var(--muted); }
+  .cr b.ph { color: var(--dim); font-style: italic; font-weight: 500; }
+  .legal { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: rgba(255,255,255,0.02); font-size: 11.5px; color: var(--muted); }
+  .legal p { margin: 0 0 8px; } .legal b { color: var(--text); }
+  .sheet { position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,0.55); display: grid; place-items: center; padding: 30px; }
+  .sheet[hidden] { display: none; }
+  .sheet-box { width: min(560px, 100%); max-height: 100%; display: flex; flex-direction: column; background: rgb(var(--bg)); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .sheet-hd { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  .sheet-body { overflow: auto; padding: 12px 16px 16px; font-size: 12px; color: var(--muted); }
+  .sheet-body pre { white-space: pre-wrap; font: inherit; font-size: 11.5px; margin: 6px 0 14px; }
+  .sheet-body h4 { margin: 12px 0 4px; color: var(--text); font-size: 12.5px; }
+  .sheet-body table { width: 100%; border-collapse: collapse; } .sheet-body td { padding: 5px 6px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+  .sheet-body td:first-child { color: var(--text); font-weight: 600; }
+  .titlebar .lights { margin-right: 10px; }
+  .srv b { color: var(--text); } .srv .ok { color: var(--good); margin-right: 6px; }
+  .side .ver { margin-top: auto; padding: 8px 10px 0; font-size: 11px; color: var(--dim); border-top: 1px solid var(--line); }
+  .split .scroll { flex: 1; }
+  section[data-tab] { display: none; }
+  section[data-tab].on, .searching section[data-tab].hit { display: block; }
+  .searching section[data-tab]:not(.hit) { display: none; }
+  section h2:first-child { margin-top: 2px; }
+  .sh { color: var(--muted); font-size: 12px; margin: -4px 0 12px; }
+  .fr { display: contents; }
+  .fr.gone, .gone { display: none !important; }
+  .nohit { color: var(--muted); padding: 20px 4px; display: none; }
+  .searching .nohit.show { display: block; }
+  /* Layout picker */
+  .picks { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin: 4px 0 14px; }
+  .pick { border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: rgba(255,255,255,0.03); cursor: pointer; position: relative; }
+  .pick:hover { border-color: rgba(255,255,255,0.18); }
+  .pick.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 0 18px var(--accent-soft); }
+  .pick b { font-size: 13px; } .pick p { margin: 2px 0 0; font-size: 11px; color: var(--muted); }
+  .pick .ok { position: absolute; top: 8px; right: 8px; width: 16px; height: 16px; border-radius: 50%; background: var(--accent); color: #1a1408; font-size: 11px; font-weight: 800; text-align: center; line-height: 16px; display: none; }
+  .pick.on .ok { display: block; }
+  .thumb { height: 84px; border-radius: 6px; background: rgba(0,0,0,0.35); margin-bottom: 8px; padding: 7px; display: flex; flex-direction: column; gap: 4px; }
+  .thumb i { display: block; height: 7px; border-radius: 2px; background: rgba(255,255,255,0.12); }
+  .thumb .g { background: var(--accent); opacity: .55; } .thumb .y { background: rgba(255,255,255,0.28); }
 </style>
 </head>
 <body>
 <div class="shell">
   <div class="titlebar" data-drag>
+    <span class="lights"><button type="button" class="lt r" data-win="close" title="Close"><svg viewBox="0 0 8 8"><path d="M2 2l4 4M6 2L2 6"/></svg></button></span>
     <div class="title" data-drag>Settings</div>
-    <button class="icon-btn close" data-win="close" title="Close"></button>
   </div>
-  <div class="scroll"><div class="content" id="form"></div></div>
+  <div class="split">
+    <nav class="side" id="side"></nav>
+    <div class="scroll"><div class="content" id="form"></div></div>
+  </div>
+  <div class="sheet" id="sheet" hidden><div class="sheet-box"><div class="sheet-hd"><b id="sheetTitle"></b><button class="btn" id="sheetClose">Close</button></div><div class="sheet-body" id="sheetBody"></div></div></div>
   <div class="bar"><span class="muted" id="msg"></span><span class="sp"></span><button class="btn" data-win="close">Cancel</button><button class="btn primary" id="bSave">Save</button></div>
 </div>
 <script src="common.js"></script>
+<script src="credits.js"></script>
 <script>
 (() => {
   const D = window.Daeva;
-  document.querySelector(".titlebar [data-win=close]").innerHTML = D.icon("close");
   D.wireTitlebar();
   let s = null;
 
-  const F = (label, html, hint) => `<label>${label}</label><div>${html}</div>${hint ? `<div class="hint">${hint}</div>` : ""}`;
+  const F = (label, html, hint) => `<div class="fr"><label>${label}</label><div>${html}</div>${hint ? `<div class="hint">${hint}</div>` : ""}</div>`;
   const chk = (k, text) => `<span class="inline"><input type="checkbox" data-k="${k}"> ${text || ""}</span>`;
   const txt = (k, ph, type) => `<input type="${type || "text"}" data-k="${k}" placeholder="${ph || ""}">`;
   const num = (k, min, max, step) => `<input type="number" data-k="${k}" min="${min}" max="${max}" step="${step || 1}">`;
@@ -66,20 +130,92 @@
       paintCols();
     }));
   }
+  // Tabs: [id, label, icon path(s) on a 24 grid, badge].
+  const TABS = [
+    ["#", "Meter"],
+    ["general", "General", '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'],
+    ["layout", "Layout", '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/>', "NEW"],
+    ["look", "Appearance", '<circle cx="13.5" cy="6.5" r="1.5"/><circle cx="17.5" cy="10.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12.5" r="1.5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.9 0 1.6-.7 1.6-1.7 0-.4-.2-.8-.4-1.1-.3-.3-.4-.7-.4-1.1 0-.9.7-1.7 1.7-1.7h2c3 0 5.5-2.5 5.5-5.5C22 6 17.5 2 12 2z"/>'],
+    ["fights", "Fights", '<path d="M14.5 17.5 3 6V3h3l11.5 11.5"/><path d="M13 19l6-6"/><path d="M16 16l4 4"/><path d="M19 21l2-2"/>'],
+    ["alerts", "Event alerts", '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/>'],
+    ["hotkeys", "Hotkeys", '<rect width="20" height="16" x="2" y="4" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10"/>'],
+    ["#", "Connections"],
+    ["bot", "Daeva bot", '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/>'],
+    ["#", "Support"],
+    ["help", "Help & feedback", '<circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>'],
+    ["updates", "Updates", '<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>'],
+    ["about", "About", '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>'],
+    ["#", "Advanced"],
+    ["data", "Data & names", '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/>'],
+    ["capture", "Capture", '<path d="M12 20h.01"/><path d="M2 8.8a15 15 0 0 1 20 0"/><path d="M5 12.9a10 10 0 0 1 14 0"/><path d="M8.5 16.4a5 5 0 0 1 7 0"/>'],
+  ];
+  let tab = "general";
+  try { tab = localStorage.getItem("daeva.setTab") || "general"; } catch {}
+  function buildSide() {
+    document.getElementById("side").innerHTML = `<input type="text" class="find" id="find" placeholder="🔍 Search settings…">`
+      + TABS.map(([id, label, ic, badge]) => id === "#" ? `<div class="grp">${label}</div>` : `<button type="button" class="tab" data-t="${id}"><svg viewBox="0 0 24 24">${ic}</svg>${label}${badge ? `<span class="badge${badge === "ADV" ? " adv" : ""}">${badge}</span>` : ""}</button>`).join("");
+    document.querySelectorAll(".tab").forEach((b) => (b.onclick = () => { document.getElementById("find").value = ""; search(""); showTab(b.dataset.t); }));
+    document.getElementById("find").oninput = (e) => search(e.target.value);
+  }
+  function showTab(id) {
+    if (id === "#" || !TABS.some((t) => t[0] === id)) id = "general";
+    tab = id;
+    try { localStorage.setItem("daeva.setTab", id); } catch {}
+    document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("on", b.dataset.t === id));
+    document.querySelectorAll("section[data-tab]").forEach((s) => s.classList.toggle("on", s.dataset.tab === id));
+    document.querySelector(".split .scroll").scrollTop = 0;
+  }
+  // Searching shows every tab, with only the settings whose text matches.
+  function search(q) {
+    q = q.trim().toLowerCase();
+    const form = document.getElementById("form");
+    form.classList.toggle("searching", !!q);
+    let any = false;
+    document.querySelectorAll("section[data-tab]").forEach((sec) => {
+      let hit = false;
+      // A tab's own name ("hotkeys", "capture") shows all of it.
+      const whole = !!q && TABS.some(([id, label]) => id === sec.dataset.tab && label.toLowerCase().includes(q));
+      sec.querySelectorAll(".fr, .sr").forEach((r) => {
+        const ok = !q || whole || r.textContent.toLowerCase().includes(q) || [...r.querySelectorAll("input, select")].some((i) => (i.placeholder || "").toLowerCase().includes(q));
+        r.classList.toggle("gone", !ok);
+        hit = hit || ok;
+      });
+      sec.classList.toggle("hit", hit);
+      any = any || hit;
+    });
+    document.getElementById("nohit").classList.toggle("show", !!q && !any);
+    document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("on", !q && b.dataset.t === tab));
+    if (!q) showTab(tab);
+  }
+  function paintPicks() {
+    const v = document.querySelector('[data-k="layout"]').value || "classic";
+    document.querySelectorAll(".pick").forEach((p) => p.classList.toggle("on", p.dataset.l === v));
+  }
   function build() {
     document.getElementById("form").innerHTML = `
-    <h2>Overlay</h2><div class="f">
+    <section data-tab="layout">
+    <h2>Layout</h2><div class="sh">How the overlay shows a fight. Switch any time with the panels button on the meter, or Ctrl+Shift+O.</div>
+    <input type="text" data-k="layout" hidden>
+    <div class="picks sr">
+      <div class="pick" data-l="classic"><span class="ok">✓</span><div class="thumb"><i class="g" style="height:16px"></i><i></i><i class="y"></i><i></i><i></i></div><b>Classic</b><p>The whole party, ranked</p></div>
+      <div class="pick" data-l="solo"><span class="ok">✓</span><div class="thumb"><i class="g" style="height:10px"></i><i class="y" style="height:30px"></i><i></i><i style="width:60%"></i></div><b>Solo</b><p>Just you, in a small card</p></div>
+    </div>
+    <h2>Solo card</h2><div class="f">
+      ${F("Show", `<div class="row-btns">${chk("solo.rank", "Rank and share in the party")}${chk("solo.chips", "Crit, double, perfect, front, back")}${chk("solo.footer", "Odyle, party DPS and ping")}</div>`, "The boss line and your DPS are always there. Scale (Overlay look) sizes the card too.")}
+    </div>
+    </section>
+    <section data-tab="look">
+    <h2>Appearance</h2><div class="f">
       ${F("Background opacity", rng("opacity", 0.2, 1, 0.02))}
-      ${F("Scale", rng("scale", 0.7, 1.6, 0.05))}
+      ${F("Scale", rng("scale", 0.7, 1.6, 0.05), "Quicker: hold Ctrl and turn the mouse wheel over the meter.")}
       ${F("Rows shown", num("rows", 1, 24))}
       ${F("Main number", sel("primary_metric", [["dps", "DPS"], ["dmg", "Total damage"], ["share", "Damage share"]]))}
       ${F("Accent colour", `<input type="color" data-k="accent">`)}
       ${F("Show", `<div class="row-btns">${chk("show_target", "Target & HP")}${chk("show_heal", "Healing")}</div>`)}
       ${F("Extra columns", `<div class="colpick" id="colpick">${COLS.map(([k, l]) => `<button type="button" class="cp" data-col="${k}">${l}</button>`).join("")}</div>`, "Up to 3, shown between the name and the main number. Widen the meter for more room.")}
-      ${F("Players listed", sel("show_players", [["all", "Everyone fighting your target"], ["party", "Me and my party"], ["me", "Only me"]]), "Others' damage is still counted (share %, fight totals); this only hides their rows.")}
-      ${F("Privacy", chk("anonymize_others", "Hide other players' names"), "For screenshots and streams. Your own name stays visible.")}
-      ${F("Window", `<div class="row-btns">${chk("always_on_top", "Always on top")}${chk("click_through", "Click-through")}</div>`)}
     </div>
+    </section>
+    <section data-tab="alerts">
     <h2>Event alerts</h2>
     <div class="warnbox">Banners on the overlay before AION 2 events start, using the same schedule as the Daeva Discord bot (aion2.bajubesi.org). Gartua times are estimates, as on Discord.</div>
     <div class="f">
@@ -93,11 +229,10 @@
       ${F("During fights", chk("alerts.hold_in_fight", "Hold banners until the fight ends (the chime still plays)"), "So nothing pops up in the middle of a boss. Events that start during the fight show as soon as it's over.")}
       ${F("Alert me for", `<div class="row-btns" id="evList"><span class="muted">Loading events…</span></div>`, "Hourly events (Shugo Festival, Dimensional Invasion) are off by default.")}
       ${F("Schedule feed", txt("alerts.feed_url"), `<span id="evStatus"></span>`)}
-      ${F("", `<button class="btn" id="bTestAlert">Show a test alert</button>`, "It stays 30 seconds: drag it where you want event alerts.")}
+      ${F("", `<button class="btn" id="bTestAlert">Show a test alert</button><div class="muted" id="alertCheck" style="font-size:11.5px;margin-top:4px"></div>`, "It stays 30 seconds: drag it where you want event alerts.")}
     </div>
-    <h2>Server</h2><div class="f">
-      ${F("Server name", txt("server_name", "detected automatically"), "Shown at the bottom of the meter. Leave empty: the meter reads your server from the game (Beritra is built in).")}
-    </div>
+    </section>
+    <section data-tab="fights">
     <h2>Fights</h2><div class="f">
       ${F("DPS clock", sel("dps_clock", [["boss", "Boss fight: first hit on the boss → kill, adds included (recommended)"], ["personal", "Your time: your first hit → your last hit"], ["fight", "Whole fight, including trash"]]), "Boss fight is how Details! and ACT count an encounter. Without a boss or elite, DPS uses the whole fight. Hover a DPS number to see the rule in use.")}
       ${F("Personal bests", chk("personal_bests", "Tell me when I beat my best DPS on a boss"), "Compared with your saved fights on the same boss, at least 30 s long. Only your own character counts.")}
@@ -106,22 +241,30 @@
       ${F("", chk("merge_summons", "Count summon/pet damage for its owner"))}
       ${F("Keep saved fights (days)", num("history_keep_days", 1, 365))}
     </div>
-    <h2>Capture</h2><div class="f">
+    </section>
+    <section data-tab="capture">
+    <h2>Capture</h2><div class="sh">Only needed when the meter doesn't see the game. Most players never change these.</div><div class="f">
+      ${F("Server name override", txt("server_name", "blank = detected from the game"), "Only if the meter shows the wrong server.")}
       ${F("Game process names", txt("process_names", "aion2"), "Comma separated, matched anywhere in the .exe name.")}
       ${F("Extra server ports", txt("manual_ports", "e.g. 7777"), "Only needed if auto-detection fails.")}
       ${F("Ignore ports", txt("ignore_ports", "80, 443"))}
       ${F("Network adapter filter", txt("device_filter", "blank = all adapters"))}
       ${F("", `<div class="row-btns"><button class="btn" id="bRestart">Restart capture</button>${chk("demo", "Demo mode (simulated party)")}</div>`)}
     </div>
-    <h2>Hotkeys</h2><div class="f">
+    </section>
+    <section data-tab="hotkeys">
+    <h2>Hotkeys</h2><div class="sh">They work in game too. Format: Ctrl+Shift+F9. Leave one empty to turn it off.</div><div class="f">
       ${F("Toggle click-through", txt("hotkeys.click_through"))}
       ${F("End fight", txt("hotkeys.reset"))}
       ${F("Hide / show overlay", txt("hotkeys.hide"))}
       ${F("Copy summary", txt("hotkeys.copy"))}
       ${F("Report a problem", txt("hotkeys.report"))}
-      ${F("Research marker", txt("hotkeys.marker"), "Format: Ctrl+Shift+F9. Leave empty to disable.")}
+      ${F("Switch layout", txt("hotkeys.layout"), "Classic ⇄ Solo.")}
+      ${F("Research marker", txt("hotkeys.marker"), "While a research recording runs: one press marks “⚑ bug here”.")}
     </div>
     <div class="errs" id="hkErr"></div>
+    </section>
+    <section data-tab="bot">
     <h2>Share with Daeva bot</h2>
     <div class="warnbox">Puts your boss and elite fights on the DPS boards at aion2.bajubesi.org and in the Daeva daily recap on Discord. Off by default. Get your token with <b>/meter link</b> in our Discord. “Only me” never sends other players' names.</div>
     <div class="f">
@@ -133,20 +276,49 @@
       ${F("", chk("share.share_loot", "Share rare loot drops"))}
       ${F("Minimum loot grade", num("share.min_loot_grade", 0, 10))}
     </div>
-    <h2>Data</h2>
-    <div class="row-btns">
-      <button class="btn primary" id="bReport">Report a problem</button>
-      <button class="btn" data-folder="data">Open data folder</button>
-      <button class="btn" data-folder="definitions">Definitions folder</button>
-      <button class="btn" id="bReload">Reload definitions</button>
-      <button class="btn" id="bNames">Monster &amp; skill names</button>
-      <button class="btn" id="bRefreshNames">Update names now</button>
+    </section>
+    <section data-tab="general">
+    <h2>General</h2><div class="f">
+      ${F("Server", `<div class="srv"><span class="ok" id="srvDot">●</span><b id="srvName">…</b> <span class="muted" id="srvNote"></span></div>`, "Read when you log in. Wrong? Set it under Advanced → Capture.")}
+      ${F("Players listed", sel("show_players", [["auto", "Auto: my party when I'm in one, else everyone"], ["all", "Everyone fighting your target"], ["party", "Me and my party"], ["me", "Only me"]]), "Auto follows the game's party list: dungeons, rooms and parties at world bosses show your group; solo you see everyone. Others' damage is still counted (share %, fight totals); this only hides their rows.")}
+      ${F("Privacy", chk("anonymize_others", "Hide other players' names"), "For screenshots and streams. Your own name stays visible.")}
+      ${F("Window", `<div class="row-btns">${chk("always_on_top", "Always on top")}${chk("click_through", "Click-through")}</div>`)}
     </div>
-    <div class="f" style="margin-top:8px">${F("Names", `<div class="row-btns">${chk("lookup_names", "Get monster and skill names from aion2.gaming.tools")}${chk("game_art", "Show game icons (classes, skills, monsters)")}</div><div class="muted" id="namesStatus" style="font-size:11.5px;margin-top:4px">…</div>`, "Downloads their monster and skill lists at most once a day and keeps a copy for offline use. Names you type yourself always win. Game icons are NCSOFT's, shown via gaming.tools. With thanks to the AION 2 Global Database team.")}</div>
-    <div class="f" style="margin-top:8px">${F("Updates", `<div class="row-btns">${chk("check_updates", "Check GitHub for new versions")}<button class="btn" id="bCheckUpd">Check now</button></div><div class="muted" id="updStatus" style="font-size:11.5px;margin-top:4px">…</div>`, "Asks GitHub for the latest published Daeva Meter release at start-up and every 6 hours. Nothing about you is sent. A new version shows a notice under the meter; Download opens the release page.")}</div>
-    <div class="f" style="margin-top:8px">${F("Testers", chk("show_research", "Show research tools (flask button in the header)"), "Research mode records game traffic with markers, for decoding after a game patch. Most players don't need it: use Report a problem instead.")}</div>
-    <p class="muted" style="font-size:11.5px"><b>Report a problem</b> saves the last 3 minutes of game traffic plus what the meter showed as one zip on your Desktop (also Ctrl+Shift+P, even in game). Send that file when something looks wrong.</p>
-    <p class="muted" style="font-size:11.5px">Drop an updated <span class="mono">aion2.json</span> or <span class="mono">names.json</span> in the definitions folder to override the bundled copy after a game patch.</p>`;
+    </section>
+    <section data-tab="help">
+    <h2>Help &amp; feedback</h2>
+    <div class="card sr"><div class="ic">🐞</div><div class="tx"><b>Report a problem</b><p>Saves the last 5 minutes (game traffic, what the meter showed, what it noticed) as one zip on your Desktop. Send it to us on Discord. In game: <span class="cmd">Ctrl+Shift+P</span>.</p></div><button class="btn primary" id="bReport">Report a problem</button></div>
+    <div class="f">
+      ${F("Your files", `<div class="row-btns"><button class="btn" data-folder="data">Open data folder</button></div>`, "Saved fights, settings and reports.")}
+    ${F("Testers", chk("show_research", "Show research tools (flask button in the header)"), "Research mode records game traffic with markers, for decoding after a game patch. Most players don't need it: use Report a problem instead.")}    </div>
+    </section>
+    <section data-tab="updates">
+    <h2>Updates</h2>
+    <div class="card sr"><div class="ic">↻</div><div class="tx"><b id="updTitle">Checking…</b><p id="updStatus"></p></div><button class="btn" id="bCheckUpd">Check for updates</button></div>
+    <div class="f">
+      ${F("", chk("check_updates", "Check for new versions automatically"), "At start-up and every 6 hours, from GitHub. Nothing about you is sent. A new version shows a notice under the meter.")}
+      ${F("What's new", `<button class="btn" data-open="releases">Release notes</button>`, "Everything that changed in each version.")}
+    </div>
+    </section>
+    <section data-tab="about">
+    <div class="about sr"><img src="img/logo.png" alt=""><b>Daeva Meter</b><span class="muted" id="aboutVer">Version</span><p>A damage meter for AION 2, made by <b>BajuBesi Labs</b> for the Bajubesi Network community.</p>
+      <div class="row-btns" style="justify-content:center"><button class="btn" data-open="github">GitHub</button><button class="btn" data-open="discord">Discord</button><button class="btn" data-open="site">aion2.bajubesi.org</button></div></div>
+    <h2>Credits</h2>
+    <div class="credits sr" id="credits"></div>
+    <h2>Legal</h2>
+    <div class="legal sr"><p><b>Disclaimer.</b> AION 2, its names, icons and game art are trademarks or property of NCSOFT Corporation. Daeva Meter is a fan-made tool. It is not affiliated with, endorsed by or supported by NCSOFT.</p>
+      <p>Daeva Meter reads the game's network traffic on your own computer and never changes the game. Its only contact with the game server is the ping check: once a minute it opens a connection and closes it again, without sending any data.</p>
+      <div class="row-btns"><button class="btn" data-sheet="licence">Licence (MIT)</button><button class="btn" data-sheet="oss">Open-source licences</button><button class="btn" data-sheet="privacy">Privacy</button></div></div>
+    </section>
+    <section data-tab="data">
+    <h2>Data &amp; names</h2>
+    <div class="f">
+    ${F("Names", `<div class="row-btns">${chk("lookup_names", "Get monster and skill names from aion2.gaming.tools")}${chk("game_art", "Show game icons (classes, skills, monsters)")}</div><div class="muted" id="namesStatus" style="font-size:11.5px;margin-top:4px">…</div>`, "Downloads their monster and skill lists at most once a day and keeps a copy for offline use. Names you type yourself always win. Game icons are NCSOFT's, shown via gaming.tools. With thanks to the AION 2 Global Database team.")}      ${F("", `<div class="row-btns"><button class="btn" id="bRefreshNames">Update names now</button><button class="btn" id="bNames">Monster &amp; skill names…</button></div>`)}
+      ${F("Game definitions", `<div class="row-btns"><button class="btn" data-folder="definitions">Open definitions folder</button><button class="btn" id="bReload">Reload</button></div>`, "After a game patch, drop an updated aion2.json or names.json there to override the built-in copy.")}
+    </div>
+    </section>
+    <div class="nohit" id="nohit">No settings match that search.</div>`;
+    document.querySelectorAll(".pick").forEach((p) => (p.onclick = () => { document.querySelector('[data-k="layout"]').value = p.dataset.l; paintPicks(); }));
   }
 
   function get(o, path) { return path.split(".").reduce((a, k) => (a == null ? a : a[k]), o); }
@@ -214,15 +386,54 @@
   }
 
   async function loadUpdate() {
-    const el = document.getElementById("updStatus");
+    const el = document.getElementById("updStatus"), title = document.getElementById("updTitle");
     try {
       const u = JSON.parse(await D.call("update_status"));
       const when = u.checked_at ? " · checked " + D.when(u.checked_at) : "";
-      el.textContent = u.available ? `You're on v${u.current} · ${u.available} is available${when}`
-        : u.error ? `You're on v${u.current} · couldn't check: ${u.error}${when}`
-        : u.latest ? `You're on v${u.current} · up to date${when}`
-        : `You're on v${u.current}` + (u.enabled ? " · checking shortly" : "");
+      title.textContent = u.available ? `Version ${u.available} is available` : u.error ? "Couldn't check for updates" : u.latest ? "You're up to date" : "Daeva Meter v" + u.current;
+      el.textContent = u.available ? `You're on v${u.current}${when} · download it from Release notes`
+        : u.error ? `You're on v${u.current} · ${u.error}${when}`
+        : u.latest ? `Daeva Meter v${u.current}${when}`
+        : u.enabled ? "Checking shortly" : "Automatic checks are off · use Check for updates";
+      document.getElementById("aboutVer").textContent = "Version " + u.current;
     } catch (e) { el.textContent = String(e); }
+  }
+
+  // General: the server the game reported (the override wins, as on the meter).
+  async function loadServer() {
+    const name = document.getElementById("srvName"), note = document.getElementById("srvNote"), dot = document.getElementById("srvDot");
+    try {
+      const snap = await D.callJSON("get_snapshot");
+      const st = (snap && snap.status) || {};
+      const own = (s.server_name || "").trim();
+      name.textContent = own || st.server || "Not connected yet";
+      note.textContent = own ? "· set by you (Advanced → Capture)" : st.server ? "· detected from the game" : "· shows when you log in";
+      dot.style.color = own || st.server ? "" : "var(--dim)";
+    } catch (e) { name.textContent = ""; }
+  }
+
+  function renderCredits() {
+    const el = document.getElementById("credits");
+    el.innerHTML = (window.DAEVA_CREDITS || []).map(([g, list]) => `<div class="cg"><h3>${D.esc(g)}</h3>${list.map(([n, d]) => `<div class="cr"><b>${D.esc(n)}</b>${d ? `<span>${D.esc(d)}</span>` : ""}</div>`).join("")}</div>`).join("");
+  }
+
+  const SHEETS = {
+    licence: ["Licence", () => `<pre>${D.esc(window.DAEVA_LICENSE || "")}</pre>`],
+    oss: ["Open-source licences", () => `<p>Daeva Meter is built with this free software. Thank you to everyone who makes it.</p><table>${(window.DAEVA_OSS || []).map(([n, l, w]) => `<tr><td>${D.esc(n)}</td><td>${D.esc(w)}</td><td>${D.esc(l)}</td></tr>`).join("")}</table><h4>Lucide</h4><pre>${D.esc(window.DAEVA_LUCIDE_LICENSE || "")}</pre><p>Npcap, which reads the network traffic, is installed separately and has its own licence (npcap.com).</p>`],
+    privacy: ["Privacy", () => `<p>Daeva Meter reads the game's network traffic <b>on your own computer</b>. It never changes the game; its only contact with the game server is the ping check below. it.</p>
+      <h4>What leaves your computer</h4><table>
+      <tr><td>Ping</td><td>While the game runs, once a minute: opens a connection to the game servers of your region (Tokyo for the Asia servers) and closes it again to time it. No data is sent. Regions whose game server isn't known yet show no ping.</td></tr>
+      <tr><td>Update check</td><td>Asks GitHub for the latest version (Settings → Updates). Nothing about you is sent.</td></tr>
+      <tr><td>Monster &amp; skill names</td><td>Downloads lists from aion2.gaming.tools at most once a day (Advanced → Data &amp; names).</td></tr>
+      <tr><td>Event alerts</td><td>Reads the event schedule from aion2.bajubesi.org (Event alerts).</td></tr>
+      <tr><td>Daeva bot</td><td>Only if you turn sharing on with your token: your boss fights (and, if you choose, your party's) go to aion2.bajubesi.org.</td></tr></table>
+      <h4>What stays on your computer</h4><p>Your fights, settings and reports. A report is only shared if you send the file yourself.</p>`],
+  };
+  function openSheet(k) {
+    const [t, body] = SHEETS[k];
+    document.getElementById("sheetTitle").textContent = t;
+    document.getElementById("sheetBody").innerHTML = body();
+    document.getElementById("sheet").hidden = false;
   }
 
   // "Monster data: 12,345 monsters · updated 2 h ago", or downloading / the error.
@@ -242,14 +453,23 @@
   async function init() {
     s = await D.call("get_settings");
     D.applyTheme({ accent: s.accent, opacity: 0.97 });
+    buildSide();
     build();
     wireCols();
     fill();
+    paintPicks();
+    showTab(tab);
     document.querySelectorAll("input[type=range]").forEach((r) => (r.oninput = () => { if (r.dataset.k === "alerts.volume") updateVol(); else updateRanges(); }));
     updateVol();
     loadEvents();
     loadUpdate();
     loadNames();
+    loadServer();
+    renderCredits();
+    document.querySelectorAll("[data-open]").forEach((b) => (b.onclick = () => D.call("open_link", { which: b.dataset.open }).catch((e) => D.toast(String(e)))));
+    document.querySelectorAll("[data-sheet]").forEach((b) => (b.onclick = () => openSheet(b.dataset.sheet)));
+    document.getElementById("sheetClose").onclick = () => (document.getElementById("sheet").hidden = true);
+    document.getElementById("sheet").onclick = (e) => { if (e.target.id === "sheet") e.target.hidden = true; };
     document.getElementById("bCheckUpd").onclick = async () => {
       await D.call("check_updates_now");
       document.getElementById("updStatus").textContent = "Checking…";
@@ -286,15 +506,41 @@
         show("bad", "✕ Couldn't reach the server.", "Check your internet connection and the endpoint.");
       }
     };
-    document.getElementById("bTestAlert").onclick = async () => { await D.call("test_alert"); D.toast("Test alert shown: unlock the meter and drag it where you want alerts"); };
+    // After a test alert, check that the alert window really drew it.
+    document.getElementById("bTestAlert").onclick = async () => {
+      const out = document.getElementById("alertCheck");
+      await D.call("test_alert");
+      out.className = "muted"; out.textContent = "Checking the alert window…";
+      setTimeout(async () => {
+        try {
+          const d = JSON.parse(await D.call("alert_debug"));
+          const where = d.x != null ? ` at ${d.x}, ${d.y} (${d.w}×${d.h} px)` : "";
+          if (d.drawn > 0 && d.visible) { out.className = "st-ok"; out.innerHTML = "<b>✓ Banner shown</b> <span class=\"muted\">" + D.esc(where) + ". Unlock the meter and drag it where you want alerts.</span>"; }
+          else { out.className = "st-bad"; out.innerHTML = "<b>✕ The banner didn't appear</b> <span class=\"muted\">(" + D.esc(!d.exists ? "no alert window" : !d.visible ? "alert window hidden" : "alert window drew nothing") + D.esc(where) + "). Press Ctrl+Shift+P now to save a report and send it to us.</span>"; }
+        } catch (e) { out.textContent = String(e); }
+      }, 2500);
+    };
     // A banner dragged while Settings is open sets "Where I dragged them";
     // follow it here so Save doesn't put the old choice back.
     const posSel = document.querySelector('[data-k="alerts.position"]');
     let posTouched = false;
     posSel.addEventListener("change", () => (posTouched = true));
-    setInterval(async () => {
-      if (posTouched) return;
-      try { const n = await D.call("get_settings"); if (n.alerts.position !== posSel.value) { posSel.value = n.alerts.position; s.alerts.position = n.alerts.position; } } catch {}
+    // Same for the layout, switched with the meter's button or the hotkey.
+    const layIn = document.querySelector('[data-k="layout"]');
+    let layTouched = false;
+    document.querySelectorAll(".pick").forEach((p) => p.addEventListener("click", () => (layTouched = true)));
+    const scaleIn = document.querySelector('[data-k="scale"]');
+    let scaleTouched = false;
+    scaleIn.addEventListener("input", () => (scaleTouched = true));
+    if (window.__setPoll) clearInterval(window.__setPoll);
+    window.__setPoll = setInterval(async () => {
+      try {
+        const n = await D.call("get_settings");
+        if (!posTouched && n.alerts.position !== posSel.value) { posSel.value = n.alerts.position; s.alerts.position = n.alerts.position; }
+        if (!layTouched && n.layout !== layIn.value) { layIn.value = n.layout; s.layout = n.layout; paintPicks(); }
+        // Resized with Ctrl + wheel while Settings is open.
+        if (!scaleTouched && Math.abs(n.scale - Number(scaleIn.value)) > 0.001) { scaleIn.value = n.scale; s.scale = n.scale; updateRanges(); }
+      } catch {}
     }, 1500);
     document.getElementById("bRestart").onclick = async () => { await D.call("restart_capture"); D.toast("Capture restarted"); };
     document.getElementById("bReport").onclick = async () => {
@@ -316,8 +562,11 @@
     try {
       const errs = await D.call("save_settings", { settings: next });
       s = next;
-      document.getElementById("hkErr").textContent = (errs || []).join(" · ");
-      D.toast(errs && errs.length ? "Saved, but some hotkeys failed" : "Saved");
+      const HK = { click_through: "Toggle click-through", reset: "End fight", hide: "Hide / show overlay", copy: "Copy summary", report: "Report a problem", marker: "Research marker", layout: "Switch layout" };
+      const nice = (errs || []).map((e) => e.replace(/^([a-z_]+) \(/, (m, k) => (HK[k] || k) + " (").replace("is already used by another program", "is taken by another program (Discord uses Ctrl+Shift+M, for example)"));
+      document.getElementById("hkErr").textContent = nice.length ? "⚠ " + nice.join(" · ") + ". Pick another key, or leave it empty." : "";
+      document.querySelector('.tab[data-t="hotkeys"]').classList.toggle("warn", nice.length > 0);
+      D.toast(nice.length ? "Saved. One hotkey couldn't be set: " + nice[0] + " (see Hotkeys)" : "Saved");
     } catch (e) { D.toast("Could not save: " + e); }
   };
 

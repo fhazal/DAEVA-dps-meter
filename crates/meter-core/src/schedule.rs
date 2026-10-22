@@ -123,11 +123,8 @@ pub fn parse_overview(body: &str) -> Result<Vec<Occurrence>, String> {
     }
     if let Some(g) = v.get("gartua").filter(|g| g.as_obj().is_some()) {
         if let Some(spawn) = g.get("spawnAt").and_then(|x| x.as_str()).and_then(parse_iso_utc) {
-            let source = match g.str_or("source", "") {
-                "aion2timers" => "estimate from Aion2Timers",
-                "manual" => "estimate set by a Daeva member",
-                _ => "estimate",
-            };
+            // Kept short so the banner line fits (Aion2Timers or a member's report).
+            let source = if g.str_or("source", "") == "manual" { "member estimate" } else { "estimate" };
             out.push(Occurrence {
                 id: "gartua".into(),
                 name: "Immortal Gartua".into(),
@@ -157,6 +154,16 @@ pub struct Notifier {
 /// (meter launched mid-event).
 const START_GRACE: f64 = 90.0;
 
+/// "15 min", "3 h", "1 h 30 min".
+fn span(secs: f64) -> String {
+    let m = (secs / 60.0).round() as i64;
+    match (m / 60, m % 60) {
+        (0, m) => format!("{m} min"),
+        (h, 0) => format!("{h} h"),
+        (h, m) => format!("{h} h {m} min"),
+    }
+}
+
 impl Notifier {
     pub fn new(lead_secs: f64, at_start: bool, muted: impl IntoIterator<Item = String>) -> Notifier {
         Notifier { lead_secs, at_start, muted: muted.into_iter().collect(), fired: HashMap::new() }
@@ -170,7 +177,10 @@ impl Notifier {
             }
             let mut fire = |kind: &'static str, title: String, body: String| {
                 let key = format!("{}|{}|{kind}", o.id, o.starts as i64);
-                if self.fired.contains_key(&key) {
+                // An estimate (Gartua) can move a little after its banner:
+                // still the same spawn, so no second banner.
+                let (pre, post) = (format!("{}|", o.id), format!("|{kind}"));
+                if self.fired.iter().any(|(k, at)| k.starts_with(&pre) && k.ends_with(&post) && (at - o.starts).abs() < 1200.0) {
                     return;
                 }
                 self.fired.insert(key.clone(), o.starts);
@@ -180,14 +190,18 @@ impl Notifier {
             let note = o.note.clone().map(|n| format!(" · {n}")).unwrap_or_default();
             if self.lead_secs > 0.0 && until > 0.0 && until <= self.lead_secs {
                 let mins = (until / 60.0).ceil().max(1.0) as i64;
-                fire("soon", format!("{} in {mins} min", o.name), format!("Starts soon{note}"));
+                // Title: the event; line below: what's happening (long names
+                // like Dimensional Invasion fit the banner this way).
+                fire("soon", o.name.clone(), format!("Starts in {mins} min{note}"));
             } else if self.at_start && until <= 0.0 && -until < START_GRACE && now < o.ends.max(o.starts + 60.0) {
                 let body = match &o.phase {
-                    Some((label, end)) if *end > now => format!("{label} for {} min{note}", ((end - now) / 60.0).ceil() as i64),
-                    _ if o.ends - o.starts > 90.0 => format!("Runs {} min{note}", ((o.ends - o.starts) / 60.0).round() as i64),
-                    _ => format!("Now{note}"),
+                    // A world boss has no set length: it's up until killed.
+                    _ if o.id == "gartua" => format!("Spawning now{note}"),
+                    Some((label, end)) if *end > now => format!("Started · {label} for {} min{note}", ((end - now) / 60.0).ceil() as i64),
+                    _ if o.ends - o.starts > 90.0 => format!("Started · runs {}{note}", span(o.ends - o.starts)),
+                    _ => format!("Started now{note}"),
                 };
-                fire("start", format!("{} has started", o.name), body);
+                fire("start", o.name.clone(), body);
             }
         }
         self.fired.retain(|_, starts| now - *starts < 3600.0);
@@ -196,8 +210,28 @@ impl Notifier {
 }
 
 /// The next `n` occurrences that are not muted and not over yet.
+/// What the next-events line shows: events running now that end within the
+/// hour (soonest end first), then the next ones to start, and last the
+/// long-running ones (Arena of Tactics is open for hours and would otherwise
+/// keep a spot all day, hiding an invasion that just started).
 pub fn upcoming<'a>(occs: &'a [Occurrence], now: f64, muted: &HashSet<String>, n: usize) -> Vec<&'a Occurrence> {
-    occs.iter().filter(|o| o.ends > now && !muted.contains(&o.id)).take(n).collect()
+    let mut list: Vec<&Occurrence> = occs.iter().filter(|o| o.ends > now && !muted.contains(&o.id)).collect();
+    let rank = |o: &Occurrence| -> (u8, f64) {
+        if o.starts > now {
+            (1, o.starts)
+        } else if o.ends - now <= 3600.0 {
+            (0, o.ends)
+        } else {
+            (2, o.ends)
+        }
+    };
+    list.sort_by(|a, b| {
+        let (ra, ka) = rank(a);
+        let (rb, kb) = rank(b);
+        ra.cmp(&rb).then(ka.total_cmp(&kb))
+    });
+    list.truncate(n);
+    list
 }
 
 pub fn occurrence_json(o: &Occurrence, now: f64) -> Value {
@@ -248,18 +282,69 @@ mod tests {
         assert!(n.poll(rift - 400.0, &occs).is_empty());
         let a = n.poll(rift - 290.0, &occs);
         assert_eq!(a.len(), 1);
-        assert_eq!(a[0].title, "Spacetime Rift in 5 min");
+        assert_eq!(a[0].title, "Spacetime Rift");
+        assert_eq!(a[0].body, "Starts in 5 min");
         assert!(n.poll(rift - 200.0, &occs).is_empty(), "fires once");
         let s = n.poll(rift + 5.0, &occs);
-        assert_eq!(s[0].title, "Spacetime Rift has started");
-        assert_eq!(s[0].body, "Portal open for 10 min");
+        assert_eq!(s[0].title, "Spacetime Rift");
+        assert_eq!(s[0].body, "Started · Portal open for 10 min");
         // Started long ago when the meter launched: no alert.
         let mut late = Notifier::new(300.0, true, []);
         assert!(late.poll(rift + 600.0, &occs).iter().all(|a| a.id != "spacetime_rift"));
         // Gartua carries its source.
         let g = parse_iso_utc("2026-10-17T10:30:00Z").unwrap();
         let ga = Notifier::new(300.0, true, []).poll(g - 60.0, &occs);
-        assert_eq!(ga[0].body, "Starts soon · Beritra · estimate from Aion2Timers");
+        assert_eq!(ga[0].body, "Starts in 1 min · Beritra · estimate");
         assert_eq!(upcoming(&occs, g - 60.0, &n.muted, 5).len(), 2);
+    }
+
+    #[test]
+    fn long_events_read_in_hours() {
+        assert_eq!(span(900.0), "15 min");
+        assert_eq!(span(3.0 * 3600.0), "3 h");
+        assert_eq!(span(5400.0), "1 h 30 min");
+    }
+
+    #[test]
+    fn next_events_line_prefers_what_matters_now() {
+        let o = |id: &str, starts: f64, ends: f64| Occurrence { id: id.into(), name: id.into(), short: id.into(), emoji: String::new(), starts, ends, phase: None, note: None };
+        let now = 10_000.0;
+        let occs = vec![
+            o("arena_of_tactics", now - 3600.0, now + 9000.0), // open for hours
+            o("spacetime_rift", now - 1500.0, now + 1900.0),
+            o("dimensional_invasion", now - 60.0, now + 1500.0), // just started
+            o("shugo_festival", now + 1800.0, now + 2400.0),
+        ];
+        let ids: Vec<&str> = upcoming(&occs, now, &HashSet::new(), 3).iter().map(|o| o.id.as_str()).collect();
+        assert_eq!(ids, vec!["dimensional_invasion", "spacetime_rift", "shugo_festival"]);
+    }
+
+    #[test]
+    fn gartua_banners_play_out_minute_by_minute() {
+        let feed = |at: &str| format!(r#"{{"now":"2026-10-21T04:44:00.000Z","region":{{"id":"asia","label":"Asia"}},"events":[],"gartua":{{"server":"Beritra","spawnAt":"{at}","cycleHours":12,"source":"aion2timers","reportedAt":null}}}}"#);
+        let occs = parse_overview(&feed("2026-10-21T10:44:16.000Z")).unwrap();
+        let g = parse_iso_utc("2026-10-21T10:44:16Z").unwrap();
+        let mut n = Notifier::new(300.0, true, []);
+        let mut log = Vec::new();
+        let mut t = g - 900.0;
+        while t < g + 1800.0 {
+            for a in n.poll(t, &occs) {
+                log.push(format!("{:+} {} {} | {}", (t - g) as i64, a.kind, a.title, a.body));
+            }
+            t += 15.0;
+        }
+        assert_eq!(log, [
+            "-300 soon Immortal Gartua | Starts in 5 min · Beritra · estimate",
+            "+0 start Immortal Gartua | Spawning now · Beritra · estimate",
+        ]);
+        // The bot moves the estimate a little after the first banner: no second one.
+        let moved = parse_overview(&feed("2026-10-21T10:45:01.000Z")).unwrap();
+        let mut n = Notifier::new(300.0, true, []);
+        assert_eq!(n.poll(g - 250.0, &occs).len(), 1);
+        assert!(n.poll(g - 200.0, &moved).is_empty());
+        assert_eq!(n.poll(g + 50.0, &moved)[0].kind, "start");
+        // The next spawn, 12 h later, gets its banners again.
+        let next = parse_overview(&feed("2026-10-21T22:44:16.000Z")).unwrap();
+        assert_eq!(n.poll(g + 43_000.0, &next).len(), 1);
     }
 }

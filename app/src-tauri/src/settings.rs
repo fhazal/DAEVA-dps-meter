@@ -10,6 +10,8 @@ pub struct Hotkeys {
     pub marker: String,
     pub copy: String,
     pub report: String,
+    /// Switch between the Classic and Solo layouts.
+    pub layout: String,
 }
 
 impl Default for Hotkeys {
@@ -18,9 +20,10 @@ impl Default for Hotkeys {
             click_through: "Ctrl+Shift+L".into(),
             reset: "Ctrl+Shift+R".into(),
             hide: "Ctrl+Shift+H".into(),
-            marker: "Ctrl+Shift+M".into(),
+            marker: "Ctrl+Shift+B".into(),
             copy: "Ctrl+Shift+C".into(),
             report: "Ctrl+Shift+P".into(),
+            layout: "Ctrl+Shift+O".into(),
         }
     }
 }
@@ -47,6 +50,24 @@ pub const DEFAULT_SHARE_ENDPOINT: &str = "https://aion2.bajubesi.org/api/meter";
 impl Default for Share {
     fn default() -> Self {
         Share { enabled: false, endpoint: DEFAULT_SHARE_ENDPOINT.into(), token: String::new(), scope: "self".into(), share_loot: false, min_loot_grade: 4, min_duration: 20.0 }
+    }
+}
+
+/// What the Solo layout shows besides your DPS.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Solo {
+    /// Your place in the party ("#2 of 5") and share of the damage.
+    pub rank: bool,
+    /// Crit, double, perfect, front and back chips.
+    pub chips: bool,
+    /// Odyle, party DPS and ping at the bottom.
+    pub footer: bool,
+}
+
+impl Default for Solo {
+    fn default() -> Self {
+        Solo { rank: true, chips: true, footer: true }
     }
 }
 
@@ -119,15 +140,24 @@ pub struct Settings {
     pub rows: usize,
     pub show_heal: bool,
     pub show_target: bool,
-    /// Whose rows the overlay lists: "all" (everyone fighting your targets),
-    /// "party" (you and your group, from the game's party list) or "me".
+    /// Whose rows the overlay lists: "auto" (your party while you're in one,
+    /// everyone otherwise), "all" (everyone fighting your targets), "party"
+    /// (you and your group, from the game's party list) or "me".
     pub show_players: String,
+    /// Settings file revision, for one-time upgrades (0 = before 0.5.0).
+    #[serde(default)]
+    pub settings_rev: u32,
     /// "dps" | "dmg" | "share"
     pub primary_metric: String,
     /// Hide other players' names on the overlay (screenshots/streams).
     pub anonymize_others: bool,
     pub click_through: bool,
     pub always_on_top: bool,
+    /// Overlay layout: "classic" (the party table) or "solo" (just you).
+    pub layout: String,
+    pub solo: Solo,
+    /// Window size in the Solo layout (Classic keeps `window`).
+    pub solo_size: Option<(u32, u32)>,
     pub idle_timeout: f64,
     /// What DPS is divided by: "boss" (first hit on the boss → kill),
     /// "personal" (each player's first → last hit) or "fight" (whole fight).
@@ -186,16 +216,20 @@ impl Default for Settings {
     fn default() -> Self {
         Settings {
             opacity: 0.88,
-            scale: 1.0,
+            scale: 0.9,
             accent: "#d9a441".into(),
             rows: 8,
             show_heal: false,
             show_target: true,
-            show_players: "all".into(),
+            show_players: "auto".into(),
+            settings_rev: 2,
             primary_metric: "dps".into(),
             anonymize_others: false,
             click_through: false,
             always_on_top: true,
+            layout: "classic".into(),
+            solo: Solo::default(),
+            solo_size: None,
             idle_timeout: 8.0,
             dps_clock: "boss".into(),
             columns: vec![],
@@ -234,6 +268,22 @@ impl Settings {
         if s.share.endpoint.trim().is_empty() {
             s.share.endpoint = DEFAULT_SHARE_ENDPOINT.into();
         }
+        // 0.5.0: "Everyone" was the default; Auto replaces it (your party
+        // while you're in one). Choices made after this are kept.
+        if s.settings_rev < 1 {
+            if s.show_players == "all" {
+                s.show_players = "auto".into();
+            }
+            s.settings_rev = 1;
+        }
+        // 0.5.0: Ctrl+Shift+M is Discord's mute, so the marker key never
+        // worked for most testers; it moves to Ctrl+Shift+B ("bug").
+        if s.settings_rev < 2 {
+            if s.hotkeys.marker == "Ctrl+Shift+M" {
+                s.hotkeys.marker = "Ctrl+Shift+B".into();
+            }
+            s.settings_rev = 2;
+        }
         s
     }
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
@@ -253,6 +303,7 @@ impl Settings {
             ("marker".into(), h.marker.clone()),
             ("copy".into(), h.copy.clone()),
             ("report".into(), h.report.clone()),
+            ("layout".into(), h.layout.clone()),
         ]
     }
 }

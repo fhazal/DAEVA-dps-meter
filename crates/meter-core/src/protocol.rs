@@ -34,7 +34,7 @@ pub enum FType {
     /// Group member names from a party list: entries start with the byte
     /// `marker`, an index, a u32 id, u16 0, u16 server, then a u8-length
     /// UTF-8 name. Reads to the end; names are joined with newlines.
-    MemberNames { marker: u8 },
+    MemberNames { marker: u8, header: bool },
     Bytes(LenSpec),
     StrVarint,
     StrU16Utf16,
@@ -345,7 +345,7 @@ fn parse_ftype(v: &Value, ctx: &str) -> Result<FType, String> {
         "varint" => FType::Varint,
         "svarint" | "zigzag" => FType::Svarint,
         "skip" => FType::Skip(v.u64_or("len", 0) as usize),
-        "member_names" => FType::MemberNames { marker: v.u64_or("marker", 0x1e) as u8 },
+        "member_names" => FType::MemberNames { marker: v.u64_or("marker", 0x1e) as u8, header: v.u64_or("header", 1) != 0 },
         "seek" => {
             let pattern: Vec<u8> = v
                 .str_or("pattern", "")
@@ -523,31 +523,64 @@ fn read_fields(r: &mut Reader<'_>, defs: &[FieldDef], parents: &[&Scope], out: &
                 r.skip(*n)?;
                 continue;
             }
-            FType::MemberNames { marker } => {
+            FType::MemberNames { marker, header } => {
                 let b = r.rest();
                 let mut names: Vec<String> = Vec::new();
                 let mut i = 0;
-                while i + 12 <= b.len() {
-                    let idx = b[i + 1];
-                    let len = b[i + 10] as usize;
-                    // Entries start 0x1e, or 0x0e with one status bit clear
-                    // (seen for a member who joined through a dungeon room).
-                    if b[i] | 0x10 == *marker | 0x10 && (1..=16).contains(&idx) && b[i + 6] == 0 && b[i + 7] == 0 && (2..=48).contains(&len) && i + 11 + len <= b.len() {
-                        if let Ok(n) = std::str::from_utf8(&b[i + 11..i + 11 + len]) {
-                            if !n.chars().any(|c| c.is_control()) && !names.iter().any(|x| x.split('\t').next() == Some(n)) {
-                                // The u32 after the name follows the member's class
-                                // ("Name\t22"); the engine matches it to fighters.
-                                let at = i + 11 + len;
-                                match b.get(at..at + 4) {
-                                    Some(c) => names.push(format!("{n}\t{}", u32::from_le_bytes([c[0], c[1], c[2], c[3]]))),
-                                    None => names.push(n.to_string()),
-                                }
-                                i += 11 + len;
+                // An entry: [marker, slot,] id u32, 0 0, server u16, name
+                // length, name, class number u32. Marker 0 = no marker and
+                // slot (the open-world party list), so the server and class
+                // number must look right instead.
+                let h = if *marker == 0 { 0 } else { 2 };
+                while i + h + 10 <= b.len() {
+                    let len = b[i + h + 8] as usize;
+                    let head = if *marker == 0 {
+                        let server = u16::from_le_bytes([b[i + 6], b[i + 7]]);
+                        (1000..=9999).contains(&server)
+                    } else {
+                        // Entries start 0x0c, with status bits on top: 0x02 =
+                        // Ready in a dungeon room, 0x10 seen once in the
+                        // dungeon (0x0c, 0x0e and 0x1e all occur).
+                        b[i] | 0x12 == *marker | 0x12 && (1..=16).contains(&b[i + 1])
+                    };
+                    let name_at = i + h + 9;
+                    if head && b[i + h + 4] == 0 && b[i + h + 5] == 0 && (2..=48).contains(&len) && name_at + len <= b.len() {
+                        if let Ok(n) = std::str::from_utf8(&b[name_at..name_at + len]) {
+                            // The u32 after the name follows the member's class
+                            // ("Name\t22"); the engine matches it to fighters.
+                            let at = name_at + len;
+                            let code = b.get(at..at + 4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]));
+                            let code_ok = *marker != 0 || code.map_or(false, |c| (1..=64).contains(&c));
+                            if code_ok && !n.chars().any(|c| c.is_control()) && !names.iter().any(|x| x.split('\t').next() == Some(n)) {
+                                // For the party panel: id, server, gear score
+                                // (after the class and the level), combat
+                                // power (after a 0x04 a few bytes on) and
+                                // the status byte (dungeon room only).
+                                let u32at = |k: usize| b.get(k..k + 4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]));
+                                let id = u32at(i + h).unwrap_or(0);
+                                let server = u16::from_le_bytes([b[i + h + 6], b[i + h + 7]]);
+                                let gs = u32at(at + 8).filter(|g| (1..=20_000).contains(g)).unwrap_or(0);
+                                let cp = (at + 12..(at + 22).min(b.len().saturating_sub(4)))
+                                    .find(|j| b[*j] == 0x04 && u32at(j + 1).map_or(false, |c| (1_000..=5_000_000).contains(&c)))
+                                    .and_then(|j| u32at(j + 1))
+                                    .unwrap_or(0);
+                                let status = if *marker == 0 { String::new() } else { b[i].to_string() };
+                                let c = code.map(|c| c.to_string()).unwrap_or_default();
+                                names.push(format!("{n}\t{c}\t{id}\t{server}\t{gs}\t{cp}\t{status}"));
+                                i = at;
                                 continue;
                             }
                         }
                     }
                     i += 1;
+                }
+                // The dungeon list starts with the room: its title (what the
+                // leader typed) and, a few bytes on, the leader's id.
+                if *marker != 0 && *header && !names.is_empty() {
+                    let len = b.get(4).copied().unwrap_or(0) as usize;
+                    let title = b.get(5..5 + len).and_then(|t| std::str::from_utf8(t).ok()).filter(|t| !t.chars().any(|c| c.is_control())).unwrap_or("");
+                    let leader = (b.get(5 + len + 6) == Some(&0x03)).then(|| b.get(5 + len + 7..5 + len + 11)).flatten().map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).unwrap_or(0);
+                    names.insert(0, format!("@\t{}\t{leader}", title.replace(['\t', '\n'], " ")));
                 }
                 r.pos = r.buf.len();
                 FVal::S(names.join("\n"))
@@ -751,7 +784,9 @@ fn find_sync(fr: &Framing, known: &dyn Fn(u64) -> bool, buf: &[u8]) -> Option<us
                     p += f.raw.len();
                     n += 1;
                     if n >= 3 || p == buf.len() {
-                        if first_known || n >= 3 {
+                        // A packet that is exactly one whole message (a new connection's
+                        // first, unknown login message) starts at a boundary.
+                        if first_known || n >= 3 || (start == 0 && p == buf.len()) {
                             return Some(start);
                         }
                         continue 'outer;
@@ -772,6 +807,21 @@ fn find_sync(fr: &Framing, known: &dyn Fn(u64) -> bool, buf: &[u8]) -> Option<us
         }
     }
     None
+}
+
+/// One member line, "name\tclass\tid\tserver\tgs\tcp\tstatus" (empty or 0 = not known).
+fn party_member(l: &str) -> crate::events::PartyMember {
+    let opt = |s: Option<&str>| s.and_then(|v| v.parse::<u64>().ok()).filter(|v| *v > 0);
+    let f: Vec<&str> = l.split('\t').collect();
+    crate::events::PartyMember {
+        name: f[0].to_string(),
+        code: f.get(1).and_then(|v| v.parse::<u32>().ok()),
+        id: opt(f.get(2).copied()),
+        server: opt(f.get(3).copied()).map(|v| v as u32),
+        gs: opt(f.get(4).copied()).map(|v| v as u32),
+        cp: opt(f.get(5).copied()).map(|v| v as u32),
+        status: f.get(6).and_then(|v| v.parse::<u8>().ok()),
+    }
 }
 
 // ---------------------------------------------------------------- decoder
@@ -1031,12 +1081,36 @@ fn emit(e: &Emit, header: &Scope, scope: &Scope, ts: f64, out: &mut Vec<GameEven
             "fresh" => GameEvent::Fresh,
             "party" => {
                 let lines: Vec<String> = txt("members").map(|s| s.split('\n').filter(|l| !l.is_empty()).map(String::from).collect()).unwrap_or_default();
-                let split = |l: &String| match l.split_once('\t') {
-                    Some((n, c)) => (n.to_string(), c.parse::<u32>().ok()),
-                    None => (l.clone(), None),
-                };
-                GameEvent::Party { names: lines.iter().map(|l| split(l).0).collect(), codes: lines.iter().map(|l| split(l).1).collect() }
+                // A list with no member read isn't "you left": only messages
+                // without a list (the leave messages) clear the party.
+                if lines.is_empty() && e.map.iter().any(|(k, _)| k == "members") {
+                    continue;
+                }
+                // "@\ttitle\tleader" (dungeon list), then one line per member:
+                // name, class number, id, server, gear score, combat power,
+                // status. Empty or 0 means not known.
+                let opt = |s: Option<&str>| s.and_then(|v| v.parse::<u64>().ok()).filter(|v| *v > 0);
+                let head = lines.first().filter(|l| l.starts_with("@\t")).map(|l| l.split('\t').collect::<Vec<_>>());
+                let members: Vec<crate::events::PartyMember> = lines.iter().filter(|l| !l.starts_with("@\t")).map(|l| party_member(l)).collect();
+                if !members.is_empty() || head.is_some() || lines.is_empty() {
+                    out.push(GameEvent::PartyInfo {
+                        title: head.as_ref().and_then(|h| h.get(1)).map(|s| s.to_string()).filter(|s| !s.trim().is_empty()),
+                        leader: opt(head.as_ref().and_then(|h| h.get(2)).copied()),
+                        members: members.clone(),
+                    });
+                }
+                GameEvent::Party { names: members.iter().map(|m| m.name.clone()).collect(), codes: members.iter().map(|m| m.code).collect() }
             }
+            // One room entry, the moment someone joins.
+            "party_join" => match txt("members").and_then(|s| s.split('\n').find(|l| !l.is_empty() && !l.starts_with("@\t")).map(party_member)) {
+                Some(member) => GameEvent::PartyJoin { member },
+                None => continue,
+            },
+            "party_ready" => match num("id") {
+                Some(id) if id > 0 => GameEvent::PartyReady { id, ready: num("ready").unwrap_or(0) != 0 },
+                _ => continue,
+            },
+            "party_entering" => GameEvent::PartyEntering,
             "keys" => match num("cur") {
                 Some(cur) if cur < 10_000 => GameEvent::Keys { cur },
                 _ => continue,
@@ -1162,6 +1236,25 @@ mod tests {
         let mut out2 = Vec::new();
         d2.push(flow(), true, &s2, true, 1.0, &mut out2);
         assert_eq!(out2.len(), 8);
+
+        // A new connection joined without its handshake: the first packet is
+        // one whole message the meter doesn't know (the game's login message),
+        // and somewhere inside it the bytes happen to look like a known
+        // message ending exactly at the packet's end. Start at the real
+        // message, not inside it (that hid the Shugo return's monsters).
+        let mut d3 = Decoder::new(d.defs.clone(), None);
+        let mut login = b"\x00\x2bsession-text".to_vec();
+        login.extend(frame(0x0101, &hit_body()));
+        let mut out3 = Vec::new();
+        d3.push(flow(), true, &frame(0x3615, &login), true, 1.0, &mut out3);
+        assert!(out3.is_empty(), "nothing read from inside the login message: {out3:?}");
+        assert_eq!(d3.stats.get(&(true, 0x3615)).map(|s| s.count), Some(1), "read as the login message: {:?}", d3.stats.keys());
+        let mut rest = Vec::new();
+        for _ in 0..4 {
+            rest.extend(frame(0x0101, &hit_body()));
+        }
+        d3.push(flow(), true, &rest, false, 1.1, &mut out3);
+        assert_eq!(out3.len(), 8, "{out3:?}");
     }
 
     #[test]
@@ -1255,6 +1348,51 @@ mod party_tests {
         assert_eq!(names, vec!["Member01", "Member2", "Member3", "DewiHijau", "Membr4"]);
         // Each member's class number (DewiHijau is a Chanter: 36).
         assert_eq!(codes, vec![Some(34), Some(14), Some(24), Some(36), Some(14)]);
+    }
+
+    /// A real dungeon-room list (Draupnir lobby, other players renamed): the
+    /// party panel's title, leader, gear score, combat power and Ready.
+    #[test]
+    fn dungeon_room_list_for_the_party_panel() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
+        let mut d = Decoder::new(Arc::new(Definitions::from_json(&src).unwrap()), None);
+        let flow = FlowKey { src: Endpoint { ip: Ipv4Addr::new(9, 9, 9, 9), port: 13328 }, dst: Endpoint { ip: Ipv4Addr::new(10, 0, 0, 2), port: 5000 } };
+        let hex = "96 02 02 97 a9 eb 1c 00 10 31 31 31 31 31 31 31 31 31 31 31 31 31 31 31 31 05 e0 27 09 00 00 03 29 06 04 00 00 00 de 05 ff 02 02 05 0c 01 29 06 04 00 00 00 de 05 05 4d 65 6d 30 31 1e 00 00 00 2d 00 00 00 e9 03 00 00 de 05 de 05 04 32 db 00 00 00 00 00 00 00 01 01 0e 02 8a c8 03 00 00 00 ca 09 05 4d 65 6d 30 32 0b 00 00 00 2d 00 00 00 2d 05 00 00 ca 09 ca 09 04 c8 f6 00 00 00 00 00 00 00 01 01 0e 03 2d 09 04 00 00 00 c6 09 07 4d 65 6d 62 65 72 33 18 00 00 00 2d 00 00 00 70 07 00 00 c6 09 c6 09 04 c8 61 01 00 00 00 00 00 00 01 02 0e 04 ae e4 03 00 00 00 cc 09 09 44 65 77 69 48 69 6a 61 75 24 00 00 00 2d 00 00 00 fc 04 00 00 cc 09 cc 09 04 59 f3 00 00 00 00 00 00 00 01 02 0e 05 36 23 04 00 00 00 de 05 08 4d 65 6d 62 65 72 30 34 22 00 00 00 2d 00 00 00 dc 07 00 00 03 de 05 de 05 04 60 63 01 00 00 00 00 00 00 01 01 00 0a";
+        let bytes: Vec<u8> = hex.split_whitespace().map(|h| u8::from_str_radix(h, 16).unwrap()).collect();
+        let mut out = Vec::new();
+        d.push(flow, true, &bytes, false, 1.0, &mut out);
+        let (title, leader, members) = out.iter().find_map(|e| match e { GameEvent::PartyInfo { title, leader, members } => Some((title.clone(), *leader, members.clone())), _ => None }).expect("party info");
+        assert_eq!(title.as_deref(), Some("1111111111111111"));
+        assert_eq!(members.iter().map(|m| m.name.as_str()).collect::<Vec<_>>(), vec!["Mem01", "Mem02", "Member3", "DewiHijau", "Member04"]);
+        // The leader is the first member; not Ready (0x0c), the others are (0x0e).
+        assert_eq!(leader, members[0].id);
+        assert_eq!(members[0].status, Some(0x0c));
+        assert_eq!(members[3].status, Some(0x0e));
+        let me = &members[3];
+        assert_eq!((me.server, me.gs, me.cp, me.code), (Some(2508), Some(1276), Some(62297), Some(36)));
+        assert_eq!((members[2].gs, members[2].cp), (Some(1904), Some(90568)));
+        assert_eq!(members[4].gs, Some(2012));
+        assert!(members[4].cp.map_or(false, |c| (1_000..=5_000_000).contains(&c)), "{:?}", members[4]);
+    }
+
+    /// A real 0x9200 from an open-world party of two (another player's name
+    /// and the account ids replaced), then the empty 0x9213 sent on leaving.
+    #[test]
+    fn open_world_party_join_and_leave() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
+        let mut d = Decoder::new(Arc::new(Definitions::from_json(&src).unwrap()), None);
+        let flow = FlowKey { src: Endpoint { ip: Ipv4Addr::new(9, 9, 9, 9), port: 13328 }, dst: Endpoint { ip: Ipv4Addr::new(10, 0, 0, 2), port: 5000 } };
+        let hex = "d6 02 00 92 00 fa 5b 1f 00 40 d3 24 9a e6 0b 03 00 00 00 cc 09 05 00 00 00 02 01 00 02 02 03 01 00 00 00 00 cc 09 b4 0d 24 30 30 30 30 30 30 30 30 2d 30 30 30 30 2d 30 30 30 30 2d 30 30 30 30 2d 30 30 30 30 30 30 30 30 30 30 30 30 e6 0b 03 00 00 00 cc 09 08 4d 65 6d 62 65 72 30 38 0b 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 14 00 00 00 03 00 00 00 60 02 00 00 33 20 79 46 af 8a 22 c7 00 d4 2b 46 3f 05 66 69 69 73 74 02 00 00 00 2d 00 00 00 00 00 00 00 52 09 00 00 eb f5 01 00 00 00 00 00 02 07 02 3e 22 00 00 cc 09 cc 09 24 30 30 30 30 30 30 30 30 2d 30 30 30 30 2d 30 30 30 30 2d 30 30 30 30 2d 30 30 30 30 30 30 30 30 30 30 30 30 e0 6a 03 00 00 00 cc 09 09 44 65 77 61 50 75 74 69 68 1f 00 00 00 aa 77 aa 77 22 12 00 00 22 12 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 56 04 00 00 00 00 00 00 38 04 00 00 7e e6 09 48 1d 4c ce 47 00 70 91 45 05 66 69 69 73 74 02 00 00 00 2d 00 00 00 00 00 00 00 91 06 00 00 01 00 ba 59 09 01 05 e1 21 01 00 00 00 00 00 02 01 08 13 92 00 00";
+        let bytes: Vec<u8> = hex.split_whitespace().map(|h| u8::from_str_radix(h, 16).unwrap()).collect();
+        let mut out = Vec::new();
+        d.push(flow, true, &bytes, false, 1.0, &mut out);
+        let parties: Vec<(Vec<String>, Vec<Option<u32>>)> = out.iter().filter_map(|e| match e { GameEvent::Party { names, codes } => Some((names.clone(), codes.clone())), _ => None }).collect();
+        assert_eq!(parties.len(), 2, "{out:?}");
+        // A Templar (11) and you, a Cleric (31).
+        assert_eq!(parties[0].0, vec!["Member08", "DewaPutih"]);
+        assert_eq!(parties[0].1, vec![Some(11), Some(31)]);
+        // Leaving: an empty list.
+        assert!(parties[1].0.is_empty());
     }
 
     /// Start of a real 0x3633 sent on a teleport (same entity id as before).

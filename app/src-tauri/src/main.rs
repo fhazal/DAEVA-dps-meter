@@ -154,6 +154,20 @@ fn open_release(url: String) -> Result<(), String> {
     winsys::open_url(&url)
 }
 
+/// Opens one of the meter's own pages (Settings → Updates, About): a fixed
+/// list, never a URL from the page.
+#[tauri::command]
+fn open_link(which: String) -> Result<(), String> {
+    let url = match which.as_str() {
+        "github" => "https://github.com/fhazal/DAEVA-dps-meter",
+        "releases" => state::RELEASES_URL,
+        "discord" => "https://discord.gg/TCmm8cH3GE",
+        "site" => "https://aion2.bajubesi.org",
+        _ => return Err("unknown link".into()),
+    };
+    winsys::open_url(url)
+}
+
 #[tauri::command]
 fn get_alerts(st: St<'_>) -> String {
     st.lock().alerts_view(state::now_unix()).to_string()
@@ -178,6 +192,28 @@ fn get_names(st: St<'_>) -> String {
 #[tauri::command]
 fn toast_rects(st: St<'_>, rects: Vec<[f64; 4]>) {
     st.lock().toast_rects = rects.iter().map(|r| (r[0], r[1], r[2], r[3])).collect();
+}
+
+/// For "Show a test alert": is the alert window there, where, and did it
+/// draw a banner?
+#[tauri::command]
+fn alert_debug(app: AppHandle, st: St<'_>) -> String {
+    let drawn = st.lock().toast_rects.len();
+    let w = app.get_webview_window("toast");
+    let (visible, pos, size) = match &w {
+        Some(t) => (t.is_visible().unwrap_or(false), t.outer_position().ok().map(|p| (p.x, p.y)), t.outer_size().ok().map(|s| (s.width, s.height))),
+        None => (false, None, None),
+    };
+    meter_core::json::Obj::new()
+        .set("exists", w.is_some())
+        .set("visible", visible)
+        .set("drawn", drawn)
+        .set("x", pos.map(|p| p.0 as f64))
+        .set("y", pos.map(|p| p.1 as f64))
+        .set("w", size.map(|s| s.0 as f64))
+        .set("h", size.map(|s| s.1 as f64))
+        .build()
+        .to_string()
 }
 
 /// Starts dragging a banner. The alert window first shifts so the banner
@@ -216,12 +252,21 @@ fn get_settings(st: St<'_>) -> Settings {
 fn save_settings(app: AppHandle, st: St<'_>, settings: Settings) -> Vec<String> {
     let restart_hotkeys;
     let restart_capture;
+    let new_layout;
     {
         let mut c = st.lock();
         restart_hotkeys = format!("{:?}", c.settings.hotkeys) != format!("{:?}", settings.hotkeys);
         restart_capture = c.settings.device_filter != settings.device_filter || c.settings.ignore_ports != settings.ignore_ports;
-        c.apply_settings(settings.clone());
+        new_layout = (c.settings.layout != settings.layout).then(|| settings.layout.clone());
+        // The layout switch also resizes the window, below.
+        let mut settings = settings.clone();
+        settings.layout = c.settings.layout.clone();
+        c.apply_settings(settings);
         c.save_settings();
+    }
+    if let Some(l) = new_layout {
+        set_layout_inner(&app, &st, Some(&l));
+        st.lock().save_settings();
     }
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.set_always_on_top(settings.always_on_top);
@@ -253,6 +298,59 @@ fn toggle_click_through_inner(app: &AppHandle, shared: &Shared) -> bool {
 #[tauri::command]
 fn toggle_click_through(app: AppHandle, st: St<'_>) -> bool {
     toggle_click_through_inner(&app, &st)
+}
+
+/// The Solo window: the saved size, or one that fits the card.
+fn solo_size(w: &tauri::WebviewWindow, s: &Settings) -> (u32, u32) {
+    if let Some((width, height)) = s.solo_size {
+        return (width.clamp(200, 4000), height.clamp(60, 3000));
+    }
+    let scale = w.scale_factor().unwrap_or(1.0) * s.scale;
+    ((476.0 * scale) as u32, (180.0 * scale) as u32)
+}
+
+/// Switches the overlay to `layout` ("classic" / "solo"; None = the other
+/// one) and gives the window that layout's size. The position stays.
+fn set_layout_inner(app: &AppHandle, shared: &Shared, layout: Option<&str>) -> String {
+    let s = {
+        let mut c = shared.lock();
+        let next = match layout {
+            Some(l @ ("classic" | "solo")) => l.to_string(),
+            _ if c.settings.layout == "solo" => "classic".into(),
+            _ => "solo".into(),
+        };
+        c.settings.layout = next;
+        c.settings_dirty = true;
+        c.settings.clone()
+    };
+    if let Some(w) = app.get_webview_window("main") {
+        let size = if s.layout == "solo" {
+            Some(solo_size(&w, &s))
+        } else {
+            s.window.map(|v| (v.2, v.3)).or_else(|| {
+                let scale = w.scale_factor().unwrap_or(1.0);
+                Some(((380.0 * scale) as u32, (320.0 * scale) as u32))
+            })
+        };
+        if let Some((width, height)) = size {
+            let _ = w.set_size(tauri::PhysicalSize::new(width, height));
+        }
+    }
+    s.layout
+}
+
+/// Ctrl + mouse wheel over the meter: the overlay's Scale, 70-160%.
+#[tauri::command]
+fn set_scale(st: St<'_>, scale: f64) -> f64 {
+    let mut c = st.lock();
+    c.settings.scale = (scale * 20.0).round().clamp(14.0, 32.0) / 20.0;
+    c.settings_dirty = true;
+    c.settings.scale
+}
+
+#[tauri::command]
+fn set_layout(app: AppHandle, st: St<'_>, layout: Option<String>) -> String {
+    set_layout_inner(&app, &st, layout.as_deref())
 }
 
 #[tauri::command]
@@ -367,7 +465,7 @@ async fn open_window(app: AppHandle, kind: String, params: Option<String>) -> Re
     let (title, w, h) = match kind.as_str() {
         "detail" => ("Daeva Meter — Details", 780.0, 640.0),
         "history" => ("Daeva Meter — History", 640.0, 560.0),
-        "settings" => ("Daeva Meter — Settings", 560.0, 680.0),
+        "settings" => ("Daeva Meter — Settings", 780.0, 640.0),
         "research" => ("Daeva Meter — Research", 900.0, 700.0),
         "names" => ("Daeva Meter — Names", 620.0, 640.0),
         _ => return Err(format!("unknown window {kind}")),
@@ -424,15 +522,24 @@ fn start_hotkeys(app: &AppHandle, shared: &Arc<Shared>) {
             }
         }
         "marker" => {
-            let _ = sh.lock().research_marker("hotkey marker");
+            // One key, nothing to type: "something looks wrong here".
+            let mut c = sh.lock();
+            if c.research_marker("⚑ bug here (marker key)").is_ok() {
+                winsys::play_wav(meter_core::chime::chime_wav("soon", (c.settings.alerts.volume / 100.0) as f32 * 0.4));
+            }
+        }
+        "layout" => {
+            set_layout_inner(&app2, &sh, None);
         }
         "copy" => {
             let _ = copy_summary_inner(&sh, None);
         }
         "report" => {
-            let r = sh.lock().report_problem("hotkey");
-            if let Ok(p) = r {
-                reveal(&p);
+            // In game: save quietly (a chime and a line on the meter), no
+            // Explorer window popping up over the game.
+            let mut c = sh.lock();
+            if c.report_problem("hotkey").is_ok() {
+                winsys::play_wav(meter_core::chime::chime_wav("soon", (c.settings.alerts.volume / 100.0) as f32 * 0.6));
             }
         }
         _ => {}
@@ -556,6 +663,18 @@ fn toast_positioner(handle: AppHandle, sh: Arc<Shared>) {
 
 fn main() {
     tauri::Builder::default()
+        // One meter at a time: opening it again brings the running one forward
+        // (two copies would read the game twice).
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+            if let Some(sh) = app.try_state::<Arc<Shared>>() {
+                sh.lock().opened_again = Some(state::now_unix());
+            }
+        }))
         .setup(|app| {
             let data = app.path().app_data_dir()?;
             let resources = app.path().resource_dir()?;
@@ -583,8 +702,12 @@ fn main() {
                             sized = Some(!ct);
                         }
                         if ct {
+                            // The bottom line grows with Scale (Solo is drawn a bit
+                            // larger), so the strip does too: the whole lock button
+                            // stays clickable at any size.
+                            let (user, solo) = { let c = sh.lock(); (c.settings.scale, c.settings.layout == "solo") };
                             if let (Some((cx, cy)), Ok(pos), Ok(size), Ok(scale)) = (winsys::cursor_pos(), w.outer_position(), w.outer_size(), w.scale_factor()) {
-                                let foot = (26.0 * scale) as i32;
+                                let foot = ((if solo { 28.0 } else { 24.0 } * user).max(26.0) * scale) as i32;
                                 let bottom = pos.y + size.height as i32;
                                 let inside_x = cx >= pos.x && cx < pos.x + size.width as i32;
                                 if inside_x && cy >= bottom - foot && cy < bottom {
@@ -639,6 +762,9 @@ fn main() {
                         width = (380.0 * scale) as u32;
                         height = (320.0 * scale) as u32;
                     }
+                    if s.layout == "solo" {
+                        (width, height) = solo_size(&w, &s);
+                    }
                     // Only restore a position that is (mostly) on a monitor;
                     // otherwise keep the default spot so the meter is visible.
                     let on_screen = w.available_monitors().map(|ms| {
@@ -653,6 +779,9 @@ fn main() {
                     } else {
                         let _ = w.center();
                     }
+                    let _ = w.set_size(tauri::PhysicalSize::new(width, height));
+                } else if s.layout == "solo" {
+                    let (width, height) = solo_size(&w, &s);
                     let _ = w.set_size(tauri::PhysicalSize::new(width, height));
                 }
                 let _ = w.set_always_on_top(s.always_on_top);
@@ -701,8 +830,13 @@ fn main() {
                         return; // minimised
                     }
                     let mut c = shared.lock();
-                    let (x, y) = c.settings.window.map(|v| (v.0, v.1)).unwrap_or((100, 100));
-                    c.settings.window = Some((x, y, s.width, s.height));
+                    // Each layout keeps its own size.
+                    if c.settings.layout == "solo" {
+                        c.settings.solo_size = Some((s.width, s.height));
+                    } else {
+                        let (x, y) = c.settings.window.map(|v| (v.0, v.1)).unwrap_or((100, 100));
+                        c.settings.window = Some((x, y, s.width, s.height));
+                    }
                     c.settings_dirty = true;
                 }
                 tauri::WindowEvent::CloseRequested { .. } => {
@@ -717,6 +851,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             update_status,
             check_updates_now,
+            open_link,
             dismiss_update,
             open_release,
             get_snapshot,
@@ -730,6 +865,8 @@ fn main() {
             get_settings,
             save_settings,
             toggle_click_through,
+            set_layout,
+            set_scale,
             set_demo,
             research_start,
             research_stop,
@@ -747,6 +884,7 @@ fn main() {
             get_events,
             test_alert,
             toast_rects,
+            alert_debug,
             alert_drag,
             set_name,
             get_names,
