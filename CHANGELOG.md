@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.1
+
+Fixes from the first days of 0.5.0: your own gear score and Ready click in the party panel, and monster names that were missing after a fresh install.
+
+- **Your gear score in open-world parties:** the party panel showed every member's gear score except yours. The game writes your own entry a little differently, and the meter read it from the wrong place.
+- **Your own Ready click shows:** in a dungeon room, the other members' Ready clicks showed but yours didn't, because the game sends your own click in a separate message. The meter reads it now, and your bar turns green (or back, on *Cancel Ready*).
+- **Monster names after a fresh install:** some zone and dungeon monsters that aren't on aion2.gaming.tools showed as *NPC 2300812* or *Unknown monster* on a fresh install. These now have built-in names: Vakron, Tiere, Thamon and Enraged Earth Spirit (Vakron Sky Island), and Faded Papis, Young Coradon, Slink, Young Slink, Withered Branch Spider and Rafflesia.
+- **6,905 more monster names from A2Tools:** names for monsters gaming.tools doesn't list yet, from [A2Tools](https://github.com/taengu/A2Tools-DPS-Meter) by taengu. They're installed in `definitions\a2tools` with their own **GPL-3.0** licence and credited in *About*. The rest of Daeva Meter stays MIT.
+- **Official names come first:** a name you typed yourself is only used when there's no official one. *Names → Your names* shows what's actually displayed for each one (*Shown as*).
+- **No "✎ name it" while names download:** on the first start, the monster and skill name lists take a moment to download. The boss card and the skill breakdown no longer ask you to name something whose name is on the way.
+
 ## 0.5.0
 
 A new Solo layout, settings with tabs, and a long list of fixes from a day of real dungeon and open-world testing (0.4.5 was never released: its fixes are here too).
