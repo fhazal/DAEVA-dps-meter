@@ -34,9 +34,9 @@
 <body>
 <div class="shell">
   <div class="titlebar" data-drag>
+    <span class="lights"><button type="button" class="lt r" data-win="close" title="Close"><svg viewBox="0 0 8 8"><path d="M2 2l4 4M6 2L2 6"/></svg></button></span>
     <div class="title" data-drag id="title">Details</div>
     <button class="icon-btn" id="bCopy" title="Copy skill breakdown"></button>
-    <button class="icon-btn close" data-win="close" title="Close"></button>
   </div>
   <div class="scroll"><div class="content" id="c"><span class="muted">Loading…</span></div></div>
 </div>
@@ -44,7 +44,6 @@
 <script>
 (() => {
   const D = window.Daeva;
-  document.querySelector("[data-win=close]").innerHTML = D.icon("close");
   document.getElementById("bCopy").innerHTML = D.icon("copy");
   D.wireTitlebar();
   let p = {};
@@ -163,10 +162,12 @@
         </table>
         <div class="note">Crit, Back, Front, Perfect, Double and multi-hits are confirmed. Rates are per damage result.</div>`;
     }
-    if (editing) return;
+    // Redrawing replaces the target list, which closed it as it opened:
+    // wait while it has focus (picking a target lets go of it).
+    if (editing || document.activeElement?.id === "tsel") return;
     c.innerHTML = head + body;
     const sel = document.getElementById("tsel");
-    if (sel) sel.onchange = () => { target = sel.value ? Number(sel.value) : null; load(); };
+    if (sel) sel.onchange = () => { target = sel.value ? Number(sel.value) : null; sel.blur(); load(); };
   }
 
   // One handler on the container, acting on press: the table redraws every

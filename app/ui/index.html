@@ -36,7 +36,7 @@
   .tc-bot > span { min-width: 0; overflow: hidden; }
   /* Card colour follows the monster's rank from aion2.gaming.tools:
      --rk is the rank colour (border, bar, % and rank label). */
-  .tcard { --rk: 232,103,126; position: relative; padding: 8px 11px 7px; border-radius: 10px;
+  .tcard { --rk: 150,158,172; position: relative; padding: 8px 11px 7px; border-radius: 10px;
     background: linear-gradient(180deg, rgba(var(--rk),0.16), rgba(var(--rk),0.06));
     border: 1px solid rgba(var(--rk),0.38); }
   .tcard.r-common { --rk: 150,158,172; }
@@ -215,6 +215,11 @@
   .pty-m .num { text-align: right; font-variant-numeric: tabular-nums; color: var(--text); }
   .pty-m .st { text-align: right; font-size: 11px; font-weight: 600; white-space: nowrap; }
   .pty-m .st.ok { color: var(--good); } .pty-m .st.no { color: #e5675f; } .pty-m .st.ld { color: var(--accent); }
+  /* Inside a dungeon: blue = on the way (or new), a member who left fades out. */
+  .pty-m.s-way::before { background: #8fd0ff; } .pty-m .st.way { color: #8fd0ff; }
+  .pty-rd.in { color: #8fd0ff; background: rgba(80,150,230,.12); border-color: rgba(143,208,255,.35); } .pty-bar i.in { background: #8fd0ff; }
+  .pty-m .newtag { font-size: 9px; font-weight: 800; color: #8fd0ff; background: rgba(80,150,230,.16); padding: 0 4px; border-radius: 3px; flex: none; }
+  .pty-m.gone { opacity: .45; } .pty-m.gone .n { text-decoration: line-through; }
   .pty-empty { height: 28px; margin: 2px 0; border: 1px dashed rgba(255,255,255,.10); border-radius: 6px; display: flex; align-items: center; justify-content: center; color: var(--dim); font-size: 11px; }
   .pty-ft { display: flex; justify-content: flex-end; gap: 10px; padding: 6px 8px 0; font-size: 11px; color: var(--muted); } .pty-ft b { color: var(--text); }
   .so-pty { display: flex; align-items: center; gap: 6px; margin: 4px 6px 0; padding: 3px 8px; border-radius: 6px; background: rgba(255,255,255,.04); font-size: 10.5px; color: var(--muted); }
@@ -294,7 +299,7 @@
     <div class="tools">
       <button class="icon-btn hide-locked" id="bMetric" title="Switch DPS / damage / share"></button>
       <button class="icon-btn hide-locked" id="bCopy" title="Copy summary for Discord"></button>
-      <button class="icon-btn hide-locked" id="bReset" title="End fight now"></button>
+      <button class="icon-btn hide-locked" id="bReset" title="End the fight and clear the meter"></button>
       <button class="icon-btn hide-locked" id="bHistory" title="History"></button>
       <button class="icon-btn hide-locked" id="bResearch" title="Research mode"></button>
       <button class="icon-btn hide-locked" id="bSettings" title="Settings"></button>
@@ -357,7 +362,7 @@
 
   $("bMetric").onclick = () => { metric = metrics[(metrics.indexOf(metric || ui.primary_metric || "dps") + 1) % metrics.length]; D.toast("Showing " + ({ dps: "DPS", dmg: "total damage", share: "damage share" })[metric]); render(lastSnap); };
   $("bCopy").onclick = async () => { try { await D.call("copy_summary", {}); D.toast("Summary copied — paste it in Discord"); } catch (e) { D.toast(String(e)); } };
-  $("bReset").onclick = async () => { await D.call("reset_fight"); D.toast("Fight ended"); };
+  $("bReset").onclick = async () => { await D.call("reset_fight"); D.toast("Fight ended and cleared"); };
   $("bHistory").onclick = () => D.call("open_window", { kind: "history" });
   $("bResearch").onclick = () => D.call("open_window", { kind: "research" });
   $("bSettings").onclick = () => D.call("open_window", { kind: "settings" });
@@ -810,6 +815,7 @@
   // doesn't click Ready); grey in an open-world party (no ready check there).
   function partyPanel(p) {
     const ms = p.members || [];
+    if (p.inside) return dungeonPanel(p, ms);
     const voters = ms.filter((m) => !m.leader && m.ready != null);
     const readyN = voters.filter((m) => m.ready).length;
     const all = p.room && voters.length > 0 && readyN === voters.length;
@@ -829,6 +835,32 @@
     const avg = (xs, k) => Math.round(xs.reduce((a, m) => a + m[k], 0) / xs.length);
     const foot = gs.length ? `<div class="pty-ft"><span>Avg GS <b>${avg(gs, "gs").toLocaleString()}</b></span>${cp.length ? `<span>CP <b>${D.fmt(avg(cp, "cp"))}</b></span>` : ""}</div>` : "";
     return `<div class="pty">${head}<div class="pty-hd"><span>Member</span><span>Server</span><span>GS</span><span>CP</span><span>Status</span></div>${rows}${empty}${foot}</div>`;
+  }
+
+  // Inside the dungeon there's no Ready check any more: the panel says who
+  // is inside and who is still on the way (the game's own status), marks
+  // who just joined, and shows who left for a few seconds.
+  function dungeonPanel(p, ms) {
+    const inN = ms.filter((m) => m.in_dungeon).length;
+    const all = ms.length > 0 && inN === ms.length;
+    const head = `<div class="pty-h"><b>Party</b>${p.title ? `<span class="ttl" title="${D.esc(p.title)}">“${D.esc(p.title)}”</span>` : `<span class="ttl"></span>`}<span class="pty-rd ${all ? "all" : "in"}">${all ? "✓ " : ""}${inN}/${ms.length} in dungeon</span></div>`
+      + `<div class="pty-bar"><i class="${all ? "all" : "in"}" style="width:${ms.length ? Math.round((inN / ms.length) * 100) : 0}%"></i></div>`;
+    const rows = ms.map((m) => {
+      const st = m.in_dungeon ? ["ok", "● In dungeon"] : ["way", "→ On the way"];
+      return `<div class="pty-m s-${st[0]}${m.is_self ? " me" : ""}">
+        <span class="nm">${D.classIcon(m.class, 16)}${m.leader ? `<span title="Party leader">👑</span>` : ""}<span class="n">${D.esc(m.name)}</span>${m.is_self ? `<span class="metag">ME</span>` : ""}${m.new ? `<span class="newtag" title="Joined during this run">NEW</span>` : ""}</span>
+        <span class="sv" title="${D.esc(m.server || "")}">${D.esc(m.server_tag || "")}</span>
+        <span class="num" title="Gear score">${m.gs ? m.gs.toLocaleString() : "–"}</span>
+        <span class="num" title="Combat power">${m.cp ? D.fmt(m.cp) : "–"}</span>
+        <span class="st ${st[0]}">${st[1]}</span></div>`;
+    }).join("") + (p.left || []).map((m) => `<div class="pty-m s-no gone">
+        <span class="nm">${D.classIcon(m.class, 16)}<span class="n">${D.esc(m.name)}</span></span>
+        <span class="sv"></span><span class="num">–</span><span class="num">–</span>
+        <span class="st no">✕ Left</span></div>`).join("");
+    const gs = ms.filter((m) => m.gs), cp = ms.filter((m) => m.cp);
+    const avg = (xs, k) => Math.round(xs.reduce((a, m) => a + m[k], 0) / xs.length);
+    const foot = gs.length ? `<div class="pty-ft"><span>Avg GS <b>${avg(gs, "gs").toLocaleString()}</b></span>${cp.length ? `<span>CP <b>${D.fmt(avg(cp, "cp"))}</b></span>` : ""}</div>` : "";
+    return `<div class="pty">${head}<div class="pty-hd"><span>Member</span><span>Server</span><span>GS</span><span>CP</span><span>Status</span></div>${rows}${foot}</div>`;
   }
 
   // ---- Solo layout: the boss on top, your own card, Odyle/party/ping ----
@@ -890,7 +922,11 @@
     let strip = "";
     if (pt && pt.lobby) {
       const v = (pt.members || []).filter((m) => !m.leader && m.ready != null), r = v.filter((m) => m.ready).length;
-      strip = `<div class="so-pty">👥 Party <b>${(pt.members || []).length}</b>${pt.title ? ` · <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px">“${D.esc(pt.title)}”</span>` : ""}${pt.room && v.length ? ` <span style="margin-left:auto" class="${r === v.length ? "ok" : "no"}">${r === v.length ? "✓ " : ""}${r}/${v.length} ready</span>` : ""}</div>`;
+      // Inside the dungeon: who's in, not who's Ready.
+      const inN = (pt.members || []).filter((m) => m.in_dungeon).length, n = (pt.members || []).length;
+      const count = pt.inside ? ` <span style="margin-left:auto;${inN === n ? "" : "color:#8fd0ff;font-weight:700"}" class="${inN === n ? "ok" : ""}">${inN === n ? "✓ " : ""}${inN}/${n} in dungeon</span>`
+        : pt.room && v.length ? ` <span style="margin-left:auto" class="${r === v.length ? "ok" : "no"}">${r === v.length ? "✓ " : ""}${r}/${v.length} ready</span>` : "";
+      strip = `<div class="so-pty">👥 Party <b>${(pt.members || []).length}</b>${pt.title ? ` · <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px">“${D.esc(pt.title)}”</span>` : ""}${count}</div>`;
     }
     if (setHTML($("solo"), hd + card + strip + ft)) runOdos();
     fitSolo();

@@ -175,6 +175,8 @@ impl Names {
     /// listed, else the one listed monster with the same name. Dungeon variants
     /// such as Conquest Vakron have ids of their own that the data doesn't
     /// list; a name shared by monsters of different rank or family gives None.
+    /// A match with a family but no rank still counts (Vakron trash such as
+    /// Giant Honeybee is listed without a rank).
     pub fn npc_ref(&self, npc: u32, name: &str) -> Option<u32> {
         if self.ranks.contains_key(&npc) || self.families.contains_key(&npc) {
             return Some(npc);
@@ -185,7 +187,8 @@ impl Names {
         }
         let mut found: Option<u32> = None;
         for (id, n) in &self.npcs {
-            if *id == npc || !self.ranks.contains_key(id) || !n.trim().eq_ignore_ascii_case(name) {
+            let described = self.ranks.contains_key(id) || self.families.contains_key(id);
+            if *id == npc || !described || !n.trim().eq_ignore_ascii_case(name) {
                 continue;
             }
             found = match found {
@@ -457,7 +460,17 @@ pub struct PartyState {
     pub since: f64,
     /// The leader clicked Enter dungeon.
     pub entering: bool,
+    /// You're inside the dungeon (the room list marks you 0x10, or you
+    /// teleported after Enter): the panel shows who's inside, not Ready.
+    pub inside: bool,
+    /// Members who joined while you were inside, with the game time.
+    pub joined: Vec<(String, f64)>,
+    /// Members who left while you were inside, with the game time.
+    pub left: Vec<(crate::events::PartyMember, f64)>,
 }
+
+/// Room status bit: the member is inside the dungeon.
+pub const IN_DUNGEON: u8 = 0x10;
 
 // ---------------------------------------------------------------- engine
 
@@ -535,6 +548,9 @@ pub struct Engine {
     pub self_name: Option<String>,
     pub current: Option<Fight>,
     pub history: VecDeque<Fight>,
+    /// ↺ / Ctrl+Shift+R: the last fight is off screen until the next one
+    /// starts (it stays in history).
+    cleared: bool,
     pub zone: Option<u32>,
     pub loot_log: VecDeque<LootRecord>,
     next_id: u64,
@@ -571,6 +587,14 @@ pub struct Engine {
     /// You left the party: the dungeon keeps listing who is still inside,
     /// which isn't your party. Cleared when you join one again.
     left_party: bool,
+    /// When you last joined a room (0x9710) and the last single join entry
+    /// (game time, name): together they name you before any zone change.
+    room_entered_at: f64,
+    last_join: Option<(f64, String)>,
+    /// You left a dungeon and haven't entered one since. A rerun room keeps
+    /// the "in dungeon" bit on everyone from the last run while you wait
+    /// outside, so it's ignored until the leader clicks Enter.
+    exited_dungeon: bool,
     /// The names list sent with an ignored room list.
     skip_party_names: bool,
     /// True once the meter has seen a login or zone change, i.e. the game
@@ -598,6 +622,7 @@ impl Engine {
             self_name: None,
             current: None,
             history: VecDeque::new(),
+            cleared: false,
             zone: None,
             loot_log: VecDeque::new(),
             next_id: 1,
@@ -617,6 +642,9 @@ impl Engine {
             zone_first_fight: 1,
             zone_at: f64::NEG_INFINITY,
             left_party: false,
+            room_entered_at: f64::NEG_INFINITY,
+            last_join: None,
+            exited_dungeon: false,
             skip_party_names: false,
             fresh_view: false,
             self_live: false,
@@ -1008,6 +1036,8 @@ impl Engine {
                         self.zone_first_fight = self.next_id;
                         self.zone_at = self.last_ts;
                         if let Some(p) = self.party_info.as_mut() {
+                            // The teleport after Enter dungeon takes you inside.
+                            p.inside |= p.entering;
                             p.entering = false;
                         }
                         self.pending_end = None;
@@ -1137,12 +1167,19 @@ impl Engine {
             }
             GameEvent::Keys { cur } => self.self_keys = Some(*cur),
             GameEvent::PartyInfo { title, leader, members } => {
-                if self.left_party && title.is_some() {
+                // After the dungeon's "party gone" (0x8d3f, also sent about a
+                // minute after the last boss dies) a room list still counts
+                // when you're in it: the room lives on for a rerun.
+                let has_me = self.self_name.as_deref().map_or(false, |me| members.iter().any(|m| m.name == me));
+                if self.left_party && title.is_some() && !has_me {
                     self.skip_party_names = true;
-                } else if members.len() < 2 {
+                } else if members.is_empty() {
                     self.party_info = None;
-                    self.left_party = members.is_empty();
+                    self.left_party = true;
                 } else {
+                    // Just you counts too: the party you start by inviting, or
+                    // the room you open, lists only you until the others join
+                    // (they come one by one, the full list up to 40 s later).
                     self.left_party = false;
                     let mut names: Vec<&str> = members.iter().map(|m| m.name.as_str()).collect();
                     names.sort();
@@ -1151,15 +1188,17 @@ impl Engine {
                     // When the line-up changed (not just a Ready click): the
                     // panel shows until the next fight.
                     let changed = self.party_info.as_ref().map_or(true, |p| p.key != key);
-                    // Only someone joining (or a new party) brings the panel
-                    // back; people leaving after a run just update the list.
+                    // Someone joining (or a new party) brings the panel back;
+                    // inside a dungeon someone leaving does too.
                     let joined = self.party_info.as_ref().map_or(true, |p| members.iter().any(|m| !p.members.iter().any(|o| o.name == m.name)));
-                    let since = if joined { self.last_ts } else { self.party_info.as_ref().map_or(self.last_ts, |p| p.since) };
+                    let was_inside = self.party_info.as_ref().map_or(false, |p| p.inside);
+                    let gone: Vec<crate::events::PartyMember> = self.party_info.as_ref().map_or(Vec::new(), |p| p.members.iter().filter(|o| !members.iter().any(|m| m.name == o.name)).cloned().collect());
+                    let since = if joined || (was_inside && !gone.is_empty()) { self.last_ts } else { self.party_info.as_ref().map_or(self.last_ts, |p| p.since) };
                     // Open-world lists have no title or leader: keep the room's.
                     let keep = self.party_info.as_ref().filter(|_| !changed);
                     // The two lists alternate in a dungeon room; only one has
                     // Ready (and sometimes the gear): keep what the other lacks.
-                    let members: Vec<crate::events::PartyMember> = members
+                    let mut members: Vec<crate::events::PartyMember> = members
                         .iter()
                         .map(|m| {
                             let old = keep.and_then(|p| p.members.iter().find(|o| o.name == m.name));
@@ -1173,6 +1212,33 @@ impl Engine {
                             }
                         })
                         .collect();
+                    // Inside when the game marks you (or, before your name is
+                    // known, anyone) as in the dungeon.
+                    let me = self.self_name.as_deref();
+                    if self.exited_dungeon {
+                        for m in members.iter_mut() {
+                            m.status = m.status.map(|s| s & !IN_DUNGEON);
+                        }
+                    }
+                    let marked = |m: &crate::events::PartyMember| m.status.map_or(false, |s| s & IN_DUNGEON != 0);
+                    let inside = match members.iter().find(|m| Some(m.name.as_str()) == me) {
+                        Some(m) if m.status.is_some() => marked(m),
+                        _ => was_inside || members.iter().any(marked),
+                    };
+                    let now = self.last_ts;
+                    let old = self.party_info.as_ref();
+                    let mut joined_list: Vec<(String, f64)> = old.map_or(Vec::new(), |p| p.joined.clone());
+                    joined_list.retain(|(n, _)| members.iter().any(|m| &m.name == n));
+                    if was_inside {
+                        for m in members.iter().filter(|m| !old.map_or(true, |p| p.members.iter().any(|o| o.name == m.name))) {
+                            joined_list.push((m.name.clone(), now));
+                        }
+                    }
+                    let mut left_list: Vec<(crate::events::PartyMember, f64)> = old.map_or(Vec::new(), |p| p.left.clone());
+                    left_list.retain(|(m, t)| now - t < 30.0 && !members.iter().any(|n| n.name == m.name));
+                    if was_inside {
+                        left_list.extend(gone.into_iter().map(|m| (m, now)));
+                    }
                     self.party_info = Some(PartyState {
                         title: title.clone().or_else(|| keep.and_then(|p| p.title.clone())),
                         leader: leader.or_else(|| keep.and_then(|p| p.leader)),
@@ -1182,11 +1248,16 @@ impl Engine {
                         // Until you teleport: the lists right after the click can
                         // drop and re-add members for a moment.
                         entering: self.party_info.as_ref().map_or(false, |p| p.entering),
+                        inside,
+                        joined: if inside { joined_list } else { Vec::new() },
+                        left: if inside { left_list } else { Vec::new() },
                     });
                 }
             }
             GameEvent::Party { .. } if std::mem::take(&mut self.skip_party_names) => {}
             GameEvent::PartyJoin { member } => {
+                self.last_join = Some((self.last_ts, member.name.clone()));
+                self.name_self_from_join();
                 if let Some(p) = self.party_info.as_ref().filter(|_| !self.left_party) {
                     if !p.members.iter().any(|m| m.name == member.name) {
                         let mut members = p.members.clone();
@@ -1205,6 +1276,11 @@ impl Engine {
                     m.status = Some(if *ready { st | 0x02 } else { st & !0x02 });
                 }
             }
+            GameEvent::RoomEntered => {
+                self.exited_dungeon = false;
+                self.room_entered_at = self.last_ts;
+                self.name_self_from_join();
+            }
             GameEvent::SelfReady { ready } => {
                 let me = self.self_name.clone();
                 if let Some(m) = self.party_info.as_mut().and_then(|p| p.members.iter_mut().find(|m| me.as_deref() == Some(m.name.as_str()))) {
@@ -1212,7 +1288,35 @@ impl Engine {
                     m.status = Some(if *ready { st | 0x02 } else { st & !0x02 });
                 }
             }
+            // Out of the room: the panel empties at once. Unlike leaving a
+            // party, the next room you join sends a titled list that counts.
+            GameEvent::RoomLeft => {
+                self.party_info = None;
+                self.left_party = false;
+                self.handle(&GameEvent::Party { names: Vec::new(), codes: Vec::new() });
+            }
+            // You left the room yourself. In the waiting room that's the end
+            // of it (no party list follows); inside a dungeon the same message
+            // comes just before DungeonLeft and you may still be in the party.
+            GameEvent::RoomExit => {
+                if self.party_info.as_ref().map_or(false, |p| !p.inside) {
+                    self.handle(&GameEvent::RoomLeft);
+                }
+            }
+            // You left the dungeon: the party (if any) is no longer inside.
+            GameEvent::DungeonLeft => {
+                self.exited_dungeon = true;
+                if let Some(p) = self.party_info.as_mut() {
+                    p.inside = false;
+                    p.joined.clear();
+                    p.left.clear();
+                    for m in p.members.iter_mut() {
+                        m.status = m.status.map(|s| s & !IN_DUNGEON);
+                    }
+                }
+            }
             GameEvent::PartyEntering => {
+                self.exited_dungeon = false;
                 if let Some(p) = self.party_info.as_mut() {
                     p.entering = true;
                 }
@@ -1248,6 +1352,7 @@ impl Engine {
 
     fn ensure_fight(&mut self, ts: f64) -> &mut Fight {
         if self.current.as_ref().map_or(true, |f| f.finished) {
+            self.cleared = false;
             let id = self.next_id;
             self.next_id += 1;
             self.current = Some(Fight {
@@ -1280,6 +1385,20 @@ impl Engine {
 
     /// The game is talking at `ts`: times of events that carry none (party
     /// list, zone change) follow the traffic, not only the last hit.
+    /// You joined a room and the room announced one new member in the same
+    /// moment: that's you. Only used while the meter doesn't know you yet
+    /// (fresh install, no teleport since), so your own Ready click shows.
+    fn name_self_from_join(&mut self) {
+        if self.self_name.is_some() {
+            return;
+        }
+        if let Some((t, name)) = &self.last_join {
+            if (t - self.room_entered_at).abs() <= 1.0 {
+                self.self_name = Some(name.clone());
+            }
+        }
+    }
+
     pub fn see_time(&mut self, ts: f64) {
         self.last_ts = self.last_ts.max(ts);
     }
@@ -1474,7 +1593,15 @@ impl Engine {
         is_boss && !f.boss_killed && a.hp != Some(0)
     }
 
-    /// Ends the current fight (also used by the "reset" hotkey).
+    /// Ends the current fight and clears the screen (the ↺ button and the
+    /// "reset" hotkey); the fight is still returned for history.
+    pub fn clear(&mut self) -> Option<Fight> {
+        let f = self.finish();
+        self.cleared = true;
+        f
+    }
+
+    /// Ends the current fight.
     pub fn finish(&mut self) -> Option<Fight> {
         let mut f = self.current.take()?;
         if f.finished {
@@ -1808,7 +1935,7 @@ impl Engine {
     }
 
     pub fn display_fight(&self) -> Option<&Fight> {
-        self.current.as_ref().or_else(|| self.history.back())
+        self.current.as_ref().filter(|f| !(self.cleared && f.finished)).or_else(|| self.history.back().filter(|_| !self.cleared))
     }
 
     /// Whether the meter is missing data that a zone change would bring:
@@ -1822,15 +1949,28 @@ impl Engine {
     pub fn party_lobby(&self) -> bool {
         let Some(p) = &self.party_info else { return false };
         let fighting = self.current.as_ref().map_or(false, |f| !f.finished);
-        !fighting && p.since > self.zone_at && self.display_fight().map_or(true, |f| f.end <= p.since)
+        p.members.len() > 1 && !fighting && p.since > self.zone_at && self.display_fight().map_or(true, |f| f.end <= p.since)
     }
 
-    /// Show the party in the DPS rows with dashes: in a party, after a zone
-    /// change and before the first fight there (the meter is ready).
+    /// Joined while you were inside, and no fight has started since.
+    pub fn party_is_new(&self, name: &str) -> bool {
+        let Some(p) = &self.party_info else { return false };
+        p.joined.iter().any(|(n, t)| n == name && self.display_fight().map_or(true, |f| f.start < *t))
+    }
+
+    /// Left while you were inside, in the last 10 s (shown faded, then gone).
+    pub fn party_recently_left(&self) -> Vec<&crate::events::PartyMember> {
+        let Some(p) = &self.party_info else { return Vec::new() };
+        p.left.iter().filter(|(_, t)| self.last_ts - t < 10.0).map(|(m, _)| m).collect()
+    }
+
+    /// Show the party in the DPS rows with dashes: in a party, after the
+    /// teleport into a dungeon and before the first fight there (the meter
+    /// is ready). Not after leaving one: that party may be gone.
     pub fn party_ready(&self) -> bool {
         let Some(p) = &self.party_info else { return false };
         let fighting = self.current.as_ref().map_or(false, |f| !f.finished);
-        p.members.len() > 1 && !fighting && !self.party_lobby() && self.display_fight().map_or(true, |f| f.end <= self.zone_at)
+        p.members.len() > 1 && p.inside && !fighting && !self.party_lobby() && self.display_fight().map_or(true, |f| f.end <= self.zone_at)
     }
 
     pub fn needs_zone(&self) -> bool {
@@ -2685,11 +2825,12 @@ mod zone_notice_tests {
     #[test]
     fn unlisted_variants_borrow_by_name() {
         let n = Names::from_json(
-            r#"{"npcs": {"2300582": "Vakron", "2100001": "Guard", "2100002": "Guard"},
+            r#"{"npcs": {"2300582": "Vakron", "2100001": "Guard", "2100002": "Guard", "2300585": "Giant Honeybee"},
                 "ranks": {"2300582": "Heroic", "2100001": "Common", "2100002": "Elite"},
-                "families": {"2300582": "Natura"}}"#,
+                "families": {"2300582": "Natura", "2300585": "Fera"}}"#,
         )
         .unwrap();
+        assert_eq!(n.npc_ref(2300816, "Giant Honeybee"), Some(2300585), "family without a rank");
         assert_eq!(n.npc_ref(2300582, "Vakron"), Some(2300582), "a listed id is itself");
         assert_eq!(n.npc_ref(2300812, "Vakron"), Some(2300582));
         assert_eq!(n.npc_ref(2300812, "vakron "), Some(2300582), "case and spaces don't matter");
@@ -2777,6 +2918,192 @@ mod zone_notice_tests {
         assert_eq!(me.as_deref(), Some("Me"), "your row is marked as you");
     }
 
+    /// From the Vakron Island run: inside the dungeon Jiii left, リリイ joined
+    /// (status 0x0c, then 0x1c once inside), the leader left after the last
+    /// boss, then you left the dungeon with no party list after it.
+    #[test]
+    fn party_inside_a_dungeon() {
+        let m = |n: &str, id: u64, st: u8| crate::events::PartyMember { name: n.into(), id: Some(id), status: Some(st), ..Default::default() };
+        let room = |ms: Vec<crate::events::PartyMember>| GameEvent::PartyInfo { title: Some("80k".into()), leader: Some(10), members: ms };
+        let mut e = Engine::new(EngineConfig::default(), Names::from_json(r#"{"bosses": ["777"]}"#).unwrap());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        // The waiting room: Ready counts, nobody inside.
+        e.handle(&room(vec![m("Lead", 10, 0x0c), m("Me", 11, 0x0e), m("Jiii", 12, 0x0e)]));
+        assert!(!e.party_info.as_ref().unwrap().inside, "waiting room");
+        // Inside: the lists mark everyone 0x10.
+        e.handle(&room(vec![m("Lead", 10, 0x1e), m("Me", 11, 0x1e), m("Jiii", 12, 0x1e)]));
+        assert!(e.party_info.as_ref().unwrap().inside, "inside");
+        e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(500) });
+        e.handle(&GameEvent::Damage { ts: 10.0, src: 1, tgt: 50, skill: 18_000_000, amount: 100, flags: 0 });
+        e.finish();
+        assert!(!e.party_lobby(), "after the boss: its result");
+        // Jiii leaves: the panel comes back, Jiii shown as left.
+        e.see_time(15.0);
+        e.handle(&room(vec![m("Lead", 10, 0x1e), m("Me", 11, 0x1e)]));
+        assert!(e.party_lobby(), "someone left inside: the panel");
+        assert_eq!(e.party_recently_left().iter().map(|m| m.name.as_str()).collect::<Vec<_>>(), vec!["Jiii"]);
+        // リリイ joins, on the way (no 0x10), then inside.
+        e.see_time(18.0);
+        e.handle(&room(vec![m("Lead", 10, 0x1e), m("Me", 11, 0x1e), m("リリイ", 13, 0x0c)]));
+        assert!(e.party_lobby() && e.party_is_new("リリイ") && !e.party_is_new("Lead"));
+        assert!(e.party_info.as_ref().unwrap().inside, "still inside while she's on the way");
+        e.handle(&room(vec![m("Lead", 10, 0x1e), m("Me", 11, 0x1e), m("リリイ", 13, 0x1c)]));
+        assert_eq!(e.party_info.as_ref().unwrap().members[2].status, Some(0x1c));
+        // The next boss: リリイ is no longer new.
+        e.handle(&GameEvent::Damage { ts: 40.0, src: 1, tgt: 50, skill: 18_000_000, amount: 100, flags: 0 });
+        e.finish();
+        assert!(!e.party_is_new("リリイ"), "new until the next fight");
+        e.see_time(30.0);
+        assert!(e.party_recently_left().is_empty(), "the left row is gone after 10 s");
+        // The leader leaves after the last boss: the panel comes back (option A).
+        e.see_time(50.0);
+        e.handle(&room(vec![m("Me", 11, 0x1e), m("リリイ", 13, 0x1c)]));
+        assert!(e.party_lobby());
+        // You leave the dungeon: no party list follows. After the teleport
+        // out there's no "Ready, waiting for the first hit".
+        e.handle(&GameEvent::DungeonLeft);
+        e.handle(&GameEvent::SelfId { id: 2, name: Some("Me".into()) });
+        assert!(!e.party_info.as_ref().unwrap().inside, "left the dungeon");
+        assert!(!e.party_ready(), "no ready line after leaving the dungeon");
+        assert!(e.party_info.is_some(), "the party itself is kept (you may still be in it)");
+    }
+
+    /// Report 1792829501: you invite your friends, then open a room ("LAGI")
+    /// whose first list has only you; they join one by one and click Ready.
+    #[test]
+    fn room_you_open_alone_fills_as_people_join() {
+        let m = |n: &str, id: u64| crate::events::PartyMember { name: n.into(), id: Some(id), status: Some(0x0c), ..Default::default() };
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        // Open world: your new party lists just you, then an invite is accepted.
+        e.handle(&GameEvent::PartyInfo { title: None, leader: None, members: vec![crate::events::PartyMember { name: "Me".into(), ..Default::default() }] });
+        assert!(!e.party_lobby(), "no panel with just you");
+        e.handle(&GameEvent::PartyJoin { member: crate::events::PartyMember { name: "Friend".into(), ..Default::default() } });
+        assert_eq!(e.party_info.as_ref().map(|p| p.members.len()), Some(2), "the friend who accepted is added");
+        assert!(e.party_lobby());
+        // The room you open: only you at first.
+        e.handle(&GameEvent::PartyInfo { title: Some("LAGI".into()), leader: Some(11), members: vec![m("Me", 11)] });
+        assert!(!e.party_lobby(), "no panel with just you");
+        e.handle(&GameEvent::PartyJoin { member: m("Friend", 20) });
+        e.handle(&GameEvent::PartyJoin { member: m("Other", 30) });
+        let p = e.party_info.as_ref().unwrap();
+        assert_eq!((p.members.len(), p.title.as_deref(), p.leader), (3, Some("LAGI"), Some(11)));
+        assert!(e.party_lobby(), "the room shows as they join");
+        e.handle(&GameEvent::PartyReady { id: 20, ready: true });
+        assert_eq!(e.party_info.as_ref().unwrap().members.iter().find(|m| m.name == "Friend").and_then(|m| m.status), Some(0x0e), "their Ready shows");
+    }
+
+    /// ↺: the fight ends and leaves the screen (still in history); the next
+    /// hit starts a new fight that shows as usual.
+    #[test]
+    fn clear_empties_the_screen_until_the_next_fight() {
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(6), owner: None, max_hp: Some(500) });
+        e.handle(&GameEvent::Damage { ts: 10.0, src: 1, tgt: 50, skill: 18_000_000, amount: 100, flags: 0 });
+        assert!(e.clear().is_some(), "the running fight is handed over for history");
+        assert!(e.display_fight().is_none(), "nothing on screen");
+        assert!(e.clear().is_none(), "pressing again with no fight is fine");
+        e.handle(&GameEvent::Damage { ts: 20.0, src: 1, tgt: 50, skill: 18_000_000, amount: 50, flags: 0 });
+        assert_eq!(e.display_fight().map(|f| f.start), Some(20.0), "the next fight shows");
+    }
+
+    /// The bundled A2Tools file names skills gaming.tools lacks (all seen
+    /// unnamed in real fights), every variant of them, and no internal names.
+    #[test]
+    fn a2tools_skill_names() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/a2tools/names.json")).unwrap();
+        let n = Names::from_json(&src).unwrap();
+        assert_eq!(n.skill(11_440_030), "Upward Strike");
+        assert_eq!(n.skill(12_440_050), "Threatening Blow");
+        assert_eq!(n.skill(18_400_010), "Piercing Strike");
+        assert_eq!(n.skill(16_990_002), "Water Spirit: Basic Attack");
+        assert!(n.skills.values().all(|s| !s.contains("<DNT>") && !s.contains("Unused") && !s.contains('_')));
+    }
+
+    #[test]
+    fn kicked_from_room_then_next_room_shows() {
+        let m = |n: &str, id: u64| crate::events::PartyMember { name: n.into(), id: Some(id), status: Some(0x0c), ..Default::default() };
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&GameEvent::PartyInfo { title: Some("80k fast run".into()), leader: Some(10), members: vec![m("Lead", 10), m("Me", 11)] });
+        e.handle(&GameEvent::RoomLeft);
+        assert!(e.party_info.is_none(), "kicked: the old room is gone");
+        assert!(e.party.is_empty());
+        e.handle(&GameEvent::PartyInfo { title: Some("new room".into()), leader: Some(20), members: vec![m("Other", 20), m("Me", 11)] });
+        assert_eq!(e.party_info.as_ref().map(|p| p.members.len()), Some(2), "the next room shows");
+    }
+
+    #[test]
+    fn leaving_a_waiting_room_empties_the_panel() {
+        let m = |n: &str, id: u64, s: u8| crate::events::PartyMember { name: n.into(), id: Some(id), status: Some(s), ..Default::default() };
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&GameEvent::PartyInfo { title: Some("alt akun pro 75k".into()), leader: Some(10), members: vec![m("Lead", 10, 0x0c), m("Me", 11, 0x0e)] });
+        e.handle(&GameEvent::RoomExit);
+        assert!(e.party_info.is_none(), "left the waiting room: the old room is gone");
+        e.handle(&GameEvent::PartyInfo { title: Some("new room".into()), leader: Some(20), members: vec![m("Other", 20, 0x0c), m("Me", 11, 0x0c)] });
+        assert_eq!(e.party_info.as_ref().map(|p| p.members.len()), Some(2), "the next room shows");
+        // Inside a dungeon the same message comes just before DungeonLeft:
+        // the party stays.
+        e.handle(&GameEvent::PartyInfo { title: Some("new room".into()), leader: Some(20), members: vec![m("Other", 20, 0x1c), m("Me", 11, 0x1c)] });
+        assert!(e.party_info.as_ref().unwrap().inside);
+        e.handle(&GameEvent::RoomExit);
+        e.handle(&GameEvent::DungeonLeft);
+        assert!(e.party_info.is_some(), "a dungeon exit keeps the party");
+    }
+
+    /// Rerun (test-006): after the run you wait outside, but the room still
+    /// marks the old members 0x1c/0x1e. The panel shows Ready, not "In
+    /// dungeon", until the leader clicks Enter and you teleport.
+    #[test]
+    fn rerun_room_shows_ready_outside() {
+        let m = |n: &str, id: u64, st: u8| crate::events::PartyMember { name: n.into(), id: Some(id), status: Some(st), ..Default::default() };
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("DewiHijau".into()) });
+        e.handle(&GameEvent::PartyInfo { title: Some("60+".into()), leader: Some(241095), members: vec![m("LilSmokeyURA", 241095, 0x1c), m("DewiHijau", 255150, 0x1e)] });
+        assert!(e.party_info.as_ref().unwrap().inside, "the run");
+        e.handle(&GameEvent::DungeonLeft);
+        e.handle(&GameEvent::SelfId { id: 2, name: Some("DewiHijau".into()) });
+        e.handle(&GameEvent::PartyInfo {
+            title: Some("60+".into()),
+            leader: Some(241095),
+            members: vec![m("LilSmokeyURA", 241095, 0x1c), m("Palacicih", 255141, 0x1e), m("DewiHijau", 255150, 0x1e), m("Hinjyaku", 83586, 0x0e)],
+        });
+        let p = e.party_info.as_ref().unwrap();
+        assert!(!p.inside, "waiting outside for the rerun");
+        assert_eq!(p.members[1].status, Some(0x0e), "Ready, not in dungeon");
+        assert!(p.left.is_empty() && p.joined.is_empty());
+        // The leader clicks Enter and you teleport in: inside again.
+        e.handle(&GameEvent::PartyEntering);
+        e.handle(&GameEvent::SelfId { id: 3, name: Some("DewiHijau".into()) });
+        assert!(e.party_info.as_ref().unwrap().inside, "the next run");
+    }
+
+    /// Fresh install: no teleport yet, so the meter doesn't know you. Joining
+    /// a room names you (0x9710 + your 0x970b entry) and your Ready shows.
+    #[test]
+    fn room_join_names_you_on_a_fresh_install() {
+        let m = |n: &str, id: u64| crate::events::PartyMember { name: n.into(), id: Some(id), status: Some(0x0c), ..Default::default() };
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.see_time(10.0);
+        // Someone else joining doesn't name you.
+        e.handle(&GameEvent::PartyJoin { member: m("Other", 9) });
+        e.see_time(24.0);
+        e.handle(&GameEvent::RoomEntered);
+        assert!(e.self_name.is_none(), "the join entry was 14 s earlier");
+        e.handle(&GameEvent::PartyJoin { member: m("DewiHijau", 255150) });
+        assert_eq!(e.self_name.as_deref(), Some("DewiHijau"));
+        e.handle(&GameEvent::PartyInfo { title: Some("bajubesi".into()), leader: Some(1), members: vec![m("LilSmokeyURA", 1), m("DewiHijau", 255150)] });
+        e.handle(&GameEvent::SelfReady { ready: true });
+        assert_eq!(e.party_info.as_ref().unwrap().members[1].status, Some(0x0e), "your Ready shows");
+        // A name the meter already knows is never replaced.
+        e.see_time(40.0);
+        e.handle(&GameEvent::RoomEntered);
+        e.handle(&GameEvent::PartyJoin { member: m("Someone", 7) });
+        assert_eq!(e.self_name.as_deref(), Some("DewiHijau"));
+    }
+
     #[test]
     fn your_own_ready_click_shows() {
         let m = |n: &str, id: u64| crate::events::PartyMember { name: n.into(), id: Some(id), status: Some(0x0c), ..Default::default() };
@@ -2823,13 +3150,30 @@ mod zone_notice_tests {
         // "You left the party".
         e.handle(&GameEvent::PartyInfo { title: None, leader: None, members: vec![] });
         e.handle(&GameEvent::Party { names: vec![], codes: vec![] });
-        // The dungeon keeps listing who is still inside.
-        e.handle(&room(&["Lead", "Me", "Other"]));
-        e.handle(&GameEvent::Party { names: vec!["Lead".into(), "Me".into(), "Other".into()], codes: vec![None, None, None] });
+        // The dungeon keeps listing who is still inside, without you.
+        e.handle(&room(&["Lead", "Other"]));
+        e.handle(&GameEvent::Party { names: vec!["Lead".into(), "Other".into()], codes: vec![None, None] });
         assert!(e.party_info.is_none() && e.party.is_empty(), "no party after leaving");
         // A real party again (the general party list).
         e.handle(&GameEvent::PartyInfo { title: None, leader: None, members: vec![m("Me"), m("Friend")] });
         assert_eq!(e.party_info.as_ref().unwrap().members.len(), 2);
+    }
+
+    #[test]
+    fn a_rerun_room_that_lists_you_still_counts() {
+        let m = |n: &str| crate::events::PartyMember { name: n.into(), status: Some(0x1e), ..Default::default() };
+        let room = |names: &[&str]| GameEvent::PartyInfo { title: Some("50k 10 run".into()), leader: None, members: names.iter().map(|n| m(n)).collect() };
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&room(&["Lead", "Me", "Other"]));
+        // About a minute after the last boss dies (urugugu-009).
+        e.handle(&GameEvent::PartyInfo { title: None, leader: None, members: vec![] });
+        e.handle(&GameEvent::Party { names: vec![], codes: vec![] });
+        // Everyone accepts the rerun: the same room, you included.
+        e.handle(&room(&["Lead", "Me", "Other"]));
+        e.handle(&GameEvent::Party { names: vec!["Lead".into(), "Me".into(), "Other".into()], codes: vec![None, None, None] });
+        assert_eq!(e.party_info.as_ref().map(|p| p.members.len()), Some(3));
+        assert!(e.party.contains("Other"));
     }
 
     #[test]
@@ -2900,6 +3244,7 @@ mod zone_notice_tests {
         e.handle(&GameEvent::Damage { ts: 30.0, src: 1, tgt: 50, skill: 18_000_000, amount: 1, flags: 0 });
         e.finish();
         e.handle(&info(&["Me", "Ally", "Fourth", "Fifth"]));
+        e.handle(&GameEvent::PartyEntering);
         e.handle(&GameEvent::SelfId { id: 2, name: Some("Me".into()) });
         assert!(!e.party_lobby() && e.party_ready(), "in the dungeon: the ready list");
         e.handle(&info(&["Me", "Ally", "Fourth", "Fifth"]));

@@ -1128,6 +1128,10 @@ fn emit(e: &Emit, header: &Scope, scope: &Scope, ts: f64, out: &mut Vec<GameEven
             },
             "self_ready" => GameEvent::SelfReady { ready: num("ready").unwrap_or(0) != 0 },
             "party_entering" => GameEvent::PartyEntering,
+            "room_entered" => GameEvent::RoomEntered,
+            "room_left" => GameEvent::RoomLeft,
+            "room_exit" => GameEvent::RoomExit,
+            "dungeon_left" => GameEvent::DungeonLeft,
             "keys" => match num("cur") {
                 Some(cur) if cur < 10_000 => GameEvent::Keys { cur },
                 _ => continue,
@@ -1437,6 +1441,57 @@ mod party_tests {
         assert_eq!(parties[0].1, vec![Some(11), Some(31)]);
         // Leaving: an empty list.
         assert!(parties[1].0.is_empty());
+    }
+
+    /// The real empty 0x972a sent when the room leader kicks you while
+    /// queueing: no party list follows, so it has to empty the party itself.
+    #[test]
+    fn kicked_from_dungeon_room() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
+        let mut d = Decoder::new(Arc::new(Definitions::from_json(&src).unwrap()), None);
+        let flow = FlowKey { src: Endpoint { ip: Ipv4Addr::new(9, 9, 9, 9), port: 13328 }, dst: Endpoint { ip: Ipv4Addr::new(10, 0, 0, 2), port: 5000 } };
+        let mut out = Vec::new();
+        d.push(flow, true, &[0x07, 0x2a, 0x97, 0x00], false, 1.0, &mut out);
+        assert!(out.iter().any(|e| matches!(e, GameEvent::RoomLeft)), "{out:?}");
+    }
+
+    /// The real 0x971d sent when you leave a waiting room yourself.
+    #[test]
+    fn room_exit_message() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
+        let mut d = Decoder::new(Arc::new(Definitions::from_json(&src).unwrap()), None);
+        let flow = FlowKey { src: Endpoint { ip: Ipv4Addr::new(9, 9, 9, 9), port: 13328 }, dst: Endpoint { ip: Ipv4Addr::new(10, 0, 0, 2), port: 5000 } };
+        let mut out = Vec::new();
+        d.push(flow, true, &[0x08, 0x1d, 0x97, 0x00, 0x00], false, 1.0, &mut out);
+        assert!(out.iter().any(|e| matches!(e, GameEvent::RoomExit)), "{out:?}");
+    }
+
+    /// The real 0x971b sent when you leave a dungeon (room id 0x0cc108, the
+    /// same as in that room's 0x9702 header).
+    #[test]
+    fn dungeon_exit_message() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
+        let mut d = Decoder::new(Arc::new(Definitions::from_json(&src).unwrap()), None);
+        let flow = FlowKey { src: Endpoint { ip: Ipv4Addr::new(9, 9, 9, 9), port: 13328 }, dst: Endpoint { ip: Ipv4Addr::new(10, 0, 0, 2), port: 5000 } };
+        let mut out = Vec::new();
+        d.push(flow, true, &[0x0a, 0x1b, 0x97, 0x08, 0xc1, 0x0c, 0x00], false, 1.0, &mut out);
+        assert!(out.iter().any(|e| matches!(e, GameEvent::DungeonLeft)), "{out:?}");
+    }
+
+    /// A real 0x920d: Palabuto (Templar, GS 3158) accepted your invite.
+    #[test]
+    fn invite_accepted_message() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
+        let mut d = Decoder::new(Arc::new(Definitions::from_json(&src).unwrap()), None);
+        let flow = FlowKey { src: Endpoint { ip: Ipv4Addr::new(9, 9, 9, 9), port: 13328 }, dst: Endpoint { ip: Ipv4Addr::new(10, 0, 0, 2), port: 5000 } };
+        let hex = "a0 01 0d 92 03 02 31 2f 00 00 cc 09 cc 09 24 33 32 44 36 37 32 38 32 2d 34 32 36 45 2d 34 34 43 31 2d 39 45 39 30 2d 46 44 42 42 43 38 39 34 33 44 39 32 e6 0b 03 00 00 00 cc 09 08 50 61 6c 61 62 75 74 6f 0b 00 00 00 c2 cf 01 c2 cf 01 56 0c 00 00 56 0c 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 85 03 00 00 14 0c 00 00 85 03 00 00 c8 ec 62 47 ea ac 17 47 80 d8 b7 47 07 05 66 69 69 73 74 02 00 00 00 2d 00 00 00 00 00 00 00 4b 0a 00 00 34 46 02 00 00 00 00 00 01";
+        let bytes: Vec<u8> = hex.split_whitespace().map(|h| u8::from_str_radix(h, 16).unwrap()).collect();
+        let mut out = Vec::new();
+        d.push(flow, true, &bytes, false, 1.0, &mut out);
+        assert!(
+            out.iter().any(|e| matches!(e, GameEvent::PartyJoin { member } if member.name == "Palabuto" && member.code == Some(11) && member.id == Some(199_654) && member.gs == Some(3158))),
+            "{out:?}"
+        );
     }
 
     /// Start of a real 0x3633 sent on a teleport (same entity id as before).

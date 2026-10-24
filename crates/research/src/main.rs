@@ -25,7 +25,8 @@ Commands:
   frames   <pcap> --defs D.json --op 0xNN [--limit 20]  Dump frames of one opcode
   near     <pcap> --defs D.json --markers M.json [--window 1.5]
                                           Opcodes seen right after each marker
-  decode   <pcap> --defs D.json [--names N.json] [--self ID]  Run the full meter offline
+  decode   <pcap> --defs D.json [--names N.json] [--self ID] [--party 1]
+                                          Run the full meter offline (--party: panel changes)
 
 --flow is an index from `flows` (default: the busiest non-HTTPS flow).
 Directions: append s or c to the index (e.g. 3s = server->client, default s).";
@@ -491,6 +492,9 @@ fn cmd_decode(pkts: &[Packet], a: &Args) -> Result<(), String> {
     let swap_at = a.get("swap-at").and_then(json::parse_number_str).map(|n| n as usize);
     let reset_reasm = a.get("reset-reasm").is_some();
     let trace = a.get("trace").is_some();
+    // --party: print the party panel (lobby / ready list) whenever it changes.
+    let party = a.get("party").is_some();
+    let mut last_party = String::new();
     let mut last_trace = 0.0f64;
     let mut last_line = String::new();
     for (i, pk) in pkts.iter().enumerate() {
@@ -503,6 +507,25 @@ fn cmd_decode(pkts: &[Packet], a: &Args) -> Result<(), String> {
             println!("swapped decoder after {i} packets ({before} frames so far)");
         }
         fights.extend(p.push_frame(pk.linktype, &pk.data, pk.ts));
+        if party {
+            // The live meter's timer: ends idle fights between packets.
+            fights.extend(p.tick(pk.ts));
+            let e = &p.engine;
+            let line = match &e.party_info {
+                None => "none".to_string(),
+                Some(pi) => {
+                    let view = if e.party_lobby() { "lobby" } else if e.party_ready() { "ready" } else { "hidden" };
+                    let ready = pi.members.iter().filter(|m| m.status.map_or(false, |s| s & 0x02 != 0)).count();
+                    let t0 = pkts[0].ts;
+                    let end = e.display_fight().map_or("-".to_string(), |f| format!("{:.0}", f.end - t0));
+                    format!("{view} {} ready {}/{}{}{} · since {:.0} · fight end {end} · you {}{}", pi.title.as_deref().unwrap_or("-"), ready, pi.members.len(), if pi.inside { " inside" } else { "" }, if pi.entering { " entering" } else { "" }, pi.since - t0, e.self_name.as_deref().unwrap_or("?"), if e.current.as_ref().map_or(false, |f| !f.finished) { " · FIGHTING" } else { "" })
+                }
+            };
+            if line != last_party {
+                println!("t={:.1} party: {line}", pk.ts - pkts[0].ts);
+                last_party = line;
+            }
+        }
         if trace && pk.ts - last_trace >= 0.5 {
             last_trace = pk.ts;
             if let Some(f) = p.engine.display_fight() {
@@ -521,6 +544,7 @@ fn cmd_decode(pkts: &[Packet], a: &Args) -> Result<(), String> {
         fights.push(f);
     }
     println!("{} packets, {} game packets, {} frames, {} resyncs, {} events, {} fights\n", p.packets, p.game_packets, p.decoder.frames_total, p.decoder.resyncs(), p.engine.events_seen, fights.len());
+    println!("you: {}\n", p.engine.self_name.as_deref().unwrap_or("unknown"));
     for f in &fights {
         println!("{}", p.engine.summary_text(f, 12));
     }

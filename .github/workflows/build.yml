@@ -39,7 +39,7 @@ jobs:
         run: cargo clean --release -p daeva-meter --manifest-path app/src-tauri/Cargo.toml
       - name: Build meter installer
         working-directory: app
-        run: npx --yes @tauri-apps/cli@2 build
+        run: npx --yes @tauri-apps/cli@2.12.3 build
       - name: Show the icon embedded in the program
         shell: pwsh
         run: |

@@ -79,6 +79,7 @@ html, body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.titlebar .lights { margin-right: 10px; }
 .titlebar .title small { color: var(--muted); font-weight: 400; margin-left: 6px; }
 
 .icon-btn {

@@ -63,7 +63,6 @@
   .sheet-body h4 { margin: 12px 0 4px; color: var(--text); font-size: 12.5px; }
   .sheet-body table { width: 100%; border-collapse: collapse; } .sheet-body td { padding: 5px 6px; border-bottom: 1px solid rgba(255,255,255,0.05); }
   .sheet-body td:first-child { color: var(--text); font-weight: 600; }
-  .titlebar .lights { margin-right: 10px; }
   .srv b { color: var(--text); } .srv .ok { color: var(--good); margin-right: 6px; }
   .side .ver { margin-top: auto; padding: 8px 10px 0; font-size: 11px; color: var(--dim); border-top: 1px solid var(--line); }
   .split .scroll { flex: 1; }
@@ -259,7 +258,7 @@
     <section data-tab="hotkeys">
     <h2>Hotkeys</h2><div class="sh">They work in game too. Format: Ctrl+Shift+F9. Leave one empty to turn it off.</div><div class="f">
       ${F("Toggle click-through", txt("hotkeys.click_through"))}
-      ${F("End fight", txt("hotkeys.reset"))}
+      ${F("End fight and clear", txt("hotkeys.reset"))}
       ${F("Hide / show overlay", txt("hotkeys.hide"))}
       ${F("Copy summary", txt("hotkeys.copy"))}
       ${F("Report a problem", txt("hotkeys.report"))}
@@ -570,7 +569,7 @@
     try {
       const errs = await D.call("save_settings", { settings: next });
       s = next;
-      const HK = { click_through: "Toggle click-through", reset: "End fight", hide: "Hide / show overlay", copy: "Copy summary", report: "Report a problem", marker: "Research marker", layout: "Switch layout" };
+      const HK = { click_through: "Toggle click-through", reset: "End fight and clear", hide: "Hide / show overlay", copy: "Copy summary", report: "Report a problem", marker: "Research marker", layout: "Switch layout" };
       const nice = (errs || []).map((e) => e.replace(/^([a-z_]+) \(/, (m, k) => (HK[k] || k) + " (").replace("is already used by another program", "is taken by another program (Discord uses Ctrl+Shift+M, for example)"));
       document.getElementById("hkErr").textContent = nice.length ? "⚠ " + nice.join(" · ") + ". Pick another key, or leave it empty." : "";
       document.querySelector('.tab[data-t="hotkeys"]').classList.toggle("warn", nice.length > 0);

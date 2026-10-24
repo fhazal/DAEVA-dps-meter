@@ -24,8 +24,8 @@
 <body>
 <div class="shell">
   <div class="titlebar" data-drag>
+    <span class="lights"><button type="button" class="lt r" data-win="close" title="Close"><svg viewBox="0 0 8 8"><path d="M2 2l4 4M6 2L2 6"/></svg></button></span>
     <div class="title" data-drag>Fight history</div>
-    <button class="icon-btn close" data-win="close" title="Close"></button>
   </div>
   <div class="scroll"><div class="content">
     <div class="tabs">
@@ -42,7 +42,6 @@
 <script>
 (() => {
   const D = window.Daeva;
-  document.querySelector("[data-win=close]").innerHTML = D.icon("close");
   D.wireTitlebar();
   let tab = "session";
   let data = { session: [], saved: [] };

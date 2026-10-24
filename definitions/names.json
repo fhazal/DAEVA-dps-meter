@@ -17,7 +17,11 @@
   "4": "Eternal",
   "5": "Mythic"
  },
- "skills": {},
+ "skills_note": "Skills neither gaming.tools nor A2Tools names (Elementalist spirit basic attacks: 16990002 Water and 16990003 Wind come from A2Tools; Fire and Earth follow its spirit order).",
+ "skills": {
+  "16990001": "Fire Spirit: Basic Attack",
+  "16990004": "Earth Spirit: Basic Attack"
+ },
  "npcs_note": "Dungeon variants gaming.tools doesn't list (named from the boss cards of earlier runs); rank, portrait and enrage come from the boss with the same name.",
  "npcs": {
   "2300804": "Enraged Earth Spirit",

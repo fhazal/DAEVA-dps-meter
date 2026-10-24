@@ -93,7 +93,7 @@ fn copy_text(text: String) -> Result<(), String> {
 #[tauri::command]
 fn reset_fight(st: St<'_>) {
     let mut c = st.lock();
-    if let Some(f) = c.pipeline.engine.finish() {
+    if let Some(f) = c.pipeline.engine.clear() {
         c.fight_finished(f);
     }
 }
@@ -101,7 +101,7 @@ fn reset_fight(st: St<'_>) {
 #[tauri::command]
 fn clear_session(st: St<'_>) {
     let mut c = st.lock();
-    c.pipeline.engine.finish();
+    c.pipeline.engine.clear();
     c.pipeline.engine.clear_history();
 }
 
@@ -486,6 +486,9 @@ async fn open_window(app: AppHandle, kind: String, params: Option<String>) -> Re
         .min_inner_size(360.0, 240.0)
         .decorations(false)
         .transparent(true)
+        // Like the meter: Windows' own shadow and 1px frame are square and
+        // showed around the rounded window.
+        .shadow(false)
         .always_on_top(true)
         .maximizable(false)
         .build()
@@ -508,7 +511,7 @@ fn start_hotkeys(app: &AppHandle, shared: &Arc<Shared>) {
         }
         "reset" => {
             let mut c = sh.lock();
-            if let Some(f) = c.pipeline.engine.finish() {
+            if let Some(f) = c.pipeline.engine.clear() {
                 c.fight_finished(f);
             }
         }

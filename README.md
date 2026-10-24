@@ -110,7 +110,7 @@ All of them work while the game has focus and can be changed in Settings. Resear
 
 ## 🚀 Install
 
-1. Install **[Npcap](https://npcap.com/#download)** with the default options. Leave *"Restrict Npcap driver's access to Administrators only"* **unticked**.
+1. Install **[Npcap](https://npcap.com/#download)** with the default options; nothing extra needs ticking (see [Npcap](#npcap) below).
 2. Download the latest installer (`Daeva.Meter_…_x64-setup.exe`) from **[Releases](https://github.com/fhazal/DAEVA-dps-meter/releases/latest)** and run it. It isn't code-signed yet, so Windows SmartScreen may warn you: choose **More info → Run anyway**. See our **[Code signing policy](CODE_SIGNING.md)**.
 
    Code signing: we plan to apply for free signing from [SignPath Foundation](https://signpath.org). Until then, installers are unsigned. See our [Code signing policy](CODE_SIGNING.md).
@@ -118,6 +118,21 @@ All of them work while the game has focus and can be changed in Settings. Resear
 
 > [!TIP]
 > From 0.3.1 the meter tells you when a new version is out (a line under the meter with a **Download** button). To update, just run the new installer over the top. If an uninstall screen ever asks, leave **"delete application data"** unticked, or you lose your settings, fight history and the names you typed.
+
+### Npcap
+
+The default options are the right ones:
+
+- *Restrict Npcap driver's access to Administrators only*: leave **unticked**, or the meter can't use it.
+- *Support raw 802.11 traffic (and monitor mode)*: not needed.
+- *Install Npcap in WinPcap API-compatible Mode*: either way is fine.
+
+### Using a VPN or ping booster
+
+A VPN (Proton VPN, NordVPN…) or ping booster (ExitLag, GearUP…) can send the game's traffic through its own network adapter, where the meter may not see it. The meter then says *Can't see the game's traffic* under the overlay.
+
+- **Best:** exclude the game from the VPN. In Proton VPN: **Settings → Split tunneling**, and exclude `AION2.exe` (in `…\AION2\Aion2\Binaries\Win64\`).
+- Still nothing? Click the warning (or press **Ctrl+Shift+P**) while the game runs and send us the report zip from your Desktop. It lists the network adapters the meter found.
 
 > [!TIP]
 > Start the meter **before** you enter a zone. Monsters that were already around when it started can't be identified until you change zone (they show as *Unknown monster* with a "Teleport once to identify" hint, and a notice under the meter reminds you).
@@ -188,7 +203,7 @@ More: [docs/DECODING.md](docs/DECODING.md) · [docs/DEFINITIONS.md](docs/DEFINIT
 ## 🙏 Credits
 
 - **[AION 2 Global Database](https://aion2.gaming.tools)** by gaming.tools: monster and skill names and game icons, with thanks to their team.
-- **[A2Tools](https://github.com/taengu/A2Tools-DPS-Meter)** by taengu: names of monsters (GPL-3.0).
+- **[A2Tools](https://github.com/taengu/A2Tools-DPS-Meter)** by taengu: names of monsters and skills (GPL-3.0).
 - **[Lucide](https://lucide.dev)** (ISC licence): the icon set used throughout the meter.
 - **[Daeva](https://github.com/fhazal/Daeva-aion2-discordbot)**, our Discord assistant, supplies the event schedule.
 - Released under the [MIT licence](LICENSE), except `a2tools` (GPL-3.0).

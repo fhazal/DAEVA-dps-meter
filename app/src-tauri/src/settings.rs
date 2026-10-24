@@ -118,7 +118,7 @@ impl Default for Alerts {
             sound: true,
             volume: 70.0,
             show_next: true,
-            muted: vec!["shugo_festival".into(), "dimensional_invasion".into()],
+            muted: Vec::new(),
             banner_secs: 12.0,
             position: "above_meter".into(),
             offset_x: 0.0,

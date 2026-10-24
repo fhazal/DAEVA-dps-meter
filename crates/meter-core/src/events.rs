@@ -108,6 +108,15 @@ pub enum GameEvent {
     SelfReady { ready: bool },
     /// The room leader clicked Enter dungeon (the teleport follows).
     PartyEntering,
+    /// You joined someone's dungeon room.
+    RoomEntered,
+    /// You were removed from the dungeon room (kicked while queueing).
+    RoomLeft,
+    /// You left the dungeon room yourself (also sent when leaving the
+    /// dungeon, just before DungeonLeft).
+    RoomExit,
+    /// You left the dungeon (its room closes for you).
+    DungeonLeft,
     /// The game just sent a full picture (login or zone change).
     Fresh,
 }
@@ -134,6 +143,10 @@ impl GameEvent {
             GameEvent::PartyReady { .. } => "party_ready",
             GameEvent::SelfReady { .. } => "self_ready",
             GameEvent::PartyEntering => "party_entering",
+            GameEvent::RoomEntered => "room_entered",
+            GameEvent::RoomLeft => "room_left",
+            GameEvent::RoomExit => "room_exit",
+            GameEvent::DungeonLeft => "dungeon_left",
             GameEvent::Fresh => "fresh",
         }
     }

@@ -6,7 +6,7 @@
 // updates after a game patch never need a new build.
 {
   "name": "AION 2 (global)",
-  "version": "0.6.19",
+  "version": "0.6.24",
   "process_names": ["aion2"],
   // Server ports, if they turn out to be fixed. Auto-detection by process
   // already finds the server, so this can stay empty.
@@ -215,6 +215,18 @@
     {"opcode": "0x9200", "name": "S_PARTY_INFO", "dir": "server",
      "fields": [{"name": "members", "type": "member_names", "marker": 0}],
      "emit": {"event": "party", "when": "1", "members": "members"}},
+    // Someone accepted your invite (open world): a short header, then one
+    // entry as in 0x9200. Your own 0x9200 before it lists just you
+    // (report 1792829501, 141-147 s).
+    {"opcode": "0x920d", "name": "S_PARTY_JOINED", "dir": "server",
+     "fields": [{"name": "members", "type": "member_names", "marker": 0}],
+     "emit": {"event": "party_join", "when": "1", "members": "members"}},
+    // You joined someone's dungeon room (8 zero bytes). The room announces
+    // you with a 0x970b in the same moment, which names you on a fresh
+    // install (r1792651601, report 1792823256).
+    {"opcode": "0x9710", "name": "S_ROOM_ENTERED", "dir": "server",
+     "fields": [],
+     "emit": {"event": "room_entered", "when": "1"}},
     // Someone joined the dungeon room: one entry as in 0x9702 (status 0x0c,
     // slot, id...), sent the moment they join; the full list can come 40 s
     // later (rerun2 capture 2026-10-22).
@@ -243,6 +255,25 @@
     {"opcode": "0x8d3f", "name": "S_PARTY_LEFT", "dir": "server",
      "fields": [],
      "emit": {"event": "party", "when": "1"}},
+    // You were removed from a dungeon room (kicked while queueing; no body,
+    // the room browser list 0x9701 follows). Seen twice in one capture, no
+    // party list after it, so the old room stayed up. Not "party": that
+    // would ignore the next room's titled list.
+    {"opcode": "0x972a", "name": "S_ROOM_REMOVED", "dir": "server",
+     "fields": [],
+     "emit": {"event": "room_left", "when": "1"}},
+    // You left the dungeon room (no body). In the waiting room nothing else
+    // follows, so the old room stayed up; on a dungeon exit 0x971b comes
+    // 0.05 s later, and the engine only empties the panel outside a dungeon.
+    {"opcode": "0x971d", "name": "S_ROOM_EXIT", "dir": "server",
+     "fields": [],
+     "emit": {"event": "room_exit", "when": "1"}},
+    // You left the dungeon: the room closes for you (u32 room id, the same
+    // as in the 0x9702 header). Comes with 0x971d/0x922f on every exit seen
+    // (two captures), whether or not you also left the party.
+    {"opcode": "0x971b", "name": "S_ROOM_CLOSED", "dir": "server",
+     "fields": [],
+     "emit": {"event": "dungeon_left", "when": "1"}},
     // Stat update. kind 2 = HP (u32), kind 1 = MP.
     {"opcode": "0x8d00", "name": "S_STAT_UPDATE", "dir": "server",
      // (Kept free of "&&" so the file also loads in meter v0.1.0/0.1.1.)

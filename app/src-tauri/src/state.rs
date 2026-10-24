@@ -37,6 +37,8 @@ pub struct Status {
     pub npcap_version: Option<String>,
     pub npcap_error: Option<String>,
     pub devices: Vec<String>,
+    /// Adapters Npcap listed that we don't capture on, with the reason.
+    pub devices_skipped: Vec<String>,
     pub device_errors: Vec<String>,
     pub game_process: Option<(u32, String)>,
     pub servers: Vec<String>,
@@ -95,6 +97,10 @@ pub struct Core {
     /// Resyncs at the last health check.
     health_resyncs: u64,
     pub warning: Option<String>,
+    /// When the game's server connection was first seen (0 = none).
+    connected_at: f64,
+    /// Connected for 20 s without one game packet (see check_health).
+    no_traffic: bool,
     pub events: EventFeed,
     /// Monsters and skills seen without a name, waiting for you to name them.
     pub wanted: Wanted,
@@ -295,6 +301,7 @@ type Pkt = (u32, f64, Vec<u8>);
 
 /// The game's keep-alive ping, sent every ~0.2 s even when nothing happens.
 const KEEPALIVE_OPCODE: u64 = 0x3600;
+const NO_TRAFFIC: &str = "Can't see the game's traffic. Using a VPN or ping booster? Exclude AION2.exe from it (split tunneling). Click to send a report.";
 
 fn decompressor() -> Decompressor {
     Arc::new(|method: &str, data: &[u8]| -> Option<Vec<u8>> {
@@ -367,6 +374,8 @@ impl Core {
             health_content: 0,
             health_resyncs: 0,
             warning: None,
+            connected_at: 0.0,
+            no_traffic: false,
             events: EventFeed::new(&Default::default()),
             wanted: Wanted::default(),
             lookup_retry: HashMap::new(),
@@ -1122,6 +1131,17 @@ impl Core {
     /// Notices when game traffic keeps arriving but nothing decodes any more
     /// (the usual sign of a game patch changing the protocol).
     fn check_health(&mut self, now: f64) {
+        // The game holds a server connection but none of its packets reach
+        // us (keep-alives come every few seconds even when idle): a VPN or
+        // ping booster sends them through an adapter Npcap doesn't see.
+        let connected = self.status.game_process.is_some() && !self.status.servers.is_empty();
+        if !connected {
+            self.connected_at = 0.0;
+        } else if self.connected_at == 0.0 {
+            self.connected_at = now;
+        }
+        let last = self.pipeline.last_game_ts.max(self.connected_at);
+        self.no_traffic = self.sim.is_none() && connected && now - last > 20.0;
         // Fast self-heal for a stuck server stream (see Pipeline::heal_stall).
         if self.sim.is_none() {
             self.pipeline.heal_stall(now);
@@ -1132,10 +1152,10 @@ impl Core {
         let d = &self.pipeline.decoder;
         let decoded: u64 = d.stats.values().map(|s| s.decoded).sum();
         let frames = d.frames_total;
-        // Keep-alive pings (0x3600) carry no game data and never decode;
-        // while you're idle they are almost all that arrives, so they must
-        // not count towards "messages arrive but none decode".
-        let content: u64 = d.stats.iter().filter(|((_, op), _)| *op != KEEPALIVE_OPCODE).map(|(_, s)| s.count).sum();
+        // Only messages the definitions describe count towards "messages
+        // arrive but none decode": keep-alives (0x3600) and other players'
+        // movement (0x371x, thousands a minute in a busy town) never decode.
+        let content: u64 = d.stats.iter().filter(|((_, op), _)| *op != KEEPALIVE_OPCODE && d.defs.messages.contains_key(op)).map(|(_, s)| s.count).sum();
         let resyncs = d.resyncs();
         if self.health_at > 0.0 {
             let new_content = content.saturating_sub(self.health_content);
@@ -1336,6 +1356,7 @@ impl Core {
             .set("npcap", st.npcap_version.clone())
             .set("npcap_error", st.npcap_error.clone())
             .set("devices", Value::Arr(st.devices.iter().map(|d| Value::from(d.as_str())).collect()))
+            .set("devices_skipped", Value::Arr(st.devices_skipped.iter().map(|d| Value::from(d.as_str())).collect()))
             .set("device_errors", Value::Arr(st.device_errors.iter().map(|d| Value::from(d.as_str())).collect()))
             .set("game_process", st.game_process.as_ref().map(|(pid, n)| format!("{n} (pid {pid})")))
             .set("servers", Value::Arr(st.servers.iter().map(|d| Value::from(d.as_str())).collect()))
@@ -1384,7 +1405,7 @@ impl Core {
             .set("update_version", self.update_available().map(|(v, _)| v))
             .set("update_url", self.update_available().map(|(_, u)| u))
             .set("version", env!("CARGO_PKG_VERSION"))
-            .set("warning", self.warning.clone())
+            .set("warning", if self.no_traffic { Some(NO_TRAFFIC.to_string()) } else { self.warning.clone() })
             .set("pb", self.pb_notice.clone())
             // "Report saved" for a few seconds after Ctrl+Shift+P.
             .set("opened_again", self.opened_again.filter(|t| now_unix() - t < 6.0))
@@ -1434,17 +1455,23 @@ impl Core {
                     .set("cp", m.cp)
                     .set("leader", p.leader.is_some() && m.id == p.leader)
                     .set("ready", m.status.map(|s| s & 0x02 != 0))
+                    .set("in_dungeon", m.status.map(|s| s & meter_core::engine::IN_DUNGEON != 0))
+                    .set("new", e.party_is_new(&m.name))
                     .set("is_self", e.self_name.as_deref() == Some(m.name.as_str()))
                     .build()
             })
             .collect();
+        // Left while you were inside: shown faded for a few seconds.
+        let left: Vec<Value> = e.party_recently_left().into_iter().map(|m| Obj::new().set("name", m.name.as_str()).set("class", m.code.and_then(|c| e.names.party_class(c).cloned())).build()).collect();
         Obj::new()
             .set("title", p.title.clone())
             .set("room", room)
             .set("lobby", e.party_lobby())
             .set("entering", p.entering)
             .set("ready", e.party_ready())
+            .set("inside", p.inside)
             .set("members", Value::Arr(members))
+            .set("left", Value::Arr(left))
             .build()
     }
 
@@ -2194,19 +2221,30 @@ fn supervisor(shared: Arc<Shared>, tx: SyncSender<Pkt>) {
                 }
             };
             let mut names = Vec::new();
+            let mut skipped = Vec::new();
             {
                 let mut c = shared.lock();
                 c.status.device_errors.clear();
             }
             for d in devices {
-                if d.loopback || d.disconnected || d.ipv4.is_empty() {
-                    continue;
-                }
                 let label = if d.description.is_empty() { d.name.clone() } else { d.description.clone() };
-                if !filter_dev.is_empty() && !label.to_ascii_lowercase().contains(&filter_dev) && !d.name.to_ascii_lowercase().contains(&filter_dev) {
+                // VPN tunnels can show no IPv4 address in Npcap's list, so an
+                // adapter without one is opened too (filtering is by "tcp").
+                let why = if d.loopback {
+                    Some("loopback")
+                } else if d.disconnected {
+                    Some("disconnected")
+                } else if !filter_dev.is_empty() && !label.to_ascii_lowercase().contains(&filter_dev) && !d.name.to_ascii_lowercase().contains(&filter_dev) {
+                    Some("not the chosen adapter")
+                } else {
+                    None
+                };
+                if let Some(why) = why {
+                    skipped.push(format!("{label}: {why}"));
                     continue;
                 }
-                names.push(format!("{label} ({})", d.ipv4.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(", ")));
+                let ips = if d.ipv4.is_empty() { "no IPv4".to_string() } else { d.ipv4.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(", ") };
+                names.push(format!("{label} ({ips})"));
                 let np2 = np.clone();
                 let tx2 = tx.clone();
                 let s2 = shared.clone();
@@ -2216,7 +2254,9 @@ fn supervisor(shared: Arc<Shared>, tx: SyncSender<Pkt>) {
                     .spawn(move || capture_loop(np2, d.name, label, bpf2, tx2, s2, gen))
                     .ok();
             }
-            shared.lock().status.devices = names;
+            let mut c = shared.lock();
+            c.status.devices = names;
+            c.status.devices_skipped = skipped;
         }
         std::thread::sleep(Duration::from_millis(500));
     }
