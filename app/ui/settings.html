@@ -300,6 +300,8 @@
     <div class="card sr"><div class="ic" id="updIcon">↻</div><div class="tx"><b id="updTitle">Checking…</b><p id="updStatus"></p></div><button class="btn" id="bCheckUpd">Check for updates</button></div>
     <div class="f">
       ${F("", chk("check_updates", "Check for new versions automatically"), "At start-up and every 6 hours, from GitHub. Nothing about you is sent. A new version shows a notice under the meter.")}
+      ${F("", chk("auto_update", "Update automatically"), "When the meter starts and a new version is out, it downloads it, installs it and restarts by itself. A version that comes out while the meter is open waits for the next start.")}
+      ${F("Testers", chk("test_updates", "Include test versions"), "Also update to pre-release versions, to try fixes before everyone else.")}
       ${F("What's new", `<button class="btn" data-open="releases">Release notes</button>`, "Everything that changed in each version.")}
     </div>
     </section>

@@ -134,6 +134,11 @@ pub struct Core {
     pub pb_notice: Option<Value>,
     /// When Daeva Meter was opened again while running (for the notice).
     pub opened_again: Option<f64>,
+    /// The meter updating itself at start-up (see selfupdate.rs).
+    pub self_update: Option<crate::selfupdate::SelfUpdate>,
+    /// The installed version (tauri.conf, as the updater sees it). Test
+    /// builds set it without touching Cargo.toml.
+    pub app_version: String,
     /// Game servers to time for the ping, per server number (from the Daeva
     /// feed; the built-in Asia entry otherwise), and the last reading:
     /// milliseconds, when, and where ("Tokyo"). `ping_note` says why there
@@ -392,6 +397,8 @@ impl Core {
             bests: Bests::default(),
             pb_notice: None,
             opened_again: None,
+            self_update: None,
+            app_version: env!("CARGO_PKG_VERSION").to_string(),
             probes: Vec::new(),
             game_rtt: None,
             ping_note: None,
@@ -877,13 +884,13 @@ impl Core {
     /// A published release newer than this build that the user hasn't hidden.
     pub fn update_available(&self) -> Option<(String, String)> {
         let (tag, url) = self.update_latest.clone()?;
-        let newer = version_key(&tag) > version_key(env!("CARGO_PKG_VERSION"));
+        let newer = version_key(&tag) > version_key(&self.app_version);
         (newer && self.settings.check_updates && tag != self.settings.skipped_update).then_some((tag, url))
     }
 
     pub fn update_view(&self) -> String {
         serde_json::json!({
-            "current": env!("CARGO_PKG_VERSION"),
+            "current": self.app_version,
             "latest": self.update_latest.as_ref().map(|(t, _)| t.trim_start_matches('v').to_string()),
             "available": self.update_available().map(|(t, _)| t),
             "checked_at": if self.update_checked > 0.0 { Some(self.update_checked) } else { None },
@@ -1195,7 +1202,7 @@ impl Core {
         let mut settings = self.settings.clone();
         settings.share.token = String::new();
         let info = Obj::new()
-            .set("meter_version", env!("CARGO_PKG_VERSION"))
+            .set("meter_version", self.app_version.as_str())
             .set("definitions", self.status.defs_name.as_str())
             .set("created_unix", now_unix())
             .set("note", note)
@@ -1404,7 +1411,8 @@ impl Core {
             .set("uploads_pending", self.uploads.len())
             .set("update_version", self.update_available().map(|(v, _)| v))
             .set("update_url", self.update_available().map(|(_, u)| u))
-            .set("version", env!("CARGO_PKG_VERSION"))
+            .set("self_update", self.self_update.as_ref().and_then(|u| u.view()))
+            .set("version", self.app_version.as_str())
             .set("warning", if self.no_traffic { Some(NO_TRAFFIC.to_string()) } else { self.warning.clone() })
             .set("pb", self.pb_notice.clone())
             // "Report saved" for a few seconds after Ctrl+Shift+P.
@@ -1613,9 +1621,14 @@ impl Core {
     }
 }
 
-/// "0.6.14" → [0, 6, 14] for comparing definition versions.
+/// "0.6.14" → [0, 6, 14, MAX] for comparing versions. A test version
+/// sorts just below its release: "0.5.2-test.2" → [0, 5, 2, 2].
 pub fn version_key(v: &str) -> Vec<u64> {
-    v.trim().trim_start_matches('v').split('.').map(|p| p.trim().parse().unwrap_or(0)).collect()
+    let v = v.trim().trim_start_matches('v');
+    let (main, pre) = v.split_once('-').map_or((v, None), |(m, p)| (m, Some(p)));
+    let mut key: Vec<u64> = main.split('.').map(|p| p.trim().parse().unwrap_or(0)).collect();
+    key.push(pre.map_or(u64::MAX, |p| p.split(|c: char| !c.is_ascii_digit()).filter_map(|d| d.parse().ok()).last().unwrap_or(0)));
+    key
 }
 
 /// Monster templates and skill name keys that have an official name.
@@ -2339,6 +2352,7 @@ pub fn fix_names(src: &str, names: &Names) -> String {
 /// update notice.
 pub const RELEASES_URL: &str = "https://github.com/fhazal/DAEVA-dps-meter/releases";
 const LATEST_API: &str = "https://api.github.com/repos/fhazal/DAEVA-dps-meter/releases/latest";
+pub const RELEASES_API: &str = "https://api.github.com/repos/fhazal/DAEVA-dps-meter/releases?per_page=10";
 
 /// Asks GitHub for the latest published release (drafts and pre-releases are
 /// never "latest"): shortly after start, then every 6 hours, or on "Check now".
@@ -2391,6 +2405,14 @@ fn update_check(shared: Arc<Shared>) {
 #[cfg(test)]
 mod names_tests {
     use super::*;
+
+    #[test]
+    fn test_versions_sort_below_their_release() {
+        assert!(version_key("0.5.2-test.2") > version_key("0.5.2-test.1"));
+        assert!(version_key("v0.5.2") > version_key("0.5.2-test.2"));
+        assert!(version_key("0.5.2-test.1") > version_key("v0.5.1"));
+        assert!(version_key("0.6.23") > version_key("0.6.9"));
+    }
 
     #[test]
     fn official_names_win_over_yours() {

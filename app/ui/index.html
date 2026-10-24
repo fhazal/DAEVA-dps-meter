@@ -186,6 +186,19 @@
   .updline .go:hover { background: rgba(80,150,230,.55); }
   .updline .go svg { width: 11px; height: 11px; stroke: currentColor; fill: none; stroke-linecap: round; stroke-linejoin: round; }
   .updline .x { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 11px; padding: 0 2px; }
+  /* The meter updating itself at start-up: green, amber when it can't. */
+  .updline.self { position: relative; color: #c8f2d4; background: rgba(60,190,110,.13); border-top-color: rgba(90,210,130,.35); white-space: nowrap; overflow: hidden; container-type: inline-size; }
+  .updline.self > svg, .updline.self b { color: #6fdc93; }
+  .updline.self .prog, .so-ft .prog { position: absolute; left: 0; bottom: 0; height: 2px; background: #4fd07f; transition: width .4s; }
+  .updline.self .pill { color: #1a1206; background: #e8b04b; border-radius: 8px; padding: 0 6px; font-weight: 700; }
+  .updline.self .go, .so-ft .go { margin-left: auto; color: #6fdc93; background: none; border: 0; padding: 0; font: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+  .updline.warn { color: #ffe0a8; background: rgba(232,160,60,.14); border-top-color: rgba(240,170,70,.4); }
+  .updline.warn > svg, .updline.warn b, .updline.warn .go { color: #f3b14b; }
+  .updline .why { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+  /* Never wrap: drop the old version, then the words. */
+  @container (max-width: 300px) { .updline.self .from { display: none; } .updline.self .to-word { display: inline; } .updline .why { display: none; } }
+  @container (max-width: 220px) { .updline.self .words { display: none; } }
+  .updline.self .to-word { display: none; }
   .zonetip .x { margin-left: auto; flex: none; background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 11px; padding: 0 2px; }
   .nextev { flex: none; display: flex; gap: 12px; padding: 3px 10px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; font-variant-numeric: tabular-nums; }
   .nextev > span { color: var(--text); display: inline-flex; align-items: center; gap: 4px; }
@@ -280,6 +293,11 @@
   .so-ft .ody { width: 12px; height: 12px; object-fit: contain; vertical-align: -2px; }
   .so-ft .sep { width: 1px; height: 10px; background: rgba(255,255,255,.12); }
   .so-ft .btns { margin-left: auto; display: flex; align-items: center; gap: 0; }
+  .so-ft.upd { position: relative; color: #c8f2d4; background: rgba(60,190,110,.13); }
+  .so-ft.upd b { color: #6fdc93; }
+  .so-ft.upd.warn { color: #ffe0a8; background: rgba(232,160,60,.14); }
+  .so-ft.upd.warn b, .so-ft.upd.warn .go { color: #f3b14b; }
+  .so-ft.upd .go { margin-left: 0; }
   .so-ft .lights { margin-left: 6px; gap: 6px; }
   .so-ft .lt { width: 11px; height: 11px; } .so-ft .lt svg { inset: 1.5px; }
   .titlebar .lights { margin: 0 10px 0 2px; }
@@ -552,7 +570,48 @@
     $("pbline").innerHTML = `${line}<button class="x" id="pbX" title="Hide">✕</button>`;
     $("pbX").onclick = () => { pbHidden = pb.fight_id; $("pbline").hidden = true; pbShown = null; };
   }
+  // The meter updating itself at start-up (Classic: this line; Solo: the
+  // footer). Updating · % → Installing → (restart) → ✓ Updated, which fades.
+  function selfUpdateHtml(u, solo) {
+    const v = D.esc(u.version);
+    const go = (label) => `<button class="go" data-upd="go">${label}</button>`;
+    if (u.stage === "downloading")
+      return { cls: "", html: `<span>Updating to <b>${v}</b>${u.pct != null ? ` · ${u.pct}%` : ""}</span><i class="prog" style="width:${u.pct || 0}%"></i>` };
+    if (u.stage === "installing")
+      return { cls: "", html: `<span>Installing <b>${v}</b> · restarting</span><i class="prog" style="width:100%"></i>` };
+    if (u.stage === "updated")
+      return solo
+        ? { cls: "", html: `<span>✓ Updated to <b>${v}</b></span>${go("What's new")}` }
+        : { cls: "", html: `<span>✓ <span class="words">Updated <span class="from">${D.esc(u.from || "")} → </span><span class="to-word">to </span></span><span class="pill">${v}</span></span>${go("What's new")}` };
+    const what = u.stage === "blocked" ? `Update to <b>${v}</b> blocked` : `Update failed`;
+    return { cls: "warn", html: `<span title="${D.esc(u.reason || "")}">⚠ ${what}</span>${solo ? "" : `<span class="why">${D.esc(u.reason || "")}</span>`}${go("Download")}${solo ? "" : `<button class="x" data-upd="x" title="Hide">✕</button>`}` };
+  }
+  function selfUpdateClick(ev, u) {
+    const b = ev.target.closest("[data-upd]");
+    if (!b) return false;
+    ev.stopPropagation();
+    D.call("open_release", { url: u.url }).catch((e) => D.toast(String(e)));
+    if (u.stage === "blocked" || u.stage === "failed" || b.dataset.upd === "x") D.call("dismiss_self_update").catch(() => {});
+    return true;
+  }
+  let selfUpd = null;
   function renderUpdate(s) {
+    const su = s.self_update;
+    selfUpd = su || null;
+    const solo = document.body.classList.contains("lay-solo");
+    $("updline").classList.toggle("self", !!su && !solo);
+    $("updline").classList.toggle("warn", !!su && !solo && (su.stage === "blocked" || su.stage === "failed"));
+    if (su) {
+      setProp($("updline"), "hidden", solo);
+      const sig = "self:" + JSON.stringify(su);
+      if (solo || sig === updShown) return;
+      updShown = sig;
+      const ic = su.stage === "blocked" || su.stage === "failed" ? "" : D.icon("download");
+      $("updline").innerHTML = ic + selfUpdateHtml(su, false).html;
+      $("updline").onclick = (ev) => { if (selfUpdateClick(ev, su) && ev.target.closest("[data-upd=x]")) $("updline").hidden = true; };
+      return;
+    }
+    $("updline").onclick = null;
     const v = s.update_version || "";
     setProp($("updline"), "hidden", !v);
     if (!v || v === updShown) return;
@@ -916,7 +975,10 @@
     const partyDps = pool.reduce((a, p) => a + (p.dps || 0), 0);
     const ody = s.odyle != null ? `<span title="Odyle${s.odyle_bonus ? ` (+${Number(s.odyle_bonus).toLocaleString()} from Odyle Energy)` : ""}"><img class="ody" src="img/odyle.webp" alt=""> <b>${Number(s.odyle).toLocaleString()}</b>${s.odyle_bonus ? ` <span style="color:#4fb8e8">(+${Number(s.odyle_bonus).toLocaleString()})</span>` : ""}</span><i class="sep"></i>` : "";
     const btns = `<span class="btns"><button class="icon-btn hide-locked" data-act="settings" title="Settings">${D.icon("gear")}</button><button class="icon-btn${ui.click_through ? " on" : ""}" data-act="lock" title="Click-through (Ctrl+Shift+L)">${D.icon(ui.click_through ? "lock" : "unlock")}</button>${D.lights("classic")}</span>`;
-    const ft = so.footer !== false ? `<div class="so-ft" data-drag>${ody}${pool.length > 1 ? `<span title="${grouped ? "Your party\x27s" : "Everyone\x27s"} DPS in this fight">${grouped ? "Party" : "All"} <b>${D.fmt(partyDps)}</b></span><i class="sep"></i>` : ""}${ping}${btns}</div>` : `<div class="so-ft" data-drag style="padding-top:3px;padding-bottom:3px">${btns}</div>`;
+    const su = s.self_update;
+    const suh = su && selfUpdateHtml(su, true);
+    const ft = su ? `<div class="so-ft upd${suh.cls ? " " + suh.cls : ""}" data-drag>${suh.html}${btns}</div>`
+      : so.footer !== false ? `<div class="so-ft" data-drag>${ody}${pool.length > 1 ? `<span title="${grouped ? "Your party\x27s" : "Everyone\x27s"} DPS in this fight">${grouped ? "Party" : "All"} <b>${D.fmt(partyDps)}</b></span><i class="sep"></i>` : ""}${ping}${btns}</div>` : `<div class="so-ft" data-drag style="padding-top:3px;padding-bottom:3px">${btns}</div>`;
     // In a party and not fighting yet: one line, "Party 4/5 · 3/4 ready".
     const pt = lastSnap && lastSnap.party;
     let strip = "";
@@ -932,6 +994,7 @@
     fitSolo();
   }
   $("solo").addEventListener("click", (ev) => {
+    if (selfUpd && selfUpdateClick(ev, selfUpd)) return;
     const a = ev.target.closest("[data-act]");
     if (!a) return;
     const act = a.dataset.act;

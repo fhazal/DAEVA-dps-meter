@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod npcap;
+mod selfupdate;
 mod settings;
 mod state;
 mod winsys;
@@ -144,6 +145,12 @@ fn dismiss_update(st: St<'_>, version: String) {
     let mut c = st.lock();
     c.settings.skipped_update = version;
     c.settings_dirty = true;
+}
+
+/// ✕ on the amber "update blocked/failed" bar.
+#[tauri::command]
+fn dismiss_self_update(st: St<'_>) {
+    st.lock().self_update = None;
 }
 
 #[tauri::command]
@@ -678,12 +685,15 @@ fn main() {
                 sh.lock().opened_again = Some(state::now_unix());
             }
         }))
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let data = app.path().app_data_dir()?;
             let resources = app.path().resource_dir()?;
             let shared = Shared::new(data, resources);
+            shared.lock().app_version = app.package_info().version.to_string();
             app.manage(shared.clone());
             state::start_threads(shared.clone());
+            selfupdate::start(app.handle().clone(), shared.clone());
             start_hotkeys(app.handle(), &shared);
             // While click-through is on, keep only the footer (where the lock
             // button sits) clickable, so the lock can be clicked off again but
@@ -856,6 +866,7 @@ fn main() {
             check_updates_now,
             open_link,
             dismiss_update,
+            dismiss_self_update,
             open_release,
             get_snapshot,
             get_detail,

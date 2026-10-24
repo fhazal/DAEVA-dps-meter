@@ -197,6 +197,17 @@ pub struct Settings {
     pub check_updates: bool,
     /// A version the user hid the update notice for ("v0.3.1").
     pub skipped_update: String,
+    /// Download and install a new version when the meter starts.
+    pub auto_update: bool,
+    /// Update to pre-releases too (testers).
+    pub test_updates: bool,
+    /// The version the installer was started for (cleared once it runs),
+    /// the version before it, and how often it was tried.
+    pub updating_to: String,
+    pub updated_from: String,
+    pub update_tries: u32,
+    /// A version that failed to install twice: no more automatic tries.
+    pub auto_update_gave_up: String,
     pub window: Option<(i32, i32, u32, u32)>,
     pub history_keep_days: u32,
     /// Last known local player (entity id, name, unix time). Entity ids only
@@ -251,6 +262,12 @@ impl Default for Settings {
             show_research: false,
             check_updates: true,
             skipped_update: String::new(),
+            auto_update: true,
+            test_updates: false,
+            updating_to: String::new(),
+            updated_from: String::new(),
+            update_tries: 0,
+            auto_update_gave_up: String::new(),
             window: None,
             history_keep_days: 30,
             last_self: None,

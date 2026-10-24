@@ -37,8 +37,13 @@ jobs:
       # crate itself so its build script re-embeds the icon and version.
       - name: Rebuild app crate from scratch
         run: cargo clean --release -p daeva-meter --manifest-path app/src-tauri/Cargo.toml
+      # The updater key signs the installer (the .sig next to it); the
+      # meter only installs updates signed with it. Secret set by hand.
       - name: Build meter installer
         working-directory: app
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         run: npx --yes @tauri-apps/cli@2.12.3 build
       - name: Show the icon embedded in the program
         shell: pwsh
@@ -64,7 +69,8 @@ jobs:
           name: daeva-meter-windows
           path: dist/*
       # Tagged builds become a DRAFT release: nothing is public until it is
-      # checked and published by hand. Only the installer is attached; the
+      # checked and published by hand. Only the installer (and latest.json
+      # for the updater) is attached; the
       # research toolkit stays in the build artifacts.
       # A commit whose message contains [release] makes a draft for the
       # version in tauri.conf.json. GitHub creates the tag when the draft is
@@ -85,6 +91,16 @@ jobs:
           Set-Content -Path release-notes.md -Value $notes -Encoding utf8
           New-Item -ItemType Directory -Force release | Out-Null
           Copy-Item $setup.FullName release/
+          # latest.json: what the meter's updater reads (releases/latest/
+          # download/latest.json), pointing at this release's installer.
+          $sig = Get-Content "app/src-tauri/target/release/bundle/nsis/$($setup.Name).sig" -Raw
+          $latest = [ordered]@{
+            version = $v
+            notes = "https://github.com/fhazal/DAEVA-dps-meter/releases/tag/v$v"
+            pub_date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+            platforms = @{ "windows-x86_64" = @{ signature = $sig.Trim(); url = "https://github.com/fhazal/DAEVA-dps-meter/releases/download/v$v/$shown" } }
+          }
+          $latest | ConvertTo-Json -Depth 4 | Set-Content -Path release/latest.json -Encoding utf8NoBOM
       - name: Create draft release
         if: contains(github.event.head_commit.message, '[release]')
         uses: softprops/action-gh-release@v2

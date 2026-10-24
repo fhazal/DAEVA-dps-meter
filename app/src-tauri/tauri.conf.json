@@ -30,9 +30,17 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc5QzI3QTNCNjk2RTEzOTkKUldTWkUyNXBPM3JDZVIyMVNXdEZ6S1c0ZGt4b2lEcUNROFA3cVh2LzRJeHB5MkIxZzdQaFdIU1EK",
+      "endpoints": ["https://github.com/fhazal/DAEVA-dps-meter/releases/latest/download/latest.json"],
+      "windows": { "installMode": "passive" }
+    }
+  },
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "createUpdaterArtifacts": true,
     "publisher": "BajuBesi Labs",
     "shortDescription": "AION 2 damage meter",
     "longDescription": "Open, passive damage meter for AION 2. Reads game traffic via Npcap; never touches the game client.",
