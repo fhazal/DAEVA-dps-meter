@@ -1,0 +1,28 @@
+<!-- README top picture. render.js fills in {{version}} and the three window shots. -->
+<!doctype html><meta charset="utf-8"><style>
+@font-face{font-family:Orb;src:url(orbitron.woff)}@font-face{font-family:Raj;src:url(rajdhani-medium.woff)}
+html,body{margin:0;background:#070a10}
+.wrap{width:1280px;height:680px;position:relative;overflow:hidden;font-family:Raj,'Segoe UI',sans-serif;color:#c9cfdb;
+ background:radial-gradient(900px 500px at 78% 10%,rgba(232,176,75,.10),transparent 60%),radial-gradient(800px 600px at 10% 100%,rgba(70,90,160,.18),transparent 60%),linear-gradient(180deg,#0b1020,#070a10)}
+.wrap:before{content:"";position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px);background-size:40px 40px;mask:radial-gradient(700px 500px at 50% 40%,#000,transparent)}
+.head{position:absolute;left:64px;top:46px}
+.eye{font:600 15px Raj;letter-spacing:.22em;color:#e8b04b;text-transform:uppercase}
+.eye b{display:inline-block;width:7px;height:7px;border-radius:50%;background:#e8b04b;margin-right:10px;box-shadow:0 0 10px #e8b04b}
+h1{font:700 40px/1.12 Orb;margin:12px 0 0;color:#eef1f7;letter-spacing:.01em}
+h1 em{font-style:normal;background:linear-gradient(90deg,#ffe7a8,#e8b04b);-webkit-background-clip:text;color:transparent}
+.col{position:absolute}
+.lbl{font:600 15px Raj;letter-spacing:.18em;text-transform:uppercase;color:#8d96a8;margin:0 0 10px 4px}
+.lbl i{font-style:normal;color:#e8b04b}
+.shot{display:block;border-radius:12px;box-shadow:0 30px 60px rgba(0,0,0,.55),0 0 0 1px rgba(232,176,75,.12)}
+.c1{left:64px;top:206px}.c2{left:668px;top:206px}.shot{overflow:hidden}
+.c2b{left:668px;top:478px}
+.note{font:500 17px/1.45 Raj;color:#9aa3b5;width:520px}
+.note kbd{font:600 14px Raj;color:#ffe7a8;border:1px solid rgba(232,176,75,.35);border-radius:6px;padding:1px 7px;background:rgba(232,176,75,.07)}
+.foot{position:absolute;right:64px;bottom:34px;font:600 14px Raj;letter-spacing:.2em;color:#5d6577;text-transform:uppercase}
+</style><div class="wrap">
+<div class="head"><div class="eye"><b></b>AION 2 · Daeva Meter · v{{version}}</div><h1>Live DPS for your party,<br><em>or just for you.</em></h1></div>
+<div class="col c1"><div class="lbl"><i>01</i> · Classic · the whole party</div><img class="shot" src="classic.png" width="520"></div>
+<div class="col c2"><div class="lbl"><i>02</i> · Solo · just you</div><img class="shot" src="solo.png" width="476"><div class="note" style="margin-top:14px">Switch any time with <kbd>Ctrl+Shift+O</kbd></div></div>
+<div class="col c2b"><div class="lbl"><i>03</i> · Event alerts · 5 min before</div><img class="shot" src="alert.png" width="476"></div>
+<div class="foot">BajuBesi Labs · aion2.bajubesi.org</div>
+</div>

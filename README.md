@@ -23,8 +23,28 @@ Live DPS · boss target card · skill breakdowns · event alerts · fight histor
 > Daeva Meter is an unofficial fan project by **BajuBesi Labs**. It is not affiliated with or endorsed by NCSOFT. It only **reads** your network traffic: it never injects into, modifies or talks to the game client.
 
 <p align="center">
-  <img src="docs/branding/preview.png" alt="Daeva Meter overlay with an event alert" width="460">
+  <img src="docs/branding/showcase.png" alt="Daeva Meter: Classic and Solo layouts with a Shugo Festival alert" width="100%">
 </p>
+
+---
+
+## 🖥️ Two layouts
+
+<table>
+<tr>
+<td width="55%" align="center" valign="top">
+<img src="docs/branding/shot-classic.png" alt="Classic layout" width="100%"><br>
+<b>Classic</b> · the whole party
+</td>
+<td width="45%" align="center" valign="top">
+<img src="docs/branding/shot-solo.png" alt="Solo layout" width="100%"><br>
+<b>Solo</b> · just you · switch with <code>Ctrl+Shift+O</code>
+<br><br>
+<img src="docs/branding/shot-alert.png" alt="Shugo Festival alert" width="100%"><br>
+<b>Event alert</b> · 5 min before, with your keys
+</td>
+</tr>
+</table>
 
 ---
 
