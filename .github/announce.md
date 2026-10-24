@@ -1,14 +1,16 @@
 <!-- Short release notes the Daeva Discord bot posts when a release is published.
      Update "version" and the lists with each release. -->
-version: 0.5.1
-tagline: Your own gear score and Ready click in the party panel, and thousands more monster names.
+version: 0.5.2
+tagline: The meter now updates itself, plus a party panel that follows rooms, invites and reruns.
 
 ## New
-- 📖 **6,905 more monster names** from A2Tools by taengu, for monsters gaming.tools doesn't list yet
-- 🏷️ **Official names come first:** your own typed names fill the gaps, and *Names → Your names* shows what's displayed
+- ⬆️ **Updates itself:** from now on the meter installs new versions when you start it (green bar, then a restart). Install 0.5.2 by hand this one time
+- 🏷️ **4,000+ more skill names** from A2Tools, including newer skills and the Elementalist's spirit attacks
+- 🛡️ **VPN help:** a warning when the game's traffic can't be seen, and VPN tunnel adapters are opened too
 
 ## Fixed
-- 🛡️ **Your gear score** now shows in open-world parties
-- ✅ **Your own Ready click** turns your bar green in a dungeon room
-- 👾 **Monster names on a fresh install:** Vakron, Tiere, Thamon, Faded Papis and others are built in
-- ✎ **No "name it"** while the name lists are still downloading
+- 👥 **Party panel:** shows friends who accept your invite, rooms you open yourself, Ready on reruns, and who's inside a dungeon
+- 🚪 **Kicked or left a room:** the panel empties at once
+- ↺ **Reset clears the meter** (the fight stays in History)
+- 📦 **Updating from 0.4.3 or older** no longer stops with an installer error
+- 🪟 Cleaner windows: no square frame, the same red close light everywhere

@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.2 (in progress)
+## 0.5.2 (2026-10-25)
 
 - **The meter updates itself:** when you start it and a new version is out, a green bar shows *Updating to 0.5.3 · 45%*, then *Installing*, and the meter restarts on the new version with *✓ Updated · What's new* for a few seconds (in Solo, the footer line turns green instead). It only updates at start, never in the middle of a session: a version that comes out while you play shows the usual *available · Download* line. Updates are signed, and the meter installs only ones signed by us. If it can't (antivirus stopped the installer, say), you get the usual *available · Download* line to install it by hand, and hovering it says why. Turn it off in *Settings → Updates → Update automatically*; testers can add *Include test versions*. This version still has to be installed by hand once.
 - **Kicked from a dungeon room:** when the leader removed you while you were queueing, the party panel kept showing that room. The game sends no new party list after a kick, only a short "you're out" message, which the meter now reads. The panel empties at once, and the next room you join shows as usual.
