@@ -1,7 +1,9 @@
 // Renders the README pictures from the real overlay UI (app/ui) with a mocked backend.
 // Run after each release: node docs/branding/showcase/render.js
 // Needs Node 18+ and Microsoft Edge. Writes to docs/branding:
-//   showcase.png (top picture), shot-classic.png, shot-solo.png, shot-alert.png
+//   showcase.png (top picture, also the Discord release post), shot-classic.png, shot-solo.png, shot-alert.png,
+//   site-meter.png (aion2.bajubesi.org). Copy showcase.png and site-meter.png into the bot's
+//   source/public as meter-showcase.png and daeva-meter.png.
 const fs = require("fs"), os = require("os"), path = require("path");
 const { execFileSync } = require("child_process");
 
@@ -38,11 +40,11 @@ function alert() {
   return withMock("toast.html", `if(cmd==="get_alerts")return ${J(a)};`);
 }
 
-function shot(name, html, w, h, scale = 2) {
+function shot(name, html, w, h, scale = 2, clear = false) {
   const page = path.join(tmp, name + ".html");
   fs.writeFileSync(page, html);
   const png = path.join(tmp, name + ".png");
-  execFileSync(edge, ["--headless=new", "--disable-gpu", "--hide-scrollbars", "--allow-file-access-from-files", `--force-device-scale-factor=${scale}`, "--virtual-time-budget=4000", `--window-size=${w},${h}`, `--screenshot=${png}`, "file:///" + page.replace(/\\/g, "/")], { stdio: "ignore" });
+  execFileSync(edge, ["--headless=new", "--disable-gpu", "--hide-scrollbars", "--allow-file-access-from-files", ...(clear ? ["--default-background-color=00000000"] : []), `--force-device-scale-factor=${scale}`, "--virtual-time-budget=4000", `--window-size=${w},${h}`, `--screenshot=${png}`, "file:///" + page.replace(/\\/g, "/")], { stdio: "ignore" });
   return png;
 }
 
@@ -59,6 +61,10 @@ function shot(name, html, w, h, scale = 2) {
 
   const page = fs.readFileSync(path.join(__dirname, "showcase.html"), "utf8").replace(/\{\{version\}\}/g, version);
   fs.copyFileSync(shot("showcase", page, 1280, 680), path.join(outDir, "showcase.png"));
+
+  // Tall picture for the meter section on aion2.bajubesi.org (transparent background).
+  const stack = fs.readFileSync(path.join(__dirname, "site.html"), "utf8");
+  fs.copyFileSync(shot("site", stack, 460, 690, 2, true), path.join(outDir, "site-meter.png"));
   fs.rmSync(tmp, { recursive: true, force: true });
   console.log(`Rendered README pictures for ${version} into docs/branding`);
 })().catch((e) => { console.error(e); process.exit(1); });
