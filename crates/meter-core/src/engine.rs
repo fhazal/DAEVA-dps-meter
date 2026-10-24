@@ -1205,6 +1205,13 @@ impl Engine {
                     m.status = Some(if *ready { st | 0x02 } else { st & !0x02 });
                 }
             }
+            GameEvent::SelfReady { ready } => {
+                let me = self.self_name.clone();
+                if let Some(m) = self.party_info.as_mut().and_then(|p| p.members.iter_mut().find(|m| me.as_deref() == Some(m.name.as_str()))) {
+                    let st = m.status.unwrap_or(0x0c);
+                    m.status = Some(if *ready { st | 0x02 } else { st & !0x02 });
+                }
+            }
             GameEvent::PartyEntering => {
                 if let Some(p) = self.party_info.as_mut() {
                     p.entering = true;
@@ -2768,6 +2775,19 @@ mod zone_notice_tests {
         let t = e.fight_table(e.current.as_ref().unwrap(), None);
         let me = t.get("players").and_then(|p| p.as_arr()).unwrap().iter().find(|p| p.bool_or("is_self", false)).map(|p| p.str_or("name", "").to_string());
         assert_eq!(me.as_deref(), Some("Me"), "your row is marked as you");
+    }
+
+    #[test]
+    fn your_own_ready_click_shows() {
+        let m = |n: &str, id: u64| crate::events::PartyMember { name: n.into(), id: Some(id), status: Some(0x0c), ..Default::default() };
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&GameEvent::PartyInfo { title: Some("85k".into()), leader: Some(10), members: vec![m("Lead", 10), m("Me", 11)] });
+        e.handle(&GameEvent::SelfReady { ready: true });
+        assert_eq!(e.party_info.as_ref().unwrap().members[1].status, Some(0x0e));
+        assert_eq!(e.party_info.as_ref().unwrap().members[0].status, Some(0x0c), "only you");
+        e.handle(&GameEvent::SelfReady { ready: false });
+        assert_eq!(e.party_info.as_ref().unwrap().members[1].status, Some(0x0c));
     }
 
     #[test]

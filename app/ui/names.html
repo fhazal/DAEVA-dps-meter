@@ -20,6 +20,8 @@
   .lk { cursor: pointer; color: var(--accent); white-space: nowrap; }
   .st { font-size: 11px; color: var(--dim); white-space: nowrap; }
   .st.pending { color: var(--warn); }
+  .strike input { text-decoration: line-through; color: var(--dim); }
+  .official { color: var(--good); font-weight: 600; }
   .credit { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--muted); }
   .credit a { color: var(--accent); cursor: pointer; text-decoration: underline; }
 </style>
@@ -93,8 +95,8 @@
         : '<p class="done">Every skill you have seen has a name.</p>';
     } else {
       el.innerHTML = data.named.length
-        ? `<table class="grid"><thead><tr><th>Type</th><th>Id</th><th>Name</th></tr></thead><tbody>${data.named.map((n) => `
-          <tr><td>${n.kind === "npc" ? "Monster" : "Skill"}</td><td class="id">${n.id}</td><td class="inp">${input(n.kind, n.id, n.name)}</td></tr>`).join("")}</tbody></table>`
+        ? `<table class="grid"><thead><tr><th>Type</th><th>Id</th><th>Your name</th><th>Shown as</th></tr></thead><tbody>${data.named.map((n) => `
+          <tr><td>${n.kind === "npc" ? "Monster" : "Skill"}</td><td class="id">${n.id}</td><td class="inp${n.official ? " strike" : ""}">${input(n.kind, n.id, n.name)}</td><td>${n.official ? `<span class="official">${D.esc(n.shown || "")}</span> <span class="st">· official name</span>` : `${D.esc(n.name)} <span class="st">· yours (no official name)</span>`}</td></tr>`).join("")}</tbody></table>`
         : '<p class="muted">Nothing named yet.</p>';
     }
     el.querySelectorAll("[data-lk]").forEach((b) => (b.onclick = () => D.call("open_lookup", { kind: b.dataset.lk, id: Number(b.dataset.lid) }).catch((e) => D.toast(String(e)))));

@@ -6,7 +6,7 @@
 // updates after a game patch never need a new build.
 {
   "name": "AION 2 (global)",
-  "version": "0.6.18",
+  "version": "0.6.19",
   "process_names": ["aion2"],
   // Server ports, if they turn out to be fixed. Auto-detection by process
   // already finds the server, so this can stay empty.
@@ -225,6 +225,11 @@
     {"opcode": "0x9716", "name": "S_ROOM_READY", "dir": "server",
      "fields": ["id:u32le", "x:skip2", "server:u16le", "ready:u8"],
      "emit": {"event": "party_ready", "when": "1", "id": "id", "ready": "ready"}},
+    // You clicked Ready (00 00 01); other members' clicks come as 0x9716.
+    // 0 taken as Cancel Ready (not seen in a capture yet).
+    {"opcode": "0x9715", "name": "S_ROOM_SELF_READY", "dir": "server",
+     "fields": ["x:skip2", "ready:u8"],
+     "emit": {"event": "self_ready", "when": "1", "ready": "ready"}},
     // The leader clicked Enter dungeon (no body); the teleport follows.
     {"opcode": "0x9319", "name": "S_ROOM_ENTER", "dir": "server",
      "fields": [],

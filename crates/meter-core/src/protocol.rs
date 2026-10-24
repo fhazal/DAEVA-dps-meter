@@ -559,7 +559,23 @@ fn read_fields(r: &mut Reader<'_>, defs: &[FieldDef], parents: &[&Scope], out: &
                                 let u32at = |k: usize| b.get(k..k + 4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]));
                                 let id = u32at(i + h).unwrap_or(0);
                                 let server = u16::from_le_bytes([b[i + h + 6], b[i + h + 7]]);
-                                let gs = u32at(at + 8).filter(|g| (1..=20_000).contains(g)).unwrap_or(0);
+                                // Open-world lists have two varints (2 or 3 bytes
+                                // each, e.g. `ab 7f ab 7f` or `f0 95 01 f0 95 01`)
+                                // after the class where dungeon lists have the
+                                // level; skip them by their real length.
+                                let gs_at = if *marker == 0 {
+                                    let mut k = at + 4;
+                                    for _ in 0..2 {
+                                        while b.get(k).map_or(false, |x| x & 0x80 != 0) {
+                                            k += 1;
+                                        }
+                                        k += 1;
+                                    }
+                                    k
+                                } else {
+                                    at + 8
+                                };
+                                let gs = u32at(gs_at).filter(|g| (1..=20_000).contains(g)).unwrap_or(0);
                                 let cp = (at + 12..(at + 22).min(b.len().saturating_sub(4)))
                                     .find(|j| b[*j] == 0x04 && u32at(j + 1).map_or(false, |c| (1_000..=5_000_000).contains(&c)))
                                     .and_then(|j| u32at(j + 1))
@@ -1110,6 +1126,7 @@ fn emit(e: &Emit, header: &Scope, scope: &Scope, ts: f64, out: &mut Vec<GameEven
                 Some(id) if id > 0 => GameEvent::PartyReady { id, ready: num("ready").unwrap_or(0) != 0 },
                 _ => continue,
             },
+            "self_ready" => GameEvent::SelfReady { ready: num("ready").unwrap_or(0) != 0 },
             "party_entering" => GameEvent::PartyEntering,
             "keys" => match num("cur") {
                 Some(cur) if cur < 10_000 => GameEvent::Keys { cur },
@@ -1373,6 +1390,33 @@ mod party_tests {
         assert_eq!((members[2].gs, members[2].cp), (Some(1904), Some(90568)));
         assert_eq!(members[4].gs, Some(2012));
         assert!(members[4].cp.map_or(false, |c| (1_000..=5_000_000).contains(&c)), "{:?}", members[4]);
+    }
+
+    /// A real 0x9200 (names of the other two replaced): your own entry has
+    /// 3-byte varints after the class, the others 2-byte ones, so the gear
+    /// score sits at a different offset (report 1792657582: you showed none).
+    #[test]
+    fn open_world_party_gear_score_with_varints() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
+        let mut d = Decoder::new(Arc::new(Definitions::from_json(&src).unwrap()), None);
+        let flow = FlowKey { src: Endpoint { ip: Ipv4Addr::new(9, 9, 9, 9), port: 13328 }, dst: Endpoint { ip: Ipv4Addr::new(10, 0, 0, 2), port: 5000 } };
+        let hex = "ef 04 00 92 08 2a 75 04 00 83 24 d5 00 27 ed 03 00 00 00 cc 09 05 00 00 00 02 01 00 02 05 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 03 03 03 ea 09 00 00 cc 09 cc 09 24 30 41 42 42 34 30 41 33 2d 41 30 39 33 2d 34 34 36 46 2d 42 35 39 38 2d 34 32 36 36 30 41 42 30 35 32 31 33 f5 06 03 00 00 00 cc 09 08 42 61 6a 75 42 65 73 69 07 00 00 00 f0 95 01 f0 95 01 76 0d 00 00 76 0d 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 56 04 00 00 00 00 00 00 31 04 00 00 c1 ed 08 48 c2 19 ba c7 00 98 94 46 ff 05 66 69 69 73 74 02 00 00 00 2d 00 00 00 00 00 00 00 8b 05 00 00 1f 06 01 00 00 00 00 00 01 03 02 e8 1a 00 00 cc 09 cc 09 24 33 32 44 36 37 32 38 32 2d 34 32 36 45 2d 34 34 43 31 2d 39 45 39 30 2d 46 44 42 42 43 38 39 34 33 44 39 32 a5 e4 03 00 00 00 cc 09 09 4d 65 6d 62 65 72 30 30 39 20 00 00 00 ab 7f ab 7f ec 10 00 00 ec 10 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 85 03 00 00 14 0c 00 00 85 03 00 00 97 2c 54 47 dc a8 15 47 80 fa b2 47 05 66 69 69 73 74 02 00 00 00 2d 00 00 00 00 00 00 00 c1 05 00 00 6d 27 01 00 00 00 00 00 01 07 01 37 1a 00 00 cc 09 cc 09 24 45 34 35 39 37 46 36 41 2d 36 45 41 41 2d 34 34 45 35 2d 41 31 43 44 2d 32 31 46 36 33 35 31 39 46 33 36 41 27 ed 03 00 00 00 cc 09 0c 4d 65 6d 62 65 72 30 30 30 30 31 32 20 00 00 00 a1 7e a1 7e 32 12 00 00 32 12 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 56 04 00 00 00 00 00 00 eb 03 00 00 34 ba 2a c7 bd 37 88 c7 00 c6 a0 46 05 66 69 69 73 74 02 00 00 00 2d 00 00 00 00 00 00 00 99 06 00 00 01 01 00 b0 59 09 01 01 c4 41 01 00 00 00 00 00 01 01";
+        let bytes: Vec<u8> = hex.split_whitespace().map(|h| u8::from_str_radix(h, 16).unwrap()).collect();
+        let mut out = Vec::new();
+        d.push(flow, true, &bytes, false, 1.0, &mut out);
+        let members = out.iter().find_map(|e| match e { GameEvent::PartyInfo { members, .. } => Some(members.clone()), _ => None }).expect("party info");
+        assert_eq!(members.iter().map(|m| (m.name.as_str(), m.gs)).collect::<Vec<_>>(), vec![("BajuBesi", Some(3446)), ("Member009", Some(4332)), ("Member000012", Some(4658))]);
+    }
+
+    /// The real 0x9715 sent when you clicked Ready (report 1792800005).
+    #[test]
+    fn your_ready_click_real_frame() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
+        let mut d = Decoder::new(Arc::new(Definitions::from_json(&src).unwrap()), None);
+        let flow = FlowKey { src: Endpoint { ip: Ipv4Addr::new(9, 9, 9, 9), port: 13328 }, dst: Endpoint { ip: Ipv4Addr::new(10, 0, 0, 2), port: 5000 } };
+        let mut out = Vec::new();
+        d.push(flow, true, &[0x09, 0x15, 0x97, 0x00, 0x00, 0x01], false, 1.0, &mut out);
+        assert!(out.iter().any(|e| matches!(e, GameEvent::SelfReady { ready: true })), "{out:?}");
     }
 
     /// A real 0x9200 from an open-world party of two (another player's name

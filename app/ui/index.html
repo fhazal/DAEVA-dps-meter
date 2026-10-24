@@ -636,7 +636,8 @@
         : ` · <span class="fz on" title="${D.esc(tip)}">🔥 Enraged</span>`;
     }
     const bot = `<div class="tc-bot"><span>${dead ? `Killed in <b class="good">${D.dur(secs)}</b>${hpCheck(t)}` : killIn ? `Kill in <b class="good">${killIn}</b>${fz}` : `Damage <b>${D.fmt(onTarget)}</b>${fz}`}</span><span>${right}</span></div>`;
-    const nameit = t.named === false && t.npc_id ? `<span class="nameit" data-npc="${t.npc_id}" title="Looking it up on aion2.gaming.tools… or type the name yourself (saved for good)">✎ name it</span><span class="nameit" data-lk="${t.npc_id}" title="Open on aion2.gaming.tools">🔎</span>` : "";
+    // Not while the monster list is still downloading: its name is on the way.
+    const nameit = t.named === false && t.npc_id && !(lastSnap && lastSnap.status && lastSnap.status.monster_data === "loading") ? `<span class="nameit" data-npc="${t.npc_id}" title="Looking it up on aion2.gaming.tools… or type the name yourself (saved for good)">✎ name it</span><span class="nameit" data-lk="${t.npc_id}" title="Open on aion2.gaming.tools">🔎</span>` : "";
     const unknownTip = t.name === "Unknown monster" ? ` title="This monster was already nearby when the meter started, so the game never said which one it is. It gets its name after you change zone or it comes back into view."` : "";
     const portrait = D.npcIcon(t.art_npc || t.npc_id, 24) || '<span class="tc-ic"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.5C4.5 1.5 2 4 2 7c0 1.9 1 3.3 2.3 4.1V13c0 .6.4 1 1 1h.7v-1.5h1V14h2v-1.5h1V14h.7c.6 0 1-.4 1-1v-1.9C13 10.3 14 8.9 14 7c0-3-2.5-5.5-6-5.5zM5.6 9.2a1.3 1.3 0 1 1 0-2.6 1.3 1.3 0 0 1 0 2.6zm4.8 0a1.3 1.3 0 1 1 0-2.6 1.3 1.3 0 0 1 0 2.6z"/></svg></span>';
     const html = `<div class="tcard${dead ? " dead" : ""}${rkey ? " r-" + rkey : ""}"><div class="row1">${portrait}<div class="name"${unknownTip}>${D.esc(t.name)}${nameit}</div>${kill}</div>${hp}${bot}</div>`;

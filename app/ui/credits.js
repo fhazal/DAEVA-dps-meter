@@ -15,6 +15,7 @@ window.DAEVA_CREDITS = [
   ]],
   ["Special thanks", [
     ["aion2.gaming.tools", "Monster and skill names · AION 2 Global Database team"],
+    ["A2Tools", "Names of zone and dungeon monster variants · taengu · GPL-3.0"],
     ["Lucide", "Icons · ISC licence"],
     ["Bajubesi Network", "Our community on Discord"],
   ]],
@@ -31,6 +32,7 @@ window.DAEVA_OSS = [
   ["libloading", "ISC", "Loading Npcap"],
   ["windows-sys", "MIT or Apache-2.0", "Windows features (hotkeys, sounds, links)"],
   ["tauri-plugin-single-instance", "MIT or Apache-2.0", "One meter at a time"],
+  ["A2Tools monster names", "GPL-3.0", "Zone and dungeon monster names (definitions/a2tools, licence included there)"],
 ];
 
 window.DAEVA_LUCIDE_LICENSE = `ISC License

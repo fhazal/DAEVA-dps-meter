@@ -39,7 +39,9 @@
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.ico"],
     "resources": {
       "../../definitions/aion2.json": "definitions/aion2.json",
-      "../../definitions/names.json": "definitions/names.json"
+      "../../definitions/names.json": "definitions/names.json",
+      "../../definitions/a2tools/names.json": "definitions/a2tools/names.json",
+      "../../definitions/a2tools/LICENSE": "definitions/a2tools/LICENSE"
     },
     "windows": {
       "nsis": {

@@ -188,9 +188,10 @@ More: [docs/DECODING.md](docs/DECODING.md) · [docs/DEFINITIONS.md](docs/DEFINIT
 ## 🙏 Credits
 
 - **[AION 2 Global Database](https://aion2.gaming.tools)** by gaming.tools: monster and skill names and game icons, with thanks to their team.
+- **[A2Tools](https://github.com/taengu/A2Tools-DPS-Meter)** by taengu: names of zone and dungeon monster variants that gaming.tools doesn't list. That data lives in [`definitions/a2tools`](definitions/a2tools) under its own **GPL-3.0** licence.
 - **[Lucide](https://lucide.dev)** (ISC licence): the icon set used throughout the meter.
 - **[Daeva](https://github.com/fhazal/Daeva-aion2-discordbot)**, our Discord assistant, supplies the event schedule.
-- Released under the [MIT licence](LICENSE).
+- Released under the [MIT licence](LICENSE), except [`definitions/a2tools`](definitions/a2tools) (GPL-3.0).
 
 <div align="center">
 

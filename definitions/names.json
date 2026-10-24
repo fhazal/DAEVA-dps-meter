@@ -18,7 +18,20 @@
   "5": "Mythic"
  },
  "skills": {},
- "npcs": {},
+ "npcs_note": "Dungeon variants gaming.tools doesn't list (named from the boss cards of earlier runs); rank, portrait and enrage come from the boss with the same name.",
+ "npcs": {
+  "2300804": "Enraged Earth Spirit",
+  "2300810": "Tiere",
+  "2300811": "Thamon",
+  "2300812": "Vakron",
+  "2400594": "Faded Papis",
+  "2400940": "Faded Papis",
+  "2400942": "Young Coradon",
+  "2400943": "Slink",
+  "2400948": "Withered Branch Spider",
+  "2400949": "Rafflesia",
+  "2400950": "Young Slink"
+ },
  "zones": {},
  "items": {},
  "servers_note": "Asia game servers (world numbers), from the official server list (same as the Daeva bot's roster).",

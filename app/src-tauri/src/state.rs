@@ -105,6 +105,9 @@ pub struct Core {
     pub lookup_status: Option<String>,
     /// gaming.tools bulk data loaded: (npc names, skill names, fetched at).
     pub site_bulk: Option<(usize, usize, f64)>,
+    /// Monsters and skills with an official name (names.json or
+    /// gaming.tools): your own name for them is kept but not shown.
+    pub official: Official,
     /// Picture paths from gaming.tools: "n<template>" / "s<skill>" -> path.
     pub icons: HashMap<String, String>,
     /// Set by "Update names now".
@@ -329,7 +332,7 @@ impl Core {
         let _ = std::fs::create_dir_all(paths.data.join("definitions"));
         let settings = Settings::load(&paths.settings);
         let mut status = Status::default();
-        let (defs, names) = load_definitions(&paths, &mut status);
+        let (defs, names, official) = load_definitions(&paths, &mut status);
         let mut pipeline = Pipeline::new(Decoder::new(defs, Some(decompressor())), Engine::new(engine_cfg(&settings), names));
         pipeline.server_ports.extend(settings.manual_ports.iter().copied());
         if !settings.demo {
@@ -371,6 +374,7 @@ impl Core {
             lookup_status: None,
             site_loading: false,
             site_bulk: None,
+            official,
             icons: HashMap::new(),
             site_wake: false,
             toast_anchor: "bottom",
@@ -399,7 +403,8 @@ impl Core {
     }
 
     pub fn reload_definitions(&mut self) {
-        let (defs, names) = load_definitions(&self.paths, &mut self.status);
+        let (defs, names, official) = load_definitions(&self.paths, &mut self.status);
+        self.official = official;
         // A fresh decoder must not be fed the middle of a stream as if it
         // were a frame boundary: restart reassembly so every flow resyncs,
         // and restart the health counters (they count from zero again).
@@ -449,8 +454,9 @@ impl Core {
             self.pipeline.engine.names = Names::from_json(DEMO_NAMES).unwrap_or_default();
         } else {
             self.sim = None;
-            let (_, names) = load_definitions(&self.paths, &mut self.status);
+            let (_, names, official) = load_definitions(&self.paths, &mut self.status);
             self.pipeline.engine.names = names;
+            self.official = official;
         }
         self.settings_dirty = true;
     }
@@ -831,10 +837,13 @@ impl Core {
         }
         let e = &mut self.pipeline.engine;
         match kind {
+            // Saved either way; an official name stays on screen.
+            "npc" if self.official.npcs.contains(&key) => {}
             "npc" => {
                 e.rename_npc(key, &name);
                 self.wanted.npcs.remove(&key);
             }
+            _ if self.official.skills.contains(&key) => {}
             _ => {
                 e.names.skills.insert(key, name.clone());
                 self.wanted.skills.remove(&key);
@@ -899,10 +908,25 @@ impl Core {
             .as_ref()
             .map(|m| {
                 let mut out = Vec::new();
+                let names = &self.pipeline.engine.names;
                 for (sec, kind) in [("npcs", "npc"), ("skills", "skill")] {
                     if let Some(o) = m[sec].as_object() {
                         for (k, v) in o {
-                            out.push(Obj::new().set("kind", kind).set("id", k.parse::<u64>().unwrap_or(0)).set("name", v.as_str().unwrap_or("")).build());
+                            let key = k.parse::<u32>().unwrap_or(0);
+                            let (official, shown) = if kind == "npc" {
+                                (self.official.npcs.contains(&key), names.npcs.get(&key))
+                            } else {
+                                (self.official.skills.contains(&key), names.skills.get(&key))
+                            };
+                            out.push(
+                                Obj::new()
+                                    .set("kind", kind)
+                                    .set("id", k.parse::<u64>().unwrap_or(0))
+                                    .set("name", v.as_str().unwrap_or(""))
+                                    .set("official", official)
+                                    .set("shown", if official { shown.cloned() } else { None })
+                                    .build(),
+                            );
                         }
                     }
                 }
@@ -1567,7 +1591,14 @@ pub fn version_key(v: &str) -> Vec<u64> {
     v.trim().trim_start_matches('v').split('.').map(|p| p.trim().parse().unwrap_or(0)).collect()
 }
 
-fn load_definitions(paths: &Paths, status: &mut Status) -> (Arc<Definitions>, Names) {
+/// Monster templates and skill name keys that have an official name.
+#[derive(Default)]
+pub struct Official {
+    pub npcs: HashSet<u32>,
+    pub skills: HashSet<u32>,
+}
+
+fn load_definitions(paths: &Paths, status: &mut Status) -> (Arc<Definitions>, Names, Official) {
     status.defs_error = None;
     status.names_error = None;
     // Your copy in the definitions folder overrides the bundled one only
@@ -1597,8 +1628,10 @@ fn load_definitions(paths: &Paths, status: &mut Status) -> (Arc<Definitions>, Na
     // definitions adds to it and wins where both have an entry. (It used to
     // replace it outright, so an older copy there hid newer data such as
     // enrage timers and party class numbers.)
+    // A2Tools' monster names (GPL-3.0, in their own folder) come first: they
+    // only fill ids gaming.tools doesn't list, so everything else wins.
     let mut names = Names::default();
-    for p in [paths.resources.join("definitions").join("names.json"), paths.data.join("definitions").join("names.json")] {
+    for p in [paths.resources.join("definitions").join("a2tools").join("names.json"), paths.resources.join("definitions").join("names.json"), paths.data.join("definitions").join("names.json")] {
         if !p.exists() {
             continue;
         }
@@ -1608,21 +1641,30 @@ fn load_definitions(paths: &Paths, status: &mut Status) -> (Arc<Definitions>, Na
         }
     }
     // gaming.tools names (used with permission) take precedence over the
-    // bundled names.json; your own names (my-names.json) win over both.
+    // bundled names.json; your own names (my-names.json) only fill the gaps,
+    // so a name typed before the official one was known doesn't hide it.
     if let Ok(site) = std::fs::read_to_string(paths.data.join("gaming-tools-names.json")).map_err(|e| e.to_string()).and_then(|s| Names::from_json(&s)) {
         names.npcs.extend(site.npcs);
         names.skills.extend(site.skills);
         names.ranks.extend(site.ranks);
         names.families.extend(site.families);
     }
+    let official = Official { npcs: names.npcs.keys().copied().collect(), skills: names.skills.keys().copied().collect() };
     let mine = paths.data.join("my-names.json");
     if mine.exists() {
         match std::fs::read_to_string(&mine).map_err(|e| e.to_string()).and_then(|s| Names::from_json(&s)) {
-            Ok(m) => names.merge(m),
+            Ok(m) => {
+                for (k, v) in m.npcs {
+                    names.npcs.entry(k).or_insert(v);
+                }
+                for (k, v) in m.skills {
+                    names.skills.entry(k).or_insert(v);
+                }
+            }
             Err(e) => status.names_error = Some(format!("{}: {e}", mine.display())),
         }
     }
-    (Arc::new(defs), names)
+    (Arc::new(defs), names, official)
 }
 
 /// Restricts a fight record to what the user agreed to share.
@@ -2303,5 +2345,34 @@ fn update_check(shared: Arc<Shared>) {
             next = Instant::now() + Duration::from_secs(6 * 3600);
         }
         std::thread::sleep(Duration::from_secs(5));
+    }
+}
+
+#[cfg(test)]
+mod names_tests {
+    use super::*;
+
+    #[test]
+    fn official_names_win_over_yours() {
+        let dir = std::env::temp_dir().join(format!("daeva-names-test-{}", std::process::id()));
+        let res = dir.join("res");
+        let data = dir.join("data");
+        std::fs::create_dir_all(res.join("definitions")).unwrap();
+        std::fs::create_dir_all(&data).unwrap();
+        std::fs::write(res.join("definitions").join("names.json"), r#"{"npcs": {"2300812": "Vakron"}}"#).unwrap();
+        std::fs::create_dir_all(res.join("definitions").join("a2tools")).unwrap();
+        std::fs::write(res.join("definitions").join("a2tools").join("names.json"), r#"{"npcs": {"2300812": "Other", "2300809": "Eroded Kalgolem"}}"#).unwrap();
+        std::fs::write(data.join("gaming-tools-names.json"), r#"{"npcs": {}, "skills": {"17010000": "Earth's Retribution"}}"#).unwrap();
+        std::fs::write(data.join("my-names.json"), r#"{"npcs": {"2300812": "Vakorn", "2300899": "Sky Golem"}, "skills": {"17010000": "Earth Hit"}}"#).unwrap();
+        let paths = Paths { data: data.clone(), resources: res, settings: data.join("settings.json"), history: data.join("history"), research: data.join("research") };
+        let (_, names, official) = load_definitions(&paths, &mut Status::default());
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(names.npcs.get(&2300812).map(String::as_str), Some("Vakron"));
+        assert_eq!(names.npcs.get(&2300899).map(String::as_str), Some("Sky Golem"), "yours fills the gap");
+        assert_eq!(names.skills.get(&17010000).map(String::as_str), Some("Earth's Retribution"));
+        assert!(official.npcs.contains(&2300812) && !official.npcs.contains(&2300899));
+        // A2Tools only fills ids nobody else names.
+        assert_eq!(names.npcs.get(&2300809).map(String::as_str), Some("Eroded Kalgolem"));
+        assert!(official.npcs.contains(&2300809));
     }
 }

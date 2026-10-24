@@ -103,6 +103,9 @@ pub enum GameEvent {
     PartyJoin { member: PartyMember },
     /// A room member clicked Ready (or took it back).
     PartyReady { id: u64, ready: bool },
+    /// You clicked Ready (or Cancel Ready): the game doesn't send your own
+    /// click as a PartyReady.
+    SelfReady { ready: bool },
     /// The room leader clicked Enter dungeon (the teleport follows).
     PartyEntering,
     /// The game just sent a full picture (login or zone change).
@@ -129,6 +132,7 @@ impl GameEvent {
             GameEvent::PartyInfo { .. } => "party_info",
             GameEvent::PartyJoin { .. } => "party_join",
             GameEvent::PartyReady { .. } => "party_ready",
+            GameEvent::SelfReady { .. } => "self_ready",
             GameEvent::PartyEntering => "party_entering",
             GameEvent::Fresh => "fresh",
         }
