@@ -79,7 +79,16 @@ fn after_last_attempt(shared: &Shared, cur: &str) -> bool {
     if to.is_empty() {
         return true;
     }
-    // Any other version than before the attempt: the installer ran.
+    // A different version than before the attempt: something got installed.
+    // Only at least the one we started counts as our update; an older one
+    // (installed by hand) just ends the attempt.
+    if c.settings.updated_from != cur && state::version_key(cur) < state::version_key(&to) {
+        c.settings.updating_to.clear();
+        c.settings.updated_from.clear();
+        c.settings.update_tries = 0;
+        c.save_settings();
+        return true;
+    }
     if c.settings.updated_from != cur {
         let mut u = SelfUpdate::new("updated", cur);
         u.from = std::mem::take(&mut c.settings.updated_from);

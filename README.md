@@ -117,7 +117,11 @@ All of them work while the game has focus and can be changed in Settings. Resear
 3. Start AION 2 in **borderless or windowed** mode, then Daeva Meter. The dot top-left turns green while it's capturing.
 
 > [!TIP]
-> From 0.3.1 the meter tells you when a new version is out (a line under the meter with a **Download** button). To update, just run the new installer over the top. If an uninstall screen ever asks, leave **"delete application data"** unticked, or you lose your settings, fight history and the names you typed.
+> From 0.5.2 the meter **updates itself**: when you start it and a new version is out, a green bar shows the download, and the meter restarts on the new version. It only installs updates signed by us. To update by hand (or from an older version), run the new installer over the top. If an uninstall screen ever asks, leave **"delete application data"** unticked, or you lose your settings, fight history and the names you typed.
+
+### Antivirus
+
+The installer isn't code-signed yet, so some antivirus programs stop it. Bitdefender's *Advanced Threat Defense* does this most often, and an update then shows an amber *Update blocked · Download* bar under the meter. Either click **Download** and run the installer yourself, or add the meter's folder, `%LOCALAPPDATA%\Daeva Meter`, as an exception (in Bitdefender: *Advanced Threat Defense → Manage exceptions*).
 
 ### Npcap
 
@@ -196,7 +200,6 @@ More: [docs/DECODING.md](docs/DECODING.md) · [docs/DEFINITIONS.md](docs/DEFINIT
 - 💎 Loot decoding and rare-drop cards in Discord
 - 🏆 Daeva bot leaderboards: top DPS of the day, most active players
 - ⏳ Buff uptime and a death recap
-- ⬆️ Releases page with automatic update checks
 
 ---
 
