@@ -39,6 +39,10 @@
   .side .grp:first-of-type { padding-top: 2px; }
   .card { border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,0.03); padding: 14px 16px; margin: 4px 0 14px; display: flex; gap: 14px; align-items: center; }
   .card .ic { width: 44px; height: 44px; border-radius: 10px; flex: none; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); font-size: 22px; }
+  /* Updates: green up to date, blue a new version (like the notice under the meter), red the check failed. */
+  .card .ic.ok { background: rgba(111, 207, 142, 0.16); color: var(--good); }
+  .card .ic.new { background: rgba(80, 150, 230, 0.2); color: #8fd0ff; }
+  .card .ic.err { background: rgba(229, 103, 95, 0.16); color: var(--bad); }
   .card .tx { flex: 1; } .card .tx b { font-size: 13.5px; } .card .tx p { margin: 2px 0 0; font-size: 11.5px; color: var(--muted); }
   .about { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px; padding: 14px 0 18px; border-bottom: 1px solid var(--line); margin-bottom: 14px; }
   .about img { width: 72px; height: 72px; margin-bottom: 6px; }
@@ -294,7 +298,7 @@
     </section>
     <section data-tab="updates">
     <h2>Updates</h2>
-    <div class="card sr"><div class="ic">↻</div><div class="tx"><b id="updTitle">Checking…</b><p id="updStatus"></p></div><button class="btn" id="bCheckUpd">Check for updates</button></div>
+    <div class="card sr"><div class="ic" id="updIcon">↻</div><div class="tx"><b id="updTitle">Checking…</b><p id="updStatus"></p></div><button class="btn" id="bCheckUpd">Check for updates</button></div>
     <div class="f">
       ${F("", chk("check_updates", "Check for new versions automatically"), "At start-up and every 6 hours, from GitHub. Nothing about you is sent. A new version shows a notice under the meter.")}
       ${F("What's new", `<button class="btn" data-open="releases">Release notes</button>`, "Everything that changed in each version.")}
@@ -391,6 +395,10 @@
       const u = JSON.parse(await D.call("update_status"));
       const when = u.checked_at ? " · checked " + D.when(u.checked_at) : "";
       title.textContent = u.available ? `Version ${u.available} is available` : u.error ? "Couldn't check for updates" : u.latest ? "You're up to date" : "Daeva Meter v" + u.current;
+      const [cls, sym] = u.available ? ["new", "↓"] : u.error ? ["err", "!"] : u.latest ? ["ok", "✓"] : ["", "↻"];
+      const ic = document.getElementById("updIcon");
+      ic.className = "ic " + cls;
+      ic.textContent = sym;
       el.textContent = u.available ? `You're on v${u.current}${when} · download it from Release notes`
         : u.error ? `You're on v${u.current} · ${u.error}${when}`
         : u.latest ? `Daeva Meter v${u.current}${when}`

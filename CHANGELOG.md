@@ -10,6 +10,7 @@ Fixes from the first days of 0.5.0: your own gear score and Ready click in the p
 - **6,905 more monster names from A2Tools:** names for monsters gaming.tools doesn't list yet, from [A2Tools](https://github.com/taengu/A2Tools-DPS-Meter) by taengu. They're installed in `definitions\a2tools` with their own **GPL-3.0** licence and credited in *About*. The rest of Daeva Meter stays MIT.
 - **Official names come first:** a name you typed yourself is only used when there's no official one. *Names → Your names* shows what's actually displayed for each one (*Shown as*).
 - **No "✎ name it" while names download:** on the first start, the monster and skill name lists take a moment to download. The boss card and the skill breakdown no longer ask you to name something whose name is on the way.
+- **The Updates icon shows your status:** in *Settings → Updates*, a green ✓ when you're up to date, a blue ↓ when a new version is out (the same blue as the notice under the meter), and a red ! when the check failed. It used to be gold whatever the status.
 
 ## 0.5.0
 
