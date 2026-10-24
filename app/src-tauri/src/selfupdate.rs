@@ -139,7 +139,8 @@ async fn run(app: &AppHandle, shared: &Arc<Shared>, cur: &str) -> Result<(), Str
     let version = update.version.clone();
     {
         let mut c = shared.lock();
-        if c.settings.auto_update_gave_up == version {
+        // Gave up on it, or the user hid it with ✕ on the blue line.
+        if c.settings.auto_update_gave_up == version || c.settings.skipped_update.trim_start_matches('v') == version {
             return Ok(());
         }
         c.self_update = Some(SelfUpdate::new("downloading", &version));
@@ -175,13 +176,12 @@ async fn run(app: &AppHandle, shared: &Arc<Shared>, cur: &str) -> Result<(), Str
     }
     // Let the bar show "Installing" for a moment; the installer closes us.
     tokio_sleep(Duration::from_millis(1500)).await;
+    // The attempt stays recorded: the next start counts it as a try (and
+    // gives up after two), like an installer that never finished.
     if let Err(e) = update.install(bytes) {
-        let mut c = shared.lock();
         let mut u = SelfUpdate::new("blocked", &version);
         u.reason = Some(format!("{BLOCKED} ({e})"));
-        c.self_update = Some(u);
-        c.settings.updating_to.clear();
-        c.save_settings();
+        shared.lock().self_update = Some(u);
     }
     Ok(())
 }

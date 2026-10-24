@@ -38,13 +38,21 @@ jobs:
       - name: Rebuild app crate from scratch
         run: cargo clean --release -p daeva-meter --manifest-path app/src-tauri/Cargo.toml
       # The updater key signs the installer (the .sig next to it); the
-      # meter only installs updates signed with it. Secret set by hand.
+      # meter only installs updates signed with it. Secret set by hand;
+      # without it (forks, pull requests) the build is just not signed.
       - name: Build meter installer
         working-directory: app
+        shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
-        run: npx --yes @tauri-apps/cli@2.12.3 build
+        run: |
+          if ($env:TAURI_SIGNING_PRIVATE_KEY) {
+            npx --yes @tauri-apps/cli@2.12.3 build --config src-tauri/tauri.updater.conf.json
+          } else {
+            npx --yes @tauri-apps/cli@2.12.3 build
+          }
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Show the icon embedded in the program
         shell: pwsh
         run: |
@@ -93,7 +101,10 @@ jobs:
           Copy-Item $setup.FullName release/
           # latest.json: what the meter's updater reads (releases/latest/
           # download/latest.json), pointing at this release's installer.
-          $sig = Get-Content "app/src-tauri/target/release/bundle/nsis/$($setup.Name).sig" -Raw
+          # A release without the update file would never reach anyone.
+          $sigPath = "app/src-tauri/target/release/bundle/nsis/$($setup.Name).sig"
+          if (-not (Test-Path $sigPath)) { throw "No updater signature: add the TAURI_SIGNING_PRIVATE_KEY secret first." }
+          $sig = Get-Content $sigPath -Raw
           $latest = [ordered]@{
             version = $v
             notes = "https://github.com/fhazal/DAEVA-dps-meter/releases/tag/v$v"

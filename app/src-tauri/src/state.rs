@@ -444,6 +444,12 @@ impl Core {
         // So are the window's spot and sizes (the form may hold old ones).
         s.window = self.settings.window;
         s.solo_size = self.settings.solo_size;
+        // And the update bookkeeping (the meter's, or ✕ on the notice).
+        s.skipped_update = self.settings.skipped_update.clone();
+        s.updating_to = self.settings.updating_to.clone();
+        s.updated_from = self.settings.updated_from.clone();
+        s.update_tries = self.settings.update_tries;
+        s.auto_update_gave_up = self.settings.auto_update_gave_up.clone();
         let demo_changed = s.demo != self.settings.demo;
         self.pipeline.engine.cfg = engine_cfg(&s);
         if s.alerts.feed_url != self.settings.alerts.feed_url || s.alerts.enabled != self.settings.alerts.enabled {
@@ -1159,10 +1165,11 @@ impl Core {
         let d = &self.pipeline.decoder;
         let decoded: u64 = d.stats.values().map(|s| s.decoded).sum();
         let frames = d.frames_total;
-        // Only messages the definitions describe count towards "messages
-        // arrive but none decode": keep-alives (0x3600) and other players'
-        // movement (0x371x, thousands a minute in a busy town) never decode.
-        let content: u64 = d.stats.iter().filter(|((_, op), _)| *op != KEEPALIVE_OPCODE && d.defs.messages.contains_key(op)).map(|(_, s)| s.count).sum();
+        // Keep-alives (0x3600) and other players' movement (0x371x,
+        // thousands a minute in a busy town) never decode, so they don't
+        // count towards "messages arrive but none decode". Unknown opcodes
+        // still do: after a patch that renumbers messages, that's all there is.
+        let content: u64 = d.stats.iter().filter(|((_, op), _)| *op != KEEPALIVE_OPCODE && !(0x3710..=0x371f).contains(op)).map(|(_, s)| s.count).sum();
         let resyncs = d.resyncs();
         if self.health_at > 0.0 {
             let new_content = content.saturating_sub(self.health_content);
@@ -1628,7 +1635,7 @@ pub fn version_key(v: &str) -> Vec<u64> {
     let v = v.trim().trim_start_matches('v');
     let (main, pre) = v.split_once('-').map_or((v, None), |(m, p)| (m, Some(p)));
     let mut key: Vec<u64> = main.split('.').map(|p| p.trim().parse().unwrap_or(0)).collect();
-    key.push(pre.map_or(u64::MAX, |p| p.split(|c: char| !c.is_ascii_digit()).filter_map(|d| d.parse().ok()).last().unwrap_or(0)));
+    key.push(pre.map_or(u64::MAX, |p| p.split(|c: char| !c.is_ascii_digit()).filter_map(|d| d.parse().ok()).next_back().unwrap_or(0)));
     key
 }
 

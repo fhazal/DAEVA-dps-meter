@@ -432,8 +432,9 @@ pub struct Fight {
     /// When you last used a skill on each target (damage-over-time ticks
     /// left out), to tell when you've moved on from a boss.
     pub own_last: HashMap<u64, f64>,
-    /// You were in a party during this fight: the boss clock and a card
-    /// that stays on the boss. On your own: the whole fight and your target.
+    /// You were in a dungeon party during this fight: the boss clock and a
+    /// card that stays on the boss. On your own (or in an open-world party):
+    /// the whole fight and your target.
     pub grouped: bool,
 }
 
@@ -590,7 +591,10 @@ pub struct Engine {
     /// When you last joined a room (0x9710) and the last single join entry
     /// (game time, name): together they name you before any zone change.
     room_entered_at: f64,
-    last_join: Option<(f64, String)>,
+    /// Single join entries of the last few seconds (game time, name), and
+    /// the name taken from one of them, if any.
+    recent_joins: Vec<(f64, String)>,
+    named_from_join: Option<String>,
     /// You left a dungeon and haven't entered one since. A rerun room keeps
     /// the "in dungeon" bit on everyone from the last run while you wait
     /// outside, so it's ignored until the leader clicks Enter.
@@ -643,7 +647,8 @@ impl Engine {
             zone_at: f64::NEG_INFINITY,
             left_party: false,
             room_entered_at: f64::NEG_INFINITY,
-            last_join: None,
+            recent_joins: Vec::new(),
+            named_from_join: None,
             exited_dungeon: false,
             skip_party_names: false,
             fresh_view: false,
@@ -802,16 +807,20 @@ impl Engine {
                 // damage from players who joined you on one of your targets
                 // (your party in practice).
                 let mut extends = true;
+                // A party in a dungeon room or inside a dungeon. An open-world
+                // party (a festival, a field boss) counts like you on your own,
+                // as 0.5.1 did: elites die every few seconds there.
+                let dungeon_party = self.party.len() >= 2 && self.party_info.as_ref().map_or(false, |p| p.title.is_some() || p.inside);
                 if self.cfg.only_my_targets {
                     if let Some(me) = self.self_id {
                         let mine = attacker == me;
                         let live = self.current.as_ref().filter(|f| !f.finished);
                         let shared = live.map_or(false, |f| f.stats.get(&me).map_or(false, |s| s.by_target.contains_key(tgt)));
                         let ally = live.map_or(false, |f| f.allies.contains(&attacker));
-                        // In a party, every boss fight counts from the first
-                        // hit, also when your group pulls it before you get
-                        // there (the game sends it once you're in the area).
-                        let party_boss = self.party.len() >= 2
+                        // In a dungeon party, every boss fight counts from the
+                        // first hit, also when your group pulls it before you
+                        // get there (the game sends it once you're in the area).
+                        let party_boss = dungeon_party
                             // A party member: named in the party list, or not
                             // named yet but of a class a member still unmatched
                             // has (an Elementalist's spirits aren't members).
@@ -847,8 +856,9 @@ impl Engine {
                 // On your own you left a boss (no skill of yours on it for
                 // 10 s: your damage-over-time ticks and other players' hits
                 // don't count) and started on another monster: a new fight.
-                // In a party, bosses have add phases, so their fight goes on.
-                let boss_left = self.party.len() < 2
+                // In a dungeon party, bosses have add phases, so their fight
+                // goes on.
+                let boss_left = !dungeon_party
                     && attacker == self.self_id.unwrap_or(u64::MAX)
                     && fl & flags::DOT == 0
                     && self.current.as_ref().map_or(false, |f| {
@@ -861,7 +871,7 @@ impl Engine {
                         finished = Some(f);
                     }
                 }
-                let grouped = self.party.len() >= 2;
+                let grouped = dungeon_party;
                 let fight = self.ensure_fight(*ts);
                 fight.grouped |= grouped;
                 if fight.boss_killed && extends && !fight.targets.contains_key(tgt) && !boss_down {
@@ -1256,7 +1266,8 @@ impl Engine {
             }
             GameEvent::Party { .. } if std::mem::take(&mut self.skip_party_names) => {}
             GameEvent::PartyJoin { member } => {
-                self.last_join = Some((self.last_ts, member.name.clone()));
+                self.recent_joins.retain(|(t, _)| self.last_ts - t < 5.0);
+                self.recent_joins.push((self.last_ts, member.name.clone()));
                 self.name_self_from_join();
                 if let Some(p) = self.party_info.as_ref().filter(|_| !self.left_party) {
                     if !p.members.iter().any(|m| m.name == member.name) {
@@ -1279,6 +1290,7 @@ impl Engine {
             GameEvent::RoomEntered => {
                 self.exited_dungeon = false;
                 self.room_entered_at = self.last_ts;
+                self.named_from_join = None;
                 self.name_self_from_join();
             }
             GameEvent::SelfReady { ready } => {
@@ -1388,14 +1400,20 @@ impl Engine {
     /// You joined a room and the room announced one new member in the same
     /// moment: that's you. Only used while the meter doesn't know you yet
     /// (fresh install, no teleport since), so your own Ready click shows.
+    /// Only when exactly one player joined around then: with two, either
+    /// could be you, and a name taken too early is taken back.
     fn name_self_from_join(&mut self) {
-        if self.self_name.is_some() {
+        let around: Vec<&String> = self.recent_joins.iter().filter(|(t, _)| (t - self.room_entered_at).abs() <= 1.0).map(|(_, n)| n).collect();
+        if around.len() > 1 {
+            if self.named_from_join.is_some() && self.self_name == self.named_from_join {
+                self.self_name = None;
+            }
+            self.named_from_join = None;
             return;
         }
-        if let Some((t, name)) = &self.last_join {
-            if (t - self.room_entered_at).abs() <= 1.0 {
-                self.self_name = Some(name.clone());
-            }
+        if let (None, [name]) = (&self.self_name, around.as_slice()) {
+            self.self_name = Some((*name).clone());
+            self.named_from_join = Some((*name).clone());
         }
     }
 
@@ -2498,6 +2516,8 @@ mod tests {
         let mut e = Engine::new(EngineConfig::default(), names);
         e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
         // A dungeon boss, with your party (barrier phases keep the fight open).
+        let m = |n: &str| crate::events::PartyMember { name: n.into(), status: Some(0x1c), ..Default::default() };
+        e.handle(&GameEvent::PartyInfo { title: Some("run".into()), leader: None, members: vec![m("Me"), m("Ally")] });
         e.handle(&GameEvent::Party { names: vec!["Me".into(), "Ally".into()], codes: vec![None, None] });
         e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(10_000) });
         e.handle(&dmg(0.0, 1, 50, 18000000, 1000, 0));
@@ -2885,6 +2905,9 @@ mod zone_notice_tests {
             let mut e = Engine::new(EngineConfig::default(), names);
             e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
             if party {
+                // A dungeon room (an open-world party counts like you alone).
+                let m = |n: &str| crate::events::PartyMember { name: n.into(), status: Some(0x0c), ..Default::default() };
+                e.handle(&GameEvent::PartyInfo { title: Some("run".into()), leader: None, members: vec![m("Me"), m("Arthemis")] });
                 e.handle(&GameEvent::Party { names: vec!["Me".into(), "Arthemis".into()], codes: vec![Some(31), Some(35)] });
             }
             e.handle(&GameEvent::Actor { id: 2, name: Some("Arthemis".into()), class: None, kind: ActorKind::Player, npc_id: None, owner: None, max_hp: None });
@@ -3078,6 +3101,26 @@ mod zone_notice_tests {
         e.handle(&GameEvent::PartyEntering);
         e.handle(&GameEvent::SelfId { id: 3, name: Some("DewiHijau".into()) });
         assert!(e.party_info.as_ref().unwrap().inside, "the next run");
+    }
+
+    /// Two players join the room in the same second as you: either could be
+    /// you, so no name (and one taken from the first entry is taken back).
+    #[test]
+    fn two_joins_at_once_name_nobody() {
+        let m = |n: &str, id: u64| crate::events::PartyMember { name: n.into(), id: Some(id), status: Some(0x0c), ..Default::default() };
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.see_time(10.0);
+        e.handle(&GameEvent::RoomEntered);
+        e.handle(&GameEvent::PartyJoin { member: m("Me", 1) });
+        assert_eq!(e.self_name.as_deref(), Some("Me"));
+        e.see_time(10.5);
+        e.handle(&GameEvent::PartyJoin { member: m("Stranger", 2) });
+        assert!(e.self_name.is_none(), "taken back");
+        e.see_time(30.0);
+        e.handle(&GameEvent::PartyJoin { member: m("Other", 3) });
+        e.handle(&GameEvent::PartyJoin { member: m("Another", 4) });
+        e.handle(&GameEvent::RoomEntered);
+        assert!(e.self_name.is_none(), "two at once: nobody");
     }
 
     /// Fresh install: no teleport yet, so the meter doesn't know you. Joining
