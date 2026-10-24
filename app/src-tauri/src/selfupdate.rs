@@ -11,10 +11,11 @@ use crate::state::{self, Shared};
 use meter_core::json::{Obj, Value};
 use std::sync::Arc;
 use std::time::Duration;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 use tauri_plugin_updater::UpdaterExt;
 
-/// What the green (or amber) update bar shows.
+/// What the green update bar shows. A blocked or failed update shows no
+/// bar: the usual blue "available · Download" line, with the reason on hover.
 #[derive(Clone, Debug)]
 pub struct SelfUpdate {
     /// "downloading", "installing", "updated", "blocked" or "failed".
@@ -33,9 +34,10 @@ impl SelfUpdate {
         SelfUpdate { stage, version: version.to_string(), from: String::new(), pct: None, reason: None, at: state::now_unix() }
     }
 
-    /// For the status feed; None once "updated" has faded.
+    /// For the status feed; None once "updated" has faded, and for a
+    /// blocked or failed update (see `note`).
     pub fn view(&self) -> Option<Value> {
-        if self.stage == "updated" && state::now_unix() - self.at > 10.0 {
+        if self.stage == "updated" && state::now_unix() - self.at > 10.0 || self.note().is_some() {
             return None;
         }
         Some(
@@ -49,9 +51,14 @@ impl SelfUpdate {
                 .build(),
         )
     }
+
+    /// Why the meter didn't update itself (hover text of the blue line).
+    pub fn note(&self) -> Option<String> {
+        matches!(self.stage, "blocked" | "failed").then(|| format!("Couldn't update automatically: {}", self.reason.as_deref().unwrap_or("unknown error")))
+    }
 }
 
-const BLOCKED: &str = "The installer didn't finish. Antivirus may have stopped it.";
+const BLOCKED: &str = "the installer didn't finish. Antivirus may have stopped it.";
 
 pub fn start(app: AppHandle, shared: Arc<Shared>) {
     // The installer's version (tauri.conf), the one the updater compares:
@@ -150,7 +157,7 @@ async fn run(app: &AppHandle, shared: &Arc<Shared>, cur: &str) -> Result<(), Str
             || {},
         )
         .await
-        .map_err(|e| format!("Download failed: {e}"))?;
+        .map_err(|e| format!("the download failed ({e})."))?;
     // Not in the middle of a fight (it's the start, but just in case).
     while shared.lock().pipeline.engine.current.as_ref().map_or(false, |f| !f.finished) {
         tokio_sleep(Duration::from_secs(2)).await;

@@ -147,12 +147,6 @@ fn dismiss_update(st: St<'_>, version: String) {
     c.settings_dirty = true;
 }
 
-/// ✕ on the amber "update blocked/failed" bar.
-#[tauri::command]
-fn dismiss_self_update(st: St<'_>) {
-    st.lock().self_update = None;
-}
-
 #[tauri::command]
 fn open_release(url: String) -> Result<(), String> {
     if !url.starts_with(state::RELEASES_URL) {
@@ -866,7 +860,6 @@ fn main() {
             check_updates_now,
             open_link,
             dismiss_update,
-            dismiss_self_update,
             open_release,
             get_snapshot,
             get_detail,

@@ -121,7 +121,7 @@ All of them work while the game has focus and can be changed in Settings. Resear
 
 ### Antivirus
 
-The installer isn't code-signed yet, so some antivirus programs stop it. Bitdefender's *Advanced Threat Defense* does this most often, and an update then shows an amber *Update blocked · Download* bar under the meter. Either click **Download** and run the installer yourself, or add the meter's folder, `%LOCALAPPDATA%\Daeva Meter`, as an exception (in Bitdefender: *Advanced Threat Defense → Manage exceptions*).
+The installer isn't code-signed yet, so some antivirus programs stop it. Bitdefender's *Advanced Threat Defense* does this most often, and the meter then shows the usual *available · Download* line instead of updating itself (hover it to see why). Either click **Download** and run the installer yourself, or add the meter's folder, `%LOCALAPPDATA%\Daeva Meter`, as an exception (in Bitdefender: *Advanced Threat Defense → Manage exceptions*).
 
 ### Npcap
 

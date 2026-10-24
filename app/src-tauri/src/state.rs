@@ -1412,6 +1412,7 @@ impl Core {
             .set("update_version", self.update_available().map(|(v, _)| v))
             .set("update_url", self.update_available().map(|(_, u)| u))
             .set("self_update", self.self_update.as_ref().and_then(|u| u.view()))
+            .set("update_note", self.self_update.as_ref().and_then(|u| u.note()))
             .set("version", self.app_version.as_str())
             .set("warning", if self.no_traffic { Some(NO_TRAFFIC.to_string()) } else { self.warning.clone() })
             .set("pb", self.pb_notice.clone())
