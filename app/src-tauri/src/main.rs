@@ -164,6 +164,7 @@ fn open_link(which: String) -> Result<(), String> {
         "releases" => state::RELEASES_URL,
         "discord" => "https://discord.gg/TCmm8cH3GE",
         "site" => "https://aion2.bajubesi.org",
+        "aion2gg" => "https://aion2.gg",
         _ => return Err("unknown link".into()),
     };
     winsys::open_url(url)

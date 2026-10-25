@@ -25,7 +25,7 @@ Commands:
   frames   <pcap> --defs D.json --op 0xNN [--limit 20]  Dump frames of one opcode
   near     <pcap> --defs D.json --markers M.json [--window 1.5]
                                           Opcodes seen right after each marker
-  decode   <pcap> --defs D.json [--names N.json] [--self ID] [--party 1]
+  decode   <pcap> --defs D.json [--names N.json] [--gg boss-fights.json] [--self ID] [--party 1] [--trace 1]
                                           Run the full meter offline (--party: panel changes)
 
 --flow is an index from `flows` (default: the busiest non-HTTPS flow).
@@ -481,6 +481,11 @@ fn cmd_decode(pkts: &[Packet], a: &Args) -> Result<(), String> {
         Some(p) => Names::from_json(&std::fs::read_to_string(p).map_err(|e| e.to_string())?)?,
         None => Names::default(),
     };
+    let mut names = names;
+    // --gg: aion2.gg's boss-fights.json (enrage times), as the meter loads it.
+    if let Some(p) = a.get("gg") {
+        names.merge(Names::from_aion2gg(&std::fs::read_to_string(p).map_err(|e| e.to_string())?)?);
+    }
     let mut p = Pipeline::new(Decoder::new(defs.clone(), Some(decompressor())), Engine::new(EngineConfig::default(), names));
     p.strict = !p.server_ports.is_empty();
     if let Some(id) = a.get("self").and_then(json::parse_number_str) {
@@ -531,7 +536,8 @@ fn cmd_decode(pkts: &[Packet], a: &Args) -> Result<(), String> {
             if let Some(f) = p.engine.display_fight() {
                 let t = p.engine.fight_table(f, None);
                 if let Some(tg) = t.get("target") {
-                    let line = format!("{} {} hp={} max={}", tg.get("name").map(|v| v.to_string()).unwrap_or_default(), tg.get("id").map(|v| v.to_string()).unwrap_or_default(), tg.get("hp").map(|v| v.to_string()).unwrap_or_default(), tg.get("max_hp").map(|v| v.to_string()).unwrap_or_default());
+                    let g = |k: &str| tg.get(k).map(|v| v.to_string()).unwrap_or_default();
+                    let line = format!("{} {} npc={} hp={} max={} enrage={} from={}", g("name"), g("id"), g("npc_id"), g("hp"), g("max_hp"), g("berserk"), g("berserk_from"));
                     if line != last_line {
                         println!("t={:.1} {line}", pk.ts - pkts[0].ts);
                         last_line = line;

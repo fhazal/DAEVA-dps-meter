@@ -686,7 +686,7 @@
     let fz = "";
     if (t.berserk && !dead && f.live) {
       const left = t.berserk - secs;
-      const tip = `Enrage ${D.dur(t.berserk)} after the first hit: the boss deals more damage and attacks faster (in game it may show as Frenzy). Community-reported timer; it may differ by difficulty.`;
+      const tip = `Enrage ${D.dur(t.berserk)} after the first hit: the boss deals more damage and attacks faster (in game it may show as Frenzy). ${t.berserk_from === "aion2.gg" ? "Timer from aion2.gg (boss data: aion2.gg)" : "Community-reported timer"}; it may differ by difficulty.`;
       fz = left > 0
         ? ` · <span class="fz${left <= 60 ? " soon" : ""}" title="${D.esc(tip)}">⏱ Enrage <b>${D.dur(left)}</b></span>`
         : ` · <span class="fz on" title="${D.esc(tip)}">🔥 Enraged</span>`;
@@ -894,7 +894,7 @@
   function dungeonPanel(p, ms) {
     const inN = ms.filter((m) => m.in_dungeon).length;
     const all = ms.length > 0 && inN === ms.length;
-    const head = `<div class="pty-h"><b>Party</b>${p.title ? `<span class="ttl" title="${D.esc(p.title)}">“${D.esc(p.title)}”</span>` : `<span class="ttl"></span>`}<span class="pty-rd ${all ? "all" : "in"}">${all ? "✓ " : ""}${inN}/${ms.length} in dungeon</span></div>`
+    const head = `<div class="pty-h"><b>Party</b>${p.title ? `<span class="ttl" title="${D.esc(p.title)}">“${D.esc(p.title)}”</span>` : `<span class="ttl"></span>`}${p.rerun ? `<span class="pty-rd all" title="The leader started the dungeon again">✓ Entering · Rerun</span>` : `<span class="pty-rd ${all ? "all" : "in"}">${all ? "✓ " : ""}${inN}/${ms.length} in dungeon</span>`}</div>`
       + `<div class="pty-bar"><i class="${all ? "all" : "in"}" style="width:${ms.length ? Math.round((inN / ms.length) * 100) : 0}%"></i></div>`;
     const rows = ms.map((m) => {
       const st = m.in_dungeon ? ["ok", "● In dungeon"] : ["way", "→ On the way"];
@@ -937,7 +937,7 @@
       let enr = "";
       if (t.berserk && !dead && f.live) {
         const left = t.berserk - secs;
-        enr = left > 0 ? `<span class="so-enr${left <= 60 ? " soon" : ""}" title="Enrage: the boss hits harder and faster">⏱ ${D.dur(left)}</span>` : `<span class="so-enr on">🔥 Enraged</span>`;
+        enr = left > 0 ? `<span class="so-enr${left <= 60 ? " soon" : ""}" title="Enrage: the boss hits harder and faster${t.berserk_from === "aion2.gg" ? " · timer from aion2.gg" : ""}">⏱ ${D.dur(left)}</span>` : `<span class="so-enr on">🔥 Enraged</span>`;
       }
       const pc = dead ? `<span class="so-pc dead">✓ Killed</span>` : pctv != null ? `<span class="so-pc">${D.pct(pctv < 1 ? Math.min(pctv, 0.999) : 1, (pctv > 0 && pctv < 0.1) || (pctv > 0.99 && pctv < 1) ? 1 : 0)}</span>` : "";
       const sub = t.max_hp ? `${D.fmt(dead ? 0 : hpNow != null ? hpNow : t.max_hp)} / ${D.fmt(t.max_hp)}` : t.rank ? D.esc(t.rank) : "";

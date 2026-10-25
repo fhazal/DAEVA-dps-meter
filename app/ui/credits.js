@@ -1,5 +1,5 @@
 // Names on Settings → About. Add someone with one line: ["Name", "what they did"]
-// (the second part can be "").
+// (the second part can be ""; a third, a link name from open_link, makes the name a link).
 window.DAEVA_CREDITS = [
   ["Developer", [
     ["BajuBesi Labs", "Design and development"],
@@ -16,6 +16,7 @@ window.DAEVA_CREDITS = [
   ["Special thanks", [
     ["aion2.gaming.tools", "Monster and skill names · AION 2 Global Database team"],
     ["A2Tools", "Names of zone and dungeon monster variants and newer skills · taengu · GPL-3.0"],
+    ["aion2.gg", "Boss data: enrage times · aion2.gg", "aion2gg"],
     ["Lucide", "Icons · ISC licence"],
     ["Bajubesi Network", "Our community on Discord"],
   ]],

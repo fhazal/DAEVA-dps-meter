@@ -181,6 +181,7 @@ Press **`Ctrl+Shift+P`** (or Settings → Help & feedback → Report a problem).
 | `settings.json` | Your settings |
 | `my-names.json` | Monster and skill names you typed. Your own database: keep it |
 | `gaming-tools-names.json` | Monster and skill names (updated automatically) |
+| `aion2gg\` | Boss enrage times and boss skill names from aion2.gg (updated automatically) |
 | `history\fight-*.json` | One file per finished fight |
 | `definitions\` | Drop an updated `aion2.json` here after a game patch |
 
@@ -227,6 +228,7 @@ More: [docs/DECODING.md](docs/DECODING.md) · [docs/DEFINITIONS.md](docs/DEFINIT
 
 - **[AION 2 Global Database](https://aion2.gaming.tools)** by gaming.tools: monster and skill names and game icons, with thanks to their team.
 - **[A2Tools](https://github.com/taengu/A2Tools-DPS-Meter)** by taengu: names of monsters and skills (GPL-3.0).
+- **Boss data: [aion2.gg](https://aion2.gg)**: boss enrage times for the Frenzy countdown, shared by the aion2.gg team.
 - **[Lucide](https://lucide.dev)** (ISC licence): the icon set used throughout the meter.
 - **[Daeva](https://github.com/fhazal/Daeva-aion2-discordbot)**, our Discord assistant, supplies the event schedule.
 - Released under the [MIT licence](LICENSE), except `a2tools` (GPL-3.0).

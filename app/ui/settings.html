@@ -47,6 +47,7 @@
   .about { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px; padding: 14px 0 18px; border-bottom: 1px solid var(--line); margin-bottom: 14px; }
   .about img { width: 72px; height: 72px; margin-bottom: 6px; }
   .about > b { font-size: 17px; } .about p { max-width: 380px; font-size: 12px; color: var(--muted); margin: 6px 0 10px; }
+  .credits .clink { cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
   .credits { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 18px; margin: 4px 0 16px; }
   .cg h3 { margin: 0 0 6px; font-size: 10.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--dim); }
   .cr { display: flex; flex-direction: column; padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
@@ -423,7 +424,7 @@
 
   function renderCredits() {
     const el = document.getElementById("credits");
-    el.innerHTML = (window.DAEVA_CREDITS || []).map(([g, list]) => `<div class="cg"><h3>${D.esc(g)}</h3>${list.map(([n, d]) => `<div class="cr"><b>${D.esc(n)}</b>${d ? `<span>${D.esc(d)}</span>` : ""}</div>`).join("")}</div>`).join("");
+    el.innerHTML = (window.DAEVA_CREDITS || []).map(([g, list]) => `<div class="cg"><h3>${D.esc(g)}</h3>${list.map(([n, d, link]) => `<div class="cr"><b${link ? ` class="clink" data-open="${D.esc(link)}" title="Open ${D.esc(n)}"` : ""}>${D.esc(n)}</b>${d ? `<span>${D.esc(d)}</span>` : ""}</div>`).join("")}</div>`).join("");
   }
 
   const SHEETS = {
@@ -434,6 +435,7 @@
       <tr><td>Ping</td><td>While the game runs, once a minute: opens a connection to the game servers of your region (Tokyo for the Asia servers) and closes it again to time it. No data is sent. Regions whose game server isn't known yet show no ping.</td></tr>
       <tr><td>Update check</td><td>Asks GitHub for the latest version (Settings → Updates). Nothing about you is sent.</td></tr>
       <tr><td>Monster &amp; skill names</td><td>Downloads lists from aion2.gaming.tools at most once a day (Advanced → Data &amp; names).</td></tr>
+      <tr><td>Boss enrage times</td><td>Downloads aion2.gg's boss data from aion2.bajubesi.org at most once a day.</td></tr>
       <tr><td>Event alerts</td><td>Reads the event schedule from aion2.bajubesi.org (Event alerts).</td></tr>
       <tr><td>Daeva bot</td><td>Only if you turn sharing on with your token: your boss fights (and, if you choose, your party's) go to aion2.bajubesi.org.</td></tr></table>
       <h4>What stays on your computer</h4><p>Your fights, settings and reports. A report is only shared if you send the file yourself.</p>`],

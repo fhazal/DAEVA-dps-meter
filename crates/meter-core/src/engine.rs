@@ -27,6 +27,9 @@ pub struct Names {
     pub bosses: std::collections::HashSet<u32>,
     /// Boss enrage ("berserk") time in seconds from the first hit, by template.
     pub berserk: HashMap<u32, u32>,
+    /// Enrage times from aion2.gg (id -> seconds, name): used where our own
+    /// community list (`berserk`) has no entry.
+    pub berserk_gg: HashMap<u32, (u32, String)>,
     /// Monster rank by template ("Common", "Elite", "Heroic"...).
     pub ranks: HashMap<u32, String>,
     /// Monster family by template (Cogni, Natura, Fera, Varian...).
@@ -204,24 +207,59 @@ impl Names {
     /// own id, else by a listed boss with the same name (dungeon variants),
     /// when every such entry agrees.
     pub fn berserk_for(&self, npc: u32, name: &str) -> Option<u32> {
+        self.enrage_for(npc, name).map(|e| e.0)
+    }
+
+    /// Enrage time and where it comes from ("community" or "aion2.gg"). Our
+    /// community list wins: by id, then aion2.gg by id, then each by name.
+    pub fn enrage_for(&self, npc: u32, name: &str) -> Option<(u32, &'static str)> {
         if let Some(s) = self.berserk.get(&npc) {
-            return Some(*s);
+            return Some((*s, "community"));
+        }
+        if let Some((s, _)) = self.berserk_gg.get(&npc) {
+            return Some((*s, "aion2.gg"));
         }
         let name = name.trim();
         if name.is_empty() {
             return None;
         }
-        let mut found = None;
-        for (id, secs) in &self.berserk {
-            if self.npcs.get(id).map_or(false, |n| n.trim().eq_ignore_ascii_case(name)) {
+        let same = |n: &str| n.trim().eq_ignore_ascii_case(name);
+        let agree = |it: &mut dyn Iterator<Item = u32>| -> Result<Option<u32>, ()> {
+            let mut found = None;
+            for secs in it {
                 match found {
-                    None => found = Some(*secs),
-                    Some(f) if f == *secs => {}
-                    Some(_) => return None,
+                    None => found = Some(secs),
+                    Some(f) if f == secs => {}
+                    Some(_) => return Err(()),
                 }
             }
+            Ok(found)
+        };
+        let ours = agree(&mut self.berserk.iter().filter(|(id, _)| self.npcs.get(id).map_or(false, |n| same(n))).map(|(_, s)| *s));
+        match ours {
+            Ok(Some(s)) => return Some((s, "community")),
+            Err(()) => return None,
+            Ok(None) => {}
         }
-        found
+        agree(&mut self.berserk_gg.values().filter(|(_, n)| same(n)).map(|(s, _)| *s)).ok().flatten().map(|s| (s, "aion2.gg"))
+    }
+
+    /// Reads aion2.gg's boss file ({"id": {"name", "enrage", "stagger"}}) into
+    /// a Names that only carries their enrage times.
+    pub fn from_aion2gg(src: &str) -> Result<Names, String> {
+        let v = json::parse(src).map_err(|e| e.to_string())?;
+        let o = v.as_obj().ok_or("not an object")?;
+        let mut n = Names::default();
+        for (k, x) in o {
+            let Some(id) = json::parse_number_str(k) else { continue };
+            if let Some(secs) = x.get("enrage").and_then(|s| s.as_u64()).filter(|s| *s > 0 && *s < 24 * 3600) {
+                n.berserk_gg.insert(id as u32, (secs as u32, x.str_or("name", "").to_string()));
+            }
+        }
+        if n.berserk_gg.is_empty() {
+            return Err("no enrage times".into());
+        }
+        Ok(n)
     }
 
     /// Adds (and overrides with) every name in `other`.
@@ -234,6 +272,7 @@ impl Names {
         self.grades.extend(other.grades);
         self.bosses.extend(other.bosses);
         self.berserk.extend(other.berserk);
+        self.berserk_gg.extend(other.berserk_gg);
         self.ranks.extend(other.ranks);
         self.families.extend(other.families);
         self.party_codes.extend(other.party_codes);
@@ -461,6 +500,9 @@ pub struct PartyState {
     pub since: f64,
     /// The leader clicked Enter dungeon.
     pub entering: bool,
+    /// That click restarted the dungeon you're in (a rerun): the panel
+    /// shows "Entering · Rerun" until the first pull.
+    pub rerun: bool,
     /// You're inside the dungeon (the room list marks you 0x10, or you
     /// teleported after Enter): the panel shows who's inside, not Ready.
     pub inside: bool,
@@ -588,6 +630,9 @@ pub struct Engine {
     /// You left the party: the dungeon keeps listing who is still inside,
     /// which isn't your party. Cleared when you join one again.
     left_party: bool,
+    /// When the leader last clicked Enter while you were inside a dungeon
+    /// you had fought in (game time): a rerun if "party gone" follows.
+    rerun_click_at: f64,
     /// When you last joined a room (0x9710) and the last single join entry
     /// (game time, name): together they name you before any zone change.
     room_entered_at: f64,
@@ -646,6 +691,7 @@ impl Engine {
             zone_first_fight: 1,
             zone_at: f64::NEG_INFINITY,
             left_party: false,
+            rerun_click_at: f64::NEG_INFINITY,
             room_entered_at: f64::NEG_INFINITY,
             recent_joins: Vec::new(),
             named_from_join: None,
@@ -1181,7 +1227,19 @@ impl Engine {
                 // minute after the last boss dies) a room list still counts
                 // when you're in it: the room lives on for a rerun.
                 let has_me = self.self_name.as_deref().map_or(false, |me| members.iter().any(|m| m.name == me));
-                if self.left_party && title.is_some() && !has_me {
+                // A rerun: inside the dungeon, a few seconds after the leader
+                // clicks Enter, the game sends the same "party gone" as when
+                // you leave. The party stays (Vakron Sky Island, 2026-10-26).
+                let rerun = members.is_empty() && self.last_ts - self.rerun_click_at < 15.0 && self.party_info.as_ref().map_or(false, |p| p.inside);
+                if rerun {
+                    // Show the party again until the first pull.
+                    self.skip_party_names = true;
+                    let now = self.last_ts;
+                    if let Some(p) = self.party_info.as_mut() {
+                        p.rerun = true;
+                        p.since = now;
+                    }
+                } else if self.left_party && title.is_some() && !has_me {
                     self.skip_party_names = true;
                 } else if members.is_empty() {
                     self.party_info = None;
@@ -1258,6 +1316,7 @@ impl Engine {
                         // Until you teleport: the lists right after the click can
                         // drop and re-add members for a moment.
                         entering: self.party_info.as_ref().map_or(false, |p| p.entering),
+                        rerun: self.party_info.as_ref().map_or(false, |p| p.rerun),
                         inside,
                         joined: if inside { joined_list } else { Vec::new() },
                         left: if inside { left_list } else { Vec::new() },
@@ -1329,6 +1388,13 @@ impl Engine {
             }
             GameEvent::PartyEntering => {
                 self.exited_dungeon = false;
+                // Enter while inside after a fight there: maybe a rerun (the
+                // dungeon restarts in place, no teleport). Transcendence sends
+                // the same click mid-run, without the "party gone" after it.
+                let fought = self.display_fight().map_or(false, |f| f.end > self.zone_at);
+                if self.party_info.as_ref().map_or(false, |p| p.inside) && fought {
+                    self.rerun_click_at = self.last_ts;
+                }
                 if let Some(p) = self.party_info.as_mut() {
                     p.entering = true;
                 }
@@ -1365,6 +1431,11 @@ impl Engine {
     fn ensure_fight(&mut self, ts: f64) -> &mut Fight {
         if self.current.as_ref().map_or(true, |f| f.finished) {
             self.cleared = false;
+            // The rerun has started.
+            if let Some(p) = self.party_info.as_mut().filter(|p| p.rerun) {
+                p.rerun = false;
+                p.entering = false;
+            }
             let id = self.next_id;
             self.next_id += 1;
             self.current = Some(Fight {
@@ -2114,7 +2185,7 @@ impl Engine {
             let name = self.fname(f, t);
             // Rank, family and portrait, borrowed by name for unlisted variants.
             let info = npc_id.and_then(|n| self.names.npc_ref(n, &name));
-            let enrage = npc_id.and_then(|n| self.names.berserk_for(n, &name));
+            let enrage = npc_id.and_then(|n| self.names.enrage_for(n, &name));
             Obj::new()
                 .set("id", t)
                 .set("counted", counted)
@@ -2129,7 +2200,8 @@ impl Engine {
                 .set("hp_pct", hp_pct)
                 .set("max_hp", max_hp)
                 .set("hp", hp)
-                .set("berserk", enrage)
+                .set("berserk", enrage.map(|e| e.0))
+                .set("berserk_from", enrage.map(|e| e.1))
                 .set("rank", info.and_then(|n| self.names.ranks.get(&n).cloned()))
                 .set("family", info.and_then(|n| self.names.families.get(&n).cloned()))
                 .build()
@@ -3183,6 +3255,44 @@ mod zone_notice_tests {
         assert!(e.party_info.as_ref().unwrap().entering);
     }
 
+    /// Vakron Sky Island rerun (2026-10-26): the leader clicks Enter inside
+    /// after the last boss, then the game sends "party gone" and no list for
+    /// minutes. The party stays, shows until the first pull, and a list in
+    /// the middle of the run doesn't bring the panel back.
+    #[test]
+    fn a_rerun_keeps_the_party() {
+        let m = |n: &str, st: u8| crate::events::PartyMember { name: n.into(), status: Some(st), ..Default::default() };
+        let room = |st: u8| GameEvent::PartyInfo { title: Some("Leaving now.".into()), leader: None, members: vec![m("Lead", st), m("Me", st)] };
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&GameEvent::Party { names: vec!["Lead".into(), "Me".into()], codes: vec![None, None] });
+        e.handle(&room(0x1e));
+        e.handle(&GameEvent::Actor { id: 50, name: Some("Vakron".into()), class: None, kind: ActorKind::Npc, npc_id: Some(2300812), owner: None, max_hp: None });
+        e.handle(&GameEvent::Damage { ts: 10.0, src: 1, tgt: 50, skill: 1, amount: 100, flags: 0 });
+        e.tick(100.0);
+        assert!(!e.party_lobby(), "hidden after the boss");
+        e.see_time(160.0);
+        e.handle(&room(0x1c));
+        e.handle(&GameEvent::PartyEntering);
+        e.see_time(165.0);
+        e.handle(&GameEvent::PartyInfo { title: None, leader: None, members: vec![] });
+        e.handle(&GameEvent::Party { names: vec![], codes: vec![] });
+        let p = e.party_info.as_ref().expect("party kept");
+        assert!(p.rerun && p.inside);
+        assert!(e.party_lobby(), "shown until the first pull");
+        assert!(e.party.contains("Lead"));
+        e.handle(&GameEvent::Damage { ts: 250.0, src: 1, tgt: 50, skill: 1, amount: 100, flags: 0 });
+        e.tick(400.0);
+        assert!(!e.party_info.as_ref().unwrap().rerun);
+        e.see_time(450.0);
+        e.handle(&room(0x1c));
+        assert!(!e.party_lobby(), "no pop-up mid-run");
+        // Without the Enter click first, "party gone" still clears the party.
+        e.see_time(600.0);
+        e.handle(&GameEvent::PartyInfo { title: None, leader: None, members: vec![] });
+        assert!(e.party_info.is_none());
+    }
+
     #[test]
     fn after_leaving_the_dungeon_lists_who_is_inside_is_not_your_party() {
         let m = |n: &str| crate::events::PartyMember { name: n.into(), status: Some(0x1e), ..Default::default() };
@@ -3433,6 +3543,22 @@ mod zone_notice_tests {
         assert_eq!(n.berserk_for(2301999, "kaldrix"), Some(480));
         assert_eq!(n.berserk_for(9000003, "Twin"), None, "same name, different timers");
         assert_eq!(n.berserk_for(2300812, "Unknown monster"), None);
+        // aion2.gg fills the gaps; our own list wins, by id and by name.
+        let mut m = n.clone();
+        m.merge(Names::from_aion2gg(r#"{"2300582": {"name": "Vakron", "enrage": 210, "stagger": 5},
+            "2300812": {"name": "Vakron", "enrage": 300}, "2400001": {"name": "Gg Boss", "enrage": 480},
+            "2400002": {"name": "Gg Twin", "enrage": 300}, "2400003": {"name": "Gg Twin", "enrage": 600},
+            "2400004": {"name": "No Timer", "stagger": 5}}"#).unwrap());
+        assert_eq!(m.enrage_for(2300582, "Vakron"), Some((300, "community")), "ours wins over aion2.gg");
+        assert_eq!(m.enrage_for(2300812, "Vakron"), Some((300, "aion2.gg")));
+        assert_eq!(m.enrage_for(2300999, "Vakron"), Some((300, "community")), "ours first by name");
+        assert_eq!(m.enrage_for(2400001, "Gg Boss"), Some((480, "aion2.gg")));
+        assert_eq!(m.enrage_for(2409999, "gg boss"), Some((480, "aion2.gg")), "variant by aion2.gg name");
+        assert_eq!(m.enrage_for(2409999, "Gg Twin"), None, "aion2.gg names disagree");
+        assert_eq!(m.enrage_for(2400004, "No Timer"), None);
+        assert!(Names::from_aion2gg("{}").is_err());
+        let gg = Names::from_aion2gg(include_str!("../../../definitions/aion2gg/boss-fights.json")).unwrap();
+        assert!(gg.berserk_gg.len() > 300);
         // The bundled names.json parses and carries the timers.
         let bundled = Names::from_json(include_str!("../../../definitions/names.json")).unwrap();
         assert_eq!(bundled.berserk.get(&2300582), Some(&300));

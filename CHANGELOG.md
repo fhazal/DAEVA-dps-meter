@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.3 (unreleased)
+
+- **Enrage countdown for about 380 bosses:** the *⏱ Enrage* countdown on the boss card used to know 14 bosses from our community list. It now also uses the boss data from **[aion2.gg](https://aion2.gg)**, shared with us by their team, so nearly every dungeon and field boss counts down to its Frenzy. Our community list still wins where both have a boss (Vakron stays at 5:00). Hovering the countdown says where the timer comes from. The meter ships with a copy and downloads the current one from aion2.bajubesi.org at most once a day, so new times after a game patch arrive without a new meter version. Credited in *Settings → About*.
+- **Reruns where the dungeon restarts in place (Vakron Sky Island):** when the leader started the run again after the last boss, the game sends the same "party gone" message as when you leave a party, and then no party list for minutes. The panel disappeared, then popped up in the middle of the next run (between the first and second boss), and the party's first hits on the first boss weren't counted until the list came back. The meter now recognises the rerun: the party stays, the panel shows **✓ Entering · Rerun** with everyone until the first pull, and stays out of the way for the rest of the run.
+
 ## 0.5.2 (2026-10-25)
 
 - **The meter updates itself:** when you start it and a new version is out, a green bar shows *Updating to 0.5.3 · 45%*, then *Installing*, and the meter restarts on the new version with *✓ Updated · What's new* for a few seconds (in Solo, the footer line turns green instead). It only updates at start, never in the middle of a session: a version that comes out while you play shows the usual *available · Download* line. Updates are signed, and the meter installs only ones signed by us. If it can't (antivirus stopped the installer, say), you get the usual *available · Download* line to install it by hand, and hovering it says why. Turn it off in *Settings → Updates → Update automatically*; testers can add *Include test versions*. This version still has to be installed by hand once.

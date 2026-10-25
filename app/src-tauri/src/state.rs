@@ -1484,6 +1484,7 @@ impl Core {
             .set("room", room)
             .set("lobby", e.party_lobby())
             .set("entering", p.entering)
+            .set("rerun", p.rerun)
             .set("ready", e.party_ready())
             .set("inside", p.inside)
             .set("members", Value::Arr(members))
@@ -1679,6 +1680,14 @@ fn load_definitions(paths: &Paths, status: &mut Status) -> (Arc<Definitions>, Na
     // A2Tools' monster names (GPL-3.0, in their own folder) come first: they
     // only fill ids gaming.tools doesn't list, so everything else wins.
     let mut names = Names::default();
+    // aion2.gg enrage times: the daily download, else the copy in the
+    // installer. Our own list ("berserk" in names.json) wins over them.
+    for p in [paths.data.join("aion2gg").join("boss-fights.json"), paths.resources.join("definitions").join("aion2gg").join("boss-fights.json")] {
+        if let Ok(gg) = std::fs::read_to_string(&p).map_err(|e| e.to_string()).and_then(|s| Names::from_aion2gg(&s)) {
+            names.merge(gg);
+            break;
+        }
+    }
     for p in [paths.resources.join("definitions").join("a2tools").join("names.json"), paths.resources.join("definitions").join("names.json"), paths.data.join("definitions").join("names.json")] {
         if !p.exists() {
             continue;
@@ -1780,6 +1789,10 @@ pub fn start_threads(shared: Arc<Shared>) {
     {
         let s = shared.clone();
         std::thread::Builder::new().name("site-sync".into()).spawn(move || site_sync(s)).ok();
+    }
+    {
+        let s = shared.clone();
+        std::thread::Builder::new().name("boss-data-sync".into()).spawn(move || boss_data_sync(s)).ok();
     }
     {
         let s = shared.clone();
@@ -2150,6 +2163,79 @@ fn site_sync(shared: Arc<Shared>) {
     }
 }
 
+/// Downloads aion2.gg's boss data (enrage times, boss skill names) from the
+/// Daeva server once a day; a downloaded copy replaces the one in the
+/// installer. The meter never contacts aion2.gg itself.
+fn boss_data_sync(shared: Arc<Shared>) {
+    let agent = ureq::AgentBuilder::new()
+        .timeout(Duration::from_secs(60))
+        .user_agent(concat!("DaevaMeter/", env!("CARGO_PKG_VERSION"), " (+https://aion2.bajubesi.org)"))
+        .build();
+    let dir = shared.lock().paths.data.join("aion2gg");
+    let meta_path = dir.join("meta.json");
+    loop {
+        let mirror = shared.lock().settings.names_mirror.trim().trim_end_matches('/').to_string();
+        let mut meta: serde_json::Value = std::fs::read_to_string(&meta_path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_else(|| serde_json::json!({}));
+        if !meta.is_object() {
+            meta = serde_json::json!({});
+        }
+        let now = now_unix();
+        let due = now - meta["checked_at"].as_f64().unwrap_or(0.0) > 24.0 * 3600.0 && now >= meta["retry_at"].as_f64().unwrap_or(0.0);
+        // Same server as the names mirror: ".../api/gt" -> ".../api/aion2gg".
+        let base = mirror.strip_suffix("/gt").filter(|b| b.starts_with("https://")).map(|b| format!("{b}/aion2gg"));
+        if let (true, Some(base)) = (due, base) {
+            let _ = std::fs::create_dir_all(&dir);
+            let mut ok = true;
+            let mut fights_changed = false;
+            for file in ["boss-fights.json", "boss-skills.json"] {
+                let url = format!("{base}/{file}");
+                let mut req = agent.get(&url);
+                if dir.join(file).exists() {
+                    if let Some(tag) = meta["etag"][file].as_str() {
+                        req = req.set("If-None-Match", tag);
+                    }
+                }
+                match req.call() {
+                    Ok(r) if r.status() == 304 => {}
+                    Ok(r) => {
+                        let tag = r.header("ETag").map(String::from);
+                        let mut body = String::new();
+                        use std::io::Read;
+                        let valid = r.into_reader().take(16 << 20).read_to_string(&mut body).is_ok()
+                            && if file == "boss-fights.json" { Names::from_aion2gg(&body).is_ok() } else { serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&body).is_ok() };
+                        let tmp = dir.join(format!("{file}.part"));
+                        if valid && std::fs::write(&tmp, &body).is_ok() && std::fs::rename(&tmp, dir.join(file)).is_ok() {
+                            if !meta["etag"].is_object() {
+                                meta["etag"] = serde_json::json!({});
+                            }
+                            meta["etag"][file] = serde_json::json!(tag);
+                            fights_changed |= file == "boss-fights.json";
+                        } else {
+                            ok = false;
+                        }
+                    }
+                    Err(ureq::Error::Status(304, _)) => {}
+                    Err(_) => ok = false,
+                }
+            }
+            if ok {
+                meta["checked_at"] = serde_json::json!(now);
+                meta["retry_at"] = serde_json::json!(0);
+            } else {
+                meta["retry_at"] = serde_json::json!(now + 1800.0);
+            }
+            let _ = std::fs::write(&meta_path, serde_json::to_string_pretty(&meta).unwrap_or_default());
+            if fights_changed {
+                let mut c = shared.lock();
+                if c.sim.is_none() {
+                    c.reload_definitions();
+                }
+            }
+        }
+        std::thread::sleep(Duration::from_secs(3600));
+    }
+}
+
 /// Looks up unknown monster and skill names on aion2.gaming.tools, one page
 /// at a time and never faster than one request every 3 seconds.
 fn name_lookup(shared: Arc<Shared>) {
@@ -2420,6 +2506,29 @@ mod names_tests {
         assert!(version_key("v0.5.2") > version_key("0.5.2-test.2"));
         assert!(version_key("0.5.2-test.1") > version_key("v0.5.1"));
         assert!(version_key("0.6.23") > version_key("0.6.9"));
+    }
+
+    #[test]
+    fn aion2gg_download_replaces_the_bundled_copy_and_ours_wins() {
+        let dir = std::env::temp_dir().join(format!("daeva-gg-test-{}", std::process::id()));
+        let (res, data) = (dir.join("res"), dir.join("data"));
+        std::fs::create_dir_all(res.join("definitions").join("aion2gg")).unwrap();
+        std::fs::create_dir_all(data.join("aion2gg")).unwrap();
+        std::fs::write(res.join("definitions").join("names.json"), r#"{"npcs": {"2300582": "Vakron"}, "berserk": {"2300582": 300}}"#).unwrap();
+        std::fs::write(res.join("definitions").join("aion2gg").join("boss-fights.json"), r#"{"2300582": {"name": "Vakron", "enrage": 210}, "2400001": {"name": "A", "enrage": 300}}"#).unwrap();
+        let paths = Paths { data: data.clone(), resources: res, settings: data.join("settings.json"), history: data.join("history"), research: data.join("research") };
+        let bundled = load_definitions(&paths, &mut Status::default()).1;
+        // A broken download is skipped; a good one replaces the bundled copy.
+        std::fs::write(data.join("aion2gg").join("boss-fights.json"), "{").unwrap();
+        let broken = load_definitions(&paths, &mut Status::default()).1;
+        std::fs::write(data.join("aion2gg").join("boss-fights.json"), r#"{"2400002": {"name": "B", "enrage": 600}}"#).unwrap();
+        let fresh = load_definitions(&paths, &mut Status::default()).1;
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(bundled.enrage_for(2300582, "Vakron"), Some((300, "community")));
+        assert_eq!(bundled.enrage_for(2400001, "A"), Some((300, "aion2.gg")));
+        assert_eq!(broken.enrage_for(2400001, "A"), Some((300, "aion2.gg")));
+        assert_eq!(fresh.enrage_for(2400001, "A"), None);
+        assert_eq!(fresh.enrage_for(2400002, "B"), Some((600, "aion2.gg")));
     }
 
     #[test]
