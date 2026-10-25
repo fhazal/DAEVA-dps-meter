@@ -29,9 +29,13 @@ const base = `<base href="file:///${ui.replace(/ /g, "%20")}">`;
 const withMock = (file, mock) => fs.readFileSync(ui + file, "utf8").replace("<head>", "<head>" + base).replace('<script src="common.js"></script>', `<script>window.__DAEVA_MOCK__=async(cmd)=>{${mock}return null;};</script><script src="common.js"></script>`);
 const J = (v) => JSON.stringify(JSON.stringify(v));
 
-function meter(layout) {
+// width: pin the window frame to the meter's real width. Headless Edge lays a
+// narrow page out ~500 px wide and then crops the screenshot, which cut off
+// the right side of Solo (the meter itself sizes its window to the card).
+function meter(layout, width) {
   const snap = { party: null, status, fight, ui: { layout, solo: settings.solo, show_target: true, opacity: 0.94, scale: 1, accent: "#d9a441", rows: 8, columns: [], primary_metric: "dps" }, alerts: { enabled: true, show_next: true, next } };
-  return withMock("index.html", `if(cmd==="get_snapshot")return ${J(snap)};if(cmd==="get_settings")return JSON.parse(${J({ ...settings, layout })});if(cmd==="get_events")return JSON.stringify({catalog:[]});if(cmd==="update_status")return JSON.stringify({current:${JSON.stringify(version)}});if(cmd==="get_names")return JSON.stringify({lookup_on:true});`);
+  const html = withMock("index.html", `if(cmd==="get_snapshot")return ${J(snap)};if(cmd==="get_settings")return JSON.parse(${J({ ...settings, layout })});if(cmd==="get_events")return JSON.stringify({catalog:[]});if(cmd==="update_status")return JSON.stringify({current:${JSON.stringify(version)}});if(cmd==="get_names")return JSON.stringify({lookup_on:true});`);
+  return width ? html.replace("</head>", `<style>.shell{right:auto!important;width:${width}px!important}</style></head>`) : html;
 }
 function alert() {
   const starts = Math.floor(now / 300) * 300 + 300;
@@ -56,7 +60,7 @@ function shot(name, html, w, h, scale = 2, clear = false) {
     fs.writeFileSync(path.join(tmp, f), Buffer.from(await r.arrayBuffer()));
   }
   // Window sizes: Classic 520x330, Solo 372x135 at its 1.28 zoom, the alert takes the meter's width.
-  const shots = { classic: shot("classic", meter("classic"), 520, 330), solo: shot("solo", meter("solo"), 476, 178), alert: shot("alert", alert(), 520, 118) };
+  const shots = { classic: shot("classic", meter("classic"), 520, 330), solo: shot("solo", meter("solo", 476), 477, 177, 2, true), alert: shot("alert", alert(), 520, 118) };
   for (const [k, p] of Object.entries(shots)) fs.copyFileSync(p, path.join(outDir, `shot-${k}.png`));
 
   const page = fs.readFileSync(path.join(__dirname, "showcase.html"), "utf8").replace(/\{\{version\}\}/g, version);
@@ -64,7 +68,7 @@ function shot(name, html, w, h, scale = 2, clear = false) {
 
   // Tall picture for the meter section on aion2.bajubesi.org (transparent background).
   const stack = fs.readFileSync(path.join(__dirname, "site.html"), "utf8");
-  fs.copyFileSync(shot("site", stack, 460, 690, 2, true), path.join(outDir, "site-meter.png"));
+  fs.copyFileSync(shot("site", stack, 468, 690, 2, true), path.join(outDir, "site-meter.png"));
   fs.rmSync(tmp, { recursive: true, force: true });
   console.log(`Rendered README pictures for ${version} into docs/branding`);
 })().catch((e) => { console.error(e); process.exit(1); });
