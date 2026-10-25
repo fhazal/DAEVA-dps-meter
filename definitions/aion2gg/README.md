@@ -1,6 +1,6 @@
 # aion2.gg boss data
 
-**Boss data: [aion2.gg](https://aion2.gg)**, shared with Daeva Meter by the
+**[Boss data](https://aion2.gg)** by aion2.gg, shared with Daeva Meter by the
 aion2.gg admin, who allows a copy in the meter as long as this credit and link
 stay with it.
 
