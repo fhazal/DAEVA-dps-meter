@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.4 (unreleased)
+## 0.5.4 (2026-10-26)
 
 - **New look for Solo when you're not fighting:** with no target, Solo used to show an empty boss line. It now shows the meter's own card: the logo, **DAEVA METER**, and under it the next event with a live countdown (or your last fight, *Last fight 1:12 · 46.2K DPS*). On the right are the version and your Odyle. Your combat power shows on your card before the first fight too. Solo's footer now says what the meter is doing (*server · status · ping*). In combat it shows *Party DPS · Odyle* instead.
 - **Class icons and colours:** every class has its own icon and a fresh colour, in both layouts and the party panel.
