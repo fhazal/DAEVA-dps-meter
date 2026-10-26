@@ -172,7 +172,17 @@ fn open_link(which: String) -> Result<(), String> {
 
 #[tauri::command]
 fn get_alerts(st: St<'_>) -> String {
-    st.lock().alerts_view(state::now_unix()).to_string()
+    let now = state::now_unix();
+    let mut c = st.lock();
+    // Each ask is also the alert window's sign of life (see toast_positioner).
+    c.toast_health.seen = now;
+    c.alerts_view(now).to_string()
+}
+
+/// The alert window put these alerts on screen; they stop waiting.
+#[tauri::command]
+fn alert_shown(st: St<'_>, keys: Vec<String>) {
+    st.lock().events.acked.extend(keys);
 }
 
 #[tauri::command]
@@ -565,10 +575,34 @@ fn toast_positioner(handle: AppHandle, sh: Arc<Shared>) {
     // No banner on screen and nothing being dragged: the empty window can
     // follow the meter at a gentler pace.
     let mut idle = false;
+    let started = state::now_unix();
+    let (mut nudged, mut reloaded) = (0.0f64, 0.0f64);
     loop {
         std::thread::sleep(std::time::Duration::from_millis(if idle { 250 } else { 80 }));
         tick = tick.wrapping_add(1);
         let (Some(t), Some(m)) = (handle.get_webview_window("toast"), handle.get_webview_window("main")) else { continue };
+
+        // The alert window asks for alerts every second or so. In long
+        // sessions Windows can slow its page down until it misses banners
+        // (0.5.4-test.1: nothing drawn until a restart). An alert waiting
+        // more than 2 s wakes it directly; no sign of life for 30 s reloads it.
+        {
+            let now = state::now_unix();
+            let mut c = sh.lock();
+            let seen = if c.toast_health.seen > 0.0 { c.toast_health.seen } else { started };
+            let quiet = now - seen;
+            if quiet > 30.0 && now - reloaded > 60.0 {
+                reloaded = now;
+                c.toast_fix(now, &format!("no reply for {quiet:.0} s"), true);
+                drop(c);
+                let _ = t.reload();
+            } else if quiet > 2.0 && now - nudged > 3.0 && c.settings.alerts.enabled && c.events.any_pending(now) {
+                nudged = now;
+                c.toast_fix(now, &format!("alert waiting, no reply for {quiet:.1} s"), false);
+                drop(c);
+                let _ = t.eval("window.__daevaPoll && window.__daevaPoll()");
+            }
+        }
         let scale = t.scale_factor().unwrap_or(1.0);
         let px = |v: f64| (v * scale) as i32;
         let (Ok(tp), Ok(ts)) = (t.outer_position(), t.outer_size()) else { continue };
@@ -891,6 +925,7 @@ fn main() {
             open_window,
             get_events,
             test_alert,
+            alert_shown,
             toast_rects,
             alert_debug,
             alert_drag,

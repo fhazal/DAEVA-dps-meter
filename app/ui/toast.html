@@ -78,7 +78,13 @@
     e.preventDefault();
     D.call("alert_drag", { top: el.getBoundingClientRect().top }).catch(() => {});
   });
+  // One poll at a time: the meter can also call it directly (below).
+  let busy = false, timer = 0;
   async function poll() {
+    if (busy) return;
+    busy = true;
+    clearTimeout(timer);
+    const fresh = [];
     try {
       const a = await D.callJSON("get_alerts");
       movable = !!a.movable;
@@ -86,8 +92,9 @@
       box.className = "stack " + (a.anchor === "top" ? "top" : "bottom");
       if (a.enabled) {
         for (const al of a.recent || []) {
-          if (shown.has(al.key)) continue;
+          if (al.shown || shown.has(al.key)) continue;
           shown.add(al.key);
+          fresh.push(al.key);
           const el = document.createElement("div");
           const compact = a.size === "compact";
           el.className = "alert " + al.kind + (compact ? " compact" : "");
@@ -109,11 +116,16 @@
         }
       }
       sendRects();
+      // Tell the meter they're up, so it stops holding them for us.
+      if (fresh.length) await D.call("alert_shown", { keys: fresh });
     } catch (e) { console.warn(e); }
+    busy = false;
     // Quick while a banner is up; with none on screen once a second is plenty
     // (banners warn minutes ahead).
-    setTimeout(poll, box.children.length ? 400 : 1000);
+    timer = setTimeout(poll, box.children.length ? 400 : 1000);
   }
+  // The meter calls this when an alert waits and this page seems asleep.
+  window.__daevaPoll = poll;
   poll();
 })();
 </script>

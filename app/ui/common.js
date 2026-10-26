@@ -18,8 +18,8 @@
     const a = Math.abs(n);
     if (a >= 1e9) return (n / 1e9).toFixed(2) + "B";
     if (a >= 1e6) return (n / 1e6).toFixed(2) + "M";
-    if (a >= 1e4) return (n / 1e3).toFixed(1) + "k";
-    if (a >= 1000) return (n / 1e3).toFixed(2) + "k";
+    if (a >= 1e4) return (n / 1e3).toFixed(1) + "K";
+    if (a >= 1000) return (n / 1e3).toFixed(2) + "K";
     return Math.round(n).toString();
   }
   function pct(x, digits) {
@@ -45,15 +45,15 @@
 
   // Class colours (AION 2 classes plus a fallback hash for unknown ids).
   const CLASS_COLORS = {
-    gladiator: "#C46B36",    // Burnished Bronze
-    templar: "#4387D6",      // Guardian Blue
-    assassin: "#A86CE0",     // Shadow Violet
-    ranger: "#49A879",       // Forest Green
-    sorcerer: "#E56A3D",     // Arcane Ember
-    elementalist: "#43B7C7", // Spirit Cyan (Spiritmaster)
-    spiritmaster: "#43B7C7",
-    cleric: "#E6C65A",       // Holy Gold
-    chanter: "#D985B5",      // Mystic Rose
+    gladiator: "#36C6DC",  // Glacier Cyan
+    templar: "#4C88EE",  // Guardian Blue
+    assassin: "#4FD66B",  // Venom Green
+    ranger: "#2DAF8C",  // Forest Teal
+    sorcerer: "#A25CF0",  // Arcane Purple
+    elementalist: "#E04FC4",  // Spirit Magenta
+    spiritmaster: "#E04FC4",
+    cleric: "#F2D24A",  // Holy Gold
+    chanter: "#EE9F3A",  // Mystic Amber
   };
   // Original line-art class glyphs (16x16, stroke = currentColor).
   const CLASS_ICONS = {
@@ -70,7 +70,7 @@
   // ---- game art from aion2.gaming.tools (used with permission) ----
   // Images belong to NCSOFT; served by gaming.tools. Built-in SVGs are the
   // fallback whenever art is off or an image fails.
-  const art = { on: false, base: "", icons: {}, sprites: {} };
+  const art = { on: false, base: "", icons: {} };
   async function loadArt() {
     try {
       const a = await callJSON("get_icons");
@@ -83,7 +83,8 @@
     if (id >= 2147483648) id -= 2147483648; // DoT entries carry the top bit
     return id >= 10000000 && id < 20000000 ? Math.floor(id / 10000) * 10000 : id;
   }
-  const imgTag = (path, px, cls, title) => `<img class="gt-ic ${cls || ""}" src="${esc(art.base + path)}" width="${px}" height="${px}" loading="lazy" alt="" ${title ? `title="${esc(title)}"` : ""} onerror="this.remove()">`;
+  // Our own skill icons come as full addresses; gaming.tools' as paths.
+  const imgTag = (path, px, cls, title) => `<img class="gt-ic ${cls || ""}" src="${esc(/^https:\/\//.test(path) ? path : art.base + path)}" width="${px}" height="${px}" loading="lazy" alt="" ${title ? `title="${esc(title)}"` : ""} onerror="this.remove()">`;
   function skillIcon(id, size) {
     if (!art.on) return "";
     const raw = Number(id) >= 2147483648 ? Number(id) - 2147483648 : Number(id);
@@ -129,32 +130,21 @@
     const p = art.icons["n" + tid];
     return p ? imgTag(p, size || 28, "npc-ic") : "";
   }
-  function classSprite(key) {
-    const sp = art.sprites[key];
-    if (sp) return sp.ok ? sp : null;
-    const s2 = (art.sprites[key] = { ok: false });
-    const img = new Image();
-    img.onload = () => {
-      const w = img.naturalWidth, h = img.naturalHeight;
-      if (!w || !h) return;
-      // Sprite sheets hold several square states; show the first one.
-      s2.size = w > h ? "auto 100%" : h > w ? "100% auto" : "100% 100%";
-      s2.url = img.src;
-      s2.ok = true;
-    };
-    img.src = `${art.base}/images/ui/resource/sprite/common/ut_common_icon_class_${key}_sprite.webp`;
-    return null;
-  }
   function classIcon(cls, size) {
-    const key = String(cls || "").toLowerCase();
+    let key = String(cls || "").toLowerCase();
+    if (key === "spiritmaster") key = "elementalist";
     const px = size || 14;
-    if (art.on && CLASS_COLORS[key]) {
-      const sp = classSprite(key);
-      if (sp) return `<span class="cls-icon gt-cls" title="${esc(cls)}" style="display:inline-block;flex:none;width:${px}px;height:${px}px;background:url('${sp.url}') 0 0 / ${sp.size} no-repeat"></span>`;
+    // Our own class icons (bundled, same set as the website and Discord).
+    if (CLASS_COLORS[key]) {
+      return `<img class="cls-icon" src="img/classes/${key}.png" title="${esc(cls)}" width="${px}" height="${px}" alt="${key}" style="flex:none;object-fit:contain" onerror="this.outerHTML=Daeva.classGlyph('${key}',${px})">`;
     }
+    return classGlyph(key, px);
+  }
+  // Line-art fallback (unknown classes, or an icon that failed to load).
+  function classGlyph(key, px) {
     const path = CLASS_ICONS[key];
     if (!path) return "";
-    return `<svg class="cls-icon" viewBox="0 0 16 16" width="${px}" height="${px}" style="color:${classColor(cls)};flex:none" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="${key}">${path}</svg>`;
+    return `<svg class="cls-icon" viewBox="0 0 16 16" width="${px}" height="${px}" style="color:${classColor(key)};flex:none" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="${key}">${path}</svg>`;
   }
   function classColor(cls, name) {
     const key = String(cls || "").toLowerCase();
@@ -263,5 +253,5 @@
     if (e.target.closest && e.target.closest("[data-drag]")) e.preventDefault();
   });
 
-  window.Daeva = { call, callJSON, fmt, pct, dur, when, esc, classColor, classIcon, skillIcon, npcIcon, eventIcon, loadArt, art, applyTheme, applyClassBorder, toast, icon, lights, winAction, params, wireTitlebar };
+  window.Daeva = { call, callJSON, fmt, pct, dur, when, esc, classColor, classIcon, classGlyph, skillIcon, npcIcon, eventIcon, loadArt, art, applyTheme, applyClassBorder, toast, icon, lights, winAction, params, wireTitlebar };
 })();

@@ -9,6 +9,11 @@
   .titlebar { gap: 2px; }
   /* The status dot follows the name; the buttons stay on the right. */
   .titlebar .title { flex: 0 1 auto; }
+  /* "DAEVA METER" (Classic 10px, Solo 10.5px) and the footer status in Oxanium (SIL OFL 1.1;
+     fonts/oxanium-OFL.txt). Classic's version tag stays in the normal font, smaller (9px). */
+  @font-face { font-family: "Oxanium"; src: url("fonts/oxanium.ttf") format("truetype"); font-weight: 200 800; }
+  .titlebar .title { font-family: "Oxanium", var(--font); font-size: 10px; font-weight: 600; letter-spacing: normal; text-transform: uppercase; }
+  .titlebar .title .ver { font-family: var(--font); text-transform: none; }
   .state-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); flex: none; margin: 0 auto 0 8px; box-shadow: 0 0 0 3px rgba(255,255,255,0.03); }
   .state-dot.live { background: var(--good); box-shadow: 0 0 8px rgba(111,207,142,0.7); }
   .state-dot.wait { background: var(--warn); }
@@ -129,7 +134,7 @@
   .foot { flex: none; display: flex; align-items: center; gap: 8px; padding: 3px 10px; font-size: 10.5px; color: var(--dim); border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; }
   .footc { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; overflow: hidden; }
   .footc > span:last-child { margin-left: auto; }
-  .titlebar .title .ver { color: var(--muted); font-weight: 400; font-size: 11px; }
+  .titlebar .title .ver { color: var(--muted); font-weight: 400; font-size: 9px; margin-left: 2px; }
   .foot .lockb { width: 20px; height: 20px; margin: -2px -4px -2px 0; flex: none; }
   .foot .lockb svg { width: 13px; height: 13px; }
   .ping { font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -172,6 +177,8 @@
   .titlebar .state-dot { visibility: hidden; width: 0; }
   .foot .fl { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
   .foot .fl .st { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+  /* Status text in Oxanium like the title, same 10.5px as before. */
+  .foot .fl .st { font-family: "Oxanium", var(--font); font-weight: 500; position: relative; top: 1px; }
   .zonetip { flex: none; display: flex; align-items: center; gap: 8px; padding: 5px 10px; font-size: 11px; line-height: 1.35; color: #e8d3a6;
     background: rgba(232,176,75,0.10); border-top: 1px solid rgba(232,176,75,0.30); }
   .zonetip b { color: #f3c46b; font-weight: 650; }
@@ -205,6 +212,16 @@
   .nextev .soon b { color: var(--warn); }
 
   /* ---- Party panel: in a party and not fighting (the lobby, the queue) ---- */
+  /* Queueing for a dungeon while you fight: the room in one slim line. */
+  .qbar { display: flex; align-items: center; gap: 8px; margin: 6px 8px 2px; padding: 5px 10px; border-radius: 8px; font-size: 11.5px;
+    background: rgba(232,176,75,.08); border: 1px solid rgba(232,176,75,.35); color: #d9d4c7; }
+  .qbar[hidden] { display: none; }
+  .qbar b { color: #fff; font-weight: 700; }
+  .qbar .ttl { color: #c9b98f; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .qbar .dots { display: flex; gap: 3px; flex: none; }
+  .qbar .dots i { width: 7px; height: 7px; border-radius: 50%; background: rgba(255,255,255,.18); } .qbar .dots i.r { background: var(--good); }
+  .qbar .rd { margin-left: auto; flex: none; font-weight: 700; padding: 0 7px; border-radius: 9px; color: #e5675f; background: rgba(229,103,95,.12); border: 1px solid rgba(229,103,95,.35); }
+  .qbar .rd.all { color: var(--good); background: rgba(111,207,142,.12); border-color: rgba(111,207,142,.3); }
   .pty { padding: 8px 4px 6px; }
   .pty-h { display: flex; align-items: center; gap: 8px; padding: 0 8px 6px; }
   .pty-h b { font-size: 13px; }
@@ -233,6 +250,7 @@
   .pty-empty { height: 28px; margin: 2px 0; border: 1px dashed rgba(255,255,255,.10); border-radius: 6px; display: flex; align-items: center; justify-content: center; color: var(--dim); font-size: 11px; }
   .pty-ft { display: flex; justify-content: flex-end; gap: 10px; padding: 6px 8px 0; font-size: 11px; color: var(--muted); } .pty-ft b { color: var(--text); }
   .so-pty { display: flex; align-items: center; gap: 6px; margin: 4px 6px 0; padding: 3px 8px; border-radius: 6px; background: rgba(255,255,255,.04); font-size: 10.5px; color: var(--muted); }
+  .pty-ic { width: 13px; height: 13px; flex: none; color: #8fd0ff; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
   .so-pty b { color: var(--text); } .so-pty .ok { color: var(--good); font-weight: 700; } .so-pty .no { color: #e5675f; font-weight: 700; }
 
   /* ---- Solo layout: just you, in a card the size of the window ---- */
@@ -263,6 +281,37 @@
   .so-pc.dead { color: var(--good); font-size: 11px; }
   .so-hp { height: 4px; margin: 0 10px; border-radius: 2px; background: rgba(255,255,255,.07); overflow: hidden; }
   .so-hp i { display: block; height: 100%; background: linear-gradient(90deg, #b8392f, #ec7a64); box-shadow: 0 0 8px rgba(236,122,100,.8); transition: width .25s; }
+  /* No target: the meter's own card in the boss card's place. Logo in an amber frame
+     (website gold) with a glow in the status colour, a full bar in the same colour.
+     Idle pulses three times, then rests (a never-ending animation repaints the overlay). */
+  .so-app-ic { --st: 150,158,172; width: 22px; height: 22px; flex: none; border-radius: 6px; overflow: hidden;
+    border: 1px solid rgba(232,176,75,.7); background: rgba(232,176,75,.12); }
+  .so-app-ic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .so-app-ic.idle { --st: 79,184,232; box-shadow: 0 0 8px rgba(var(--st),.55); animation: appglow 2.4s ease-in-out 3; }
+  .so-app-ic.live { --st: 111,207,142; box-shadow: 0 0 8px rgba(var(--st),.55); }
+  .so-app-ic.err { --st: 229,103,95; box-shadow: 0 0 8px rgba(var(--st),.55); }
+  .so-app-ic.demo { --st: 143,122,224; box-shadow: 0 0 8px rgba(var(--st),.55); }
+  @keyframes appglow { 50% { box-shadow: 0 0 0 rgba(var(--st),0); } }
+  .so-bn > b.so-app { font-family: "Oxanium", var(--font); font-size: 10.5px; font-weight: 600; text-transform: uppercase; }
+  /* Odyle beside the version, like the footer; the next event under the name, like Classic's event line. */
+  .so-ody { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .so-ody img { width: 12px; height: 12px; object-fit: contain; }
+  .so-ody b { color: var(--text); }
+  .so-ody .dl { color: #4fb8e8; }
+  .so-ev { display: inline-flex; align-items: center; gap: 4px; color: var(--text); }
+  .so-ev .ev-ic { width: 12px; height: 12px; }
+  .so-bn .so-ev b { display: inline; font-size: inherit; line-height: inherit; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .so-ev b.soon { color: var(--warn); } .so-ev b.live { color: var(--good); }
+  .so-app-bar { position: relative; }
+  .so-app-bar i { background: #4a4f5a; box-shadow: none; }
+  .so-app-bar.idle i { background: linear-gradient(90deg, #2b7fa8, #4fb8e8); box-shadow: 0 0 8px rgba(79,184,232,.7); }
+  .so-app-bar.live i { background: linear-gradient(90deg, #3f9a62, #6fcf8e); box-shadow: 0 0 8px rgba(111,207,142,.7); }
+  .so-app-bar.err i { background: linear-gradient(90deg, #a8423b, #e5675f); box-shadow: 0 0 8px rgba(229,103,95,.7); }
+  .so-app-bar.demo i { background: linear-gradient(90deg, #6a58b8, #8f7ae0); box-shadow: 0 0 8px rgba(143,122,224,.7); }
+  .so-app-bar.idle::after { content: ""; position: absolute; inset: 0; width: 30%; background: linear-gradient(90deg, transparent, rgba(255,255,255,.75), transparent);
+    transform: translateX(-120%); animation: barsweep 2.4s ease-in-out 3; }
+  @keyframes barsweep { to { transform: translateX(380%); } }
+  @media (prefers-reduced-motion: reduce) { .so-app-ic, .so-app-bar::after { animation: none !important; } }
   .so-me { margin: 5px 5px 0; padding: 5px 7px 5px; border-radius: 8px; cursor: pointer;
     background: linear-gradient(100deg, color-mix(in srgb, var(--k) 12%, transparent), rgba(255,255,255,.02) 70%);
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--k) 20%, transparent); }
@@ -299,6 +348,18 @@
   .so-ft .icon-btn { width: 18px; height: 18px; }
   .so-ft .icon-btn svg { width: 12px; height: 12px; }
   body.locked .so-ft .hide-locked { display: none; }
+  /* Solo footer: server light, name and status, like the Classic footer. No minimise
+     light here (the taskbar button still minimises). */
+  .so-ft { gap: 7px; }
+  .so-ft .fl { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+  .so-ft .srv-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); flex: none; }
+  .so-ft .srv-dot.live { background: var(--good); box-shadow: 0 0 7px rgba(111,207,142,0.75); }
+  .so-ft .srv-dot.idle { background: #4fb8e8; box-shadow: 0 0 6px rgba(79,184,232,0.6); }
+  .so-ft .srv-dot.err { background: var(--bad); box-shadow: 0 0 6px rgba(229,103,95,0.6); }
+  .so-ft .srv-dot.demo { background: #8f7ae0; }
+  .so-ft .srv { color: var(--text); font-weight: 600; }
+  .so-ft .st { font-family: "Oxanium", var(--font); font-weight: 500; position: relative; top: 1px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .so-ft .lt.y { display: none; }
   .so-pad { height: 6px; }
   .so-idle { color: var(--muted); font-size: 10.5px; padding: 2px 0 1px; }
 </style>
@@ -319,6 +380,7 @@
     </div>
   </div>
   <div class="solo" id="solo" data-drag></div>
+  <div class="qbar" id="qbar" hidden></div>
   <div class="target" id="target" hidden></div>
   <div class="scroll"><div class="rows" id="rows"></div></div>
   <div class="zonetip" id="zonetip" hidden><span>📍 <b>Teleport or change zone once</b> so Daeva Meter can read names, monster health, Odyle and keys.</span><button class="x" id="zonetipX" title="Hide">✕</button></div>
@@ -445,6 +507,9 @@
     setHTML($("title"), appName(s));
     const solo = ui.layout === "solo";
     document.body.classList.toggle("lay-solo", solo);
+    const qb = !solo && snap.party && snap.party.queue_bar ? queueBar(snap.party) : "";
+    setProp($("qbar"), "hidden", !qb);
+    if (qb) setHTML($("qbar"), qb);
     if (solo) {
       // Classic redraws again from scratch when switched back.
       $("rows").__html = null; lastTargetHtml = "";
@@ -506,21 +571,37 @@
     const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
     return h ? `${h}h ${String(m).padStart(2, "0")}m` : m >= 10 ? `${m}m` : `${m}:${String(s).padStart(2, "0")}`;
   }
+  // What needs you soonest first: events on now that end soon, then events
+  // starting within the hour, then events open for hours (Arena), then later.
+  function rankEvents(list) {
+    const now = Date.now() / 1000;
+    const rank = (o) => {
+      const long = o.ends - o.starts > 90 * 60;
+      if (o.active) return long ? [2, o.ends] : [0, o.ends];
+      return o.starts - now <= 3600 ? [1, o.starts] : [3, o.starts];
+    };
+    return list.slice().sort((x, y) => rank(x)[0] - rank(y)[0] || rank(x)[1] - rank(y)[1]);
+  }
+  // Solo's next-event countdown: only its text changes each second, so the card
+  // (and its glow) isn't redrawn.
+  function tickSoloEvent() {
+    const b = document.querySelector("#solo .so-ev b");
+    if (!b) return;
+    const now = Date.now() / 1000, live = b.hasAttribute("data-active");
+    const sec = live ? b.dataset.ends - now : b.dataset.starts - now;
+    const t = live ? `Now · ${countdown(sec)} left` : countdown(sec);
+    if (b.textContent !== t) b.textContent = t;
+    const cls = live ? "live" : sec < 600 ? "soon" : "";
+    if (b.className !== cls) b.className = cls;
+  }
   function renderAlerts(a) {
     const next = $("nextev");
     if (!a || !a.enabled) { setProp(next, "hidden", true); return; }
     const now = Date.now() / 1000;
     if (a.show_next && a.next && a.next.length) {
       setProp(next, "hidden", false);
-      // Two places, what needs you soonest first: events on now that end
-      // soon, then events starting within the hour, then events open for
-      // hours (Arena), then anything later. Pointing at the line lists all.
-      const rank = (o) => {
-        const long = o.ends - o.starts > 90 * 60;
-        if (o.active) return long ? [2, o.ends] : [0, o.ends];
-        return o.starts - now <= 3600 ? [1, o.starts] : [3, o.starts];
-      };
-      const shown = a.next.slice().sort((x, y) => rank(x)[0] - rank(y)[0] || rank(x)[1] - rank(y)[1]).slice(0, 2);
+      // Two places, what needs you soonest first. Pointing at the line lists all.
+      const shown = rankEvents(a.next).slice(0, 2);
       setHTML(next, shown.map((o) => {
         const live = o.active;
         const t = live ? `Now · ${countdown(o.ends - now)} left` : countdown(o.starts - now);
@@ -738,7 +819,8 @@
   const xc = (p, cc) => cc.length ? `<span class="xcs">${cc.map((c) => `<span>${COLS[c][1](p)}</span>`).join("")}</span>` : "";
   // ---- Live "digital dash" numbers: every figure counts smoothly to its new value
   const odoShown = {}; const trend = {};
-  const FMT = { rate: (v) => D.fmt(v) + "/s", num: (v) => D.fmt(v), int: (v) => (v < 100000 ? Math.round(v).toLocaleString("en") : D.fmt(v)), pct: (v) => D.pct(v), pct1: (v) => D.pct(v, 1) };
+  // The DPS column says DPS, so figures there go without "/s".
+  const FMT = { rate: (v) => D.fmt(v), num: (v) => D.fmt(v), int: (v) => (v < 100000 ? Math.round(v).toLocaleString("en") : D.fmt(v)), pct: (v) => D.pct(v), pct1: (v) => D.pct(v, 1) };
   const odo = (k, v, f, cls) => `<span class="odo${cls ? " " + cls : ""}${trend[k] ? " " + trend[k] : ""}" data-k="${k}" data-v="${v}" data-f="${f}">${FMT[f](odoShown[k] ?? v)}</span>`;
   const anims = {};
   function runOdos() {
@@ -797,7 +879,7 @@
     const rows = mem.map((x) => {
       const color = D.classColor(x.class, x.name);
       return `<div class="row${x.is_self ? " self" : ""}"><i class="edge" style="background:${color}"></i>
-        <span class="who">${D.classIcon(x.class, 16)}<span class="nm">${D.esc(x.name)}</span></span>
+        <span class="who">${D.classIcon(x.class, 18)}<span class="nm">${D.esc(x.name)}</span></span>
         ${cc.length ? `<span class="xcs">${cc.map(() => `<span>${dash}</span>`).join("")}</span>` : ""}<span class="val">${vparts.map(() => `<span>${dash}</span>`).join("")}</span></div>`;
     }).join("");
     const ready = `<div class="rdy"><i></i><b>Ready</b> · ${mem.length} in party · waiting for the first hit</div>`;
@@ -845,7 +927,7 @@
       return `<div class="row${p.is_self ? " self" : ""}" data-id="${p.id}" title="${D.esc(tip)}">
         <i class="fill" style="width:${((v / top) * 100).toFixed(1)}%;background:${color}"></i>
         <i class="edge" style="background:${color}"></i>
-        <span class="who">${D.classIcon(p.class, 16)}<span class="nm">${D.esc(displayName(p, i))}</span></span>
+        <span class="who">${D.classIcon(p.class, 18)}<span class="nm">${D.esc(displayName(p, i))}</span></span>
         ${xc(p, cc)}<span class="val">${main}${heal}${sub}</span>
       </div>`;
     }).join("");
@@ -886,6 +968,18 @@
     const avg = (xs, k) => Math.round(xs.reduce((a, m) => a + m[k], 0) / xs.length);
     const foot = gs.length ? `<div class="pty-ft"><span>Avg GS <b>${avg(gs, "gs").toLocaleString()}</b></span>${cp.length ? `<span>CP <b>${D.fmt(avg(cp, "cp"))}</b></span>` : ""}</div>` : "";
     return `<div class="pty">${head}<div class="pty-hd"><span>Member</span><span>Server</span><span>GS</span><span>CP</span><span>Status</span></div>${rows}${empty}${foot}</div>`;
+  }
+
+  // Party icon (Lucide "users"), light blue like the update icon; the 👥 emoji drew purple.
+  const PARTY_IC = '<svg class="pty-ic" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>';
+
+  // Queueing for a dungeon while you fight: room, size, a dot per member
+  // (green = Ready, or you) and how many clicked Ready.
+  function queueBar(p) {
+    const ms = p.members || [];
+    const n = ms.filter((m) => m.ready).length;
+    const dots = ms.map((m) => `<i class="${m.ready || m.is_self ? "r" : ""}" title="${D.esc(m.name)}${m.ready ? " · ready" : ""}"></i>`).join("");
+    return `${PARTY_IC}<b>Party queue</b><span class="ttl">${p.title ? `“${D.esc(p.title)}” · ` : ""}${ms.length}/5</span><span class="dots">${dots}</span><span class="rd${n === ms.length ? " all" : ""}">Ready ${n}/${ms.length}</span>`;
   }
 
   // Inside the dungeon there's no Ready check any more: the panel says who
@@ -944,7 +1038,17 @@
       hd = `<div class="so-hd" data-drag>${rankIcon(t)}<div class="so-bn" data-drag><b>${D.esc(t.name)}</b><span>${sub}</span></div><div class="so-rt">${enr}<span class="so-clock">${clock(secs)}</span>${pc}</div></div>`
         + (pctv != null ? `<div class="so-hp"><i style="width:${(pctv * 100).toFixed(1)}%"></i></div>` : "");
     } else {
-      hd = `<div class="so-hd" data-drag><div class="so-bn" data-drag><b>Daeva Meter${s.version ? ` <span>v${D.esc(s.version)}</span>` : ""}</b><span title="${D.esc(text)}">${D.esc(state === "live" || state === "idle" ? (s.server ? s.server + " · " : "") + (f ? "Fight over" : "Waiting for a fight") : text)}</span></div>${f && f.duration ? `<div class="so-rt"><span class="so-clock">${clock(f.duration)}</span></div>` : ""}</div>`;
+      // No target: the meter's own card, built like the boss card so nothing jumps when a fight starts.
+      // Under the name: the last fight; before any fight, the next event (as Classic's
+      // event line picks it), its countdown filled in by tickSoloEvent.
+      const a = lastSnap && lastSnap.alerts;
+      const ev = !(f && f.duration) && a && a.enabled && a.show_next && a.next && a.next.length ? rankEvents(a.next)[0] : null;
+      const sub = f && f.duration ? D.esc(`${f.live ? "Fight" : "Last fight"} ${D.dur(f.duration)}${me ? ` · ${D.fmt(me.dps)} DPS` : ""}`)
+        : ev ? `<span class="so-ev" title="${D.esc(ev.name)}">${D.eventIcon(ev.id, ev.emoji, 12)} ${D.esc(ev.short)} <b data-starts="${ev.starts}" data-ends="${ev.ends}"${ev.active ? " data-active" : ""}></b></span>`
+        : "Waiting for a fight";
+      const odyle = s.odyle != null ? `<span class="so-ody" title="Odyle${s.odyle_bonus ? ` (+${Number(s.odyle_bonus).toLocaleString()} from Odyle Energy)` : ""}"><img src="img/odyle.webp" alt=""><b>${Number(s.odyle).toLocaleString()}</b>${s.odyle_bonus ? ` <span class="dl">(+${Number(s.odyle_bonus).toLocaleString()})</span>` : ""}</span>` : "";
+      hd = `<div class="so-hd" data-drag><span class="so-app-ic ${state}" title="${D.esc(text)}"><img src="img/logo.png" alt=""></span><div class="so-bn" data-drag><b class="so-app">Daeva Meter</b><span>${sub}</span></div><div class="so-rt">${s.version ? `<span class="so-clock" title="Daeva Meter version">v${D.esc(s.version)}</span>` : ""}${odyle}</div></div>`
+        + `<div class="so-hp so-app-bar ${state}"><i style="width:100%"></i></div>`;
     }
     // Your card.
     const fk = f ? f.fight_id + "_" : "x_";
@@ -955,22 +1059,29 @@
     const rank = me ? pool.indexOf(me) + 1 : 0;
     const name = (me && me.name) || s.self_name || "You";
     const cls = (me && me.class) || s.self_class || savedClass;
-    const cp = me && me.cp ? `<span class="cp" title="Combat power">◆ ${D.fmt(me.cp)}</span> · ` : "";
+    // Combat power from the fight, else the last one the game sent (so it shows before a fight too).
+    const cpv = (me && me.cp) || s.self_cp;
+    const cp = cpv ? `<span class="cp" title="Combat power">◆ ${D.fmt(cpv)}</span> · ` : "";
     const line = [cls ? D.esc(cls) : "", so.rank !== false && me && pool.length > 1 ? `<span class="rk">#${rank} of ${pool.length}</span>` : "", so.rank !== false && me && pool.length > 1 ? D.pct(me.share) : ""].filter(Boolean).join(" · ");
     const dps = me ? odo(fk + "solo", me.dps, "int") : `<span class="odo">0</span>`;
     const tip = me ? `Damage ${D.fmt(me.dmg)} · ${D.fmt(me.dps)}/s\n${clockRule(f)}\nClick for your full breakdown` : "";
     const chip = (k, v) => `<div><small>${k}</small><b>${me ? D.pct(v || 0) : "–"}</b></div>`;
     const chips = so.chips !== false ? `<div class="so-chips">${chip("CRIT", me && me.crit_rate)}${chip("DBL", me && me.double_rate)}${chip("PERF", me && me.perfect_rate)}${chip("FRONT", me && me.front_rate)}${chip("BACK", me && me.back_rate)}</div>` : "";
     const shareLine = so.rank !== false ? `<div class="so-share" title="Your share of the damage"><i style="width:${me ? (Math.min(1, me.share || 0) * 100).toFixed(1) : 0}%"></i></div>` : "";
-    const card = `<div class="so-me" title="${D.esc(tip)}" data-act="detail"><div class="so-l1"><span class="so-crest">${D.classIcon(cls, 18)}<i class="on${f && f.live ? " live" : ""}"></i></span><div class="so-who"><b>${D.esc(name)}</b><span>${cp}${line}</span></div><div class="so-num">${dps}<small>DPS</small></div></div>${chips}${shareLine}</div>`;
+    const card = `<div class="so-me" title="${D.esc(tip)}" data-act="detail"><div class="so-l1"><span class="so-crest">${D.classIcon(cls, 22)}<i class="on${f && f.live ? " live" : ""}"></i></span><div class="so-who"><b>${D.esc(name)}</b><span>${cp}${line}</span></div><div class="so-num">${dps}<small>DPS</small></div></div>${chips}${shareLine}</div>`;
     // Bottom: Odyle, party DPS, ping and the buttons.
     const partyDps = pool.reduce((a, p) => a + (p.dps || 0), 0);
     const ody = s.odyle != null ? `<span title="Odyle${s.odyle_bonus ? ` (+${Number(s.odyle_bonus).toLocaleString()} from Odyle Energy)` : ""}"><img class="ody" src="img/odyle.webp" alt=""> <b>${Number(s.odyle).toLocaleString()}</b>${s.odyle_bonus ? ` <span style="color:#4fb8e8">(+${Number(s.odyle_bonus).toLocaleString()})</span>` : ""}</span><i class="sep"></i>` : "";
     const btns = `<span class="btns"><button class="icon-btn hide-locked" data-act="settings" title="Settings">${D.icon("gear")}</button><button class="icon-btn${ui.click_through ? " on" : ""}" data-act="lock" title="Click-through (Ctrl+Shift+L)">${D.icon(ui.click_through ? "lock" : "unlock")}</button>${D.lights("classic")}</span>`;
+    // Server light and name like the Classic footer. Not fighting: the status after it;
+    // in combat the green light says it, and Party DPS and Odyle take that space.
+    const srvOn = !!s.server && (state === "live" || state === "idle" || (state === "wait" && s.servers && s.servers.length));
+    const solWhere = `<span class="fl" title="${D.esc(text)}"><i class="srv-dot ${state}"></i>${srvOn ? `<span class="srv">${D.esc(s.server)}</span>` : ""}</span>${srvOn || state === "live" ? `<i class="sep"></i>` : ""}`;
+    const solStatus = `<span class="st" title="${D.esc(text)}">${state === "idle" ? "Idle · no combat for 30s" : D.esc(text)}</span><i class="sep"></i>`;
     const su = s.self_update;
     const suh = su && selfUpdateHtml(su, true);
     const ft = su ? `<div class="so-ft upd" data-drag>${suh.html}${btns}</div>`
-      : so.footer !== false ? `<div class="so-ft" data-drag>${ody}${pool.length > 1 ? `<span title="${grouped ? "Your party\x27s" : "Everyone\x27s"} DPS in this fight">${grouped ? "Party" : "All"} <b>${D.fmt(partyDps)}</b></span><i class="sep"></i>` : ""}${ping}${btns}</div>` : `<div class="so-ft" data-drag style="padding-top:3px;padding-bottom:3px">${btns}</div>`;
+      : so.footer !== false ? `<div class="so-ft" data-drag>${solWhere}${state === "live" ? `${pool.length > 1 ? `<span title="${grouped ? "Your party\x27s" : "Everyone\x27s"} DPS in this fight">${grouped ? "Party" : "All"} <b>${D.fmt(partyDps)}</b></span><i class="sep"></i>` : ""}${ody}` : solStatus}${ping}${btns}</div>` : `<div class="so-ft" data-drag style="padding-top:3px;padding-bottom:3px">${btns}</div>`;
     // In a party and not fighting yet: one line, "Party 4/5 · 3/4 ready".
     const pt = lastSnap && lastSnap.party;
     let strip = "";
@@ -980,9 +1091,10 @@
       const inN = (pt.members || []).filter((m) => m.in_dungeon).length, n = (pt.members || []).length;
       const count = pt.inside ? ` <span style="margin-left:auto;${inN === n ? "" : "color:#8fd0ff;font-weight:700"}" class="${inN === n ? "ok" : ""}">${inN === n ? "✓ " : ""}${inN}/${n} in dungeon</span>`
         : pt.room && v.length ? ` <span style="margin-left:auto" class="${r === v.length ? "ok" : "no"}">${r === v.length ? "✓ " : ""}${r}/${v.length} ready</span>` : "";
-      strip = `<div class="so-pty">👥 Party <b>${(pt.members || []).length}</b>${pt.title ? ` · <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px">“${D.esc(pt.title)}”</span>` : ""}${count}</div>`;
+      strip = `<div class="so-pty">${PARTY_IC}Party <b>${(pt.members || []).length}</b>${pt.title ? ` · <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px">“${D.esc(pt.title)}”</span>` : ""}${count}</div>`;
     }
     if (setHTML($("solo"), hd + card + strip + ft)) runOdos();
+    tickSoloEvent();
     fitSolo();
   }
   $("solo").addEventListener("click", (ev) => {

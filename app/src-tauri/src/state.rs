@@ -152,6 +152,7 @@ pub struct Core {
     /// A banner is being dragged: (started, last window position, when it
     /// last moved).
     pub alert_drag: Option<(f64, Option<(i32, i32)>, f64)>,
+    pub toast_health: ToastHealth,
     /// Banners held back during a fight (Settings → During fights).
     held: Vec<meter_core::schedule::Alert>,
     /// Capture-gap counter (dropped packets + decoder resyncs) at the start
@@ -237,6 +238,9 @@ pub struct EventFeed {
     pub notifier: Notifier,
     /// Alerts raised recently, newest last; the overlay shows unseen ones.
     pub recent: std::collections::VecDeque<Alert>,
+    /// Keys of alerts the alert window has put on screen. Until then an
+    /// alert waits (a stalled window shows it late rather than never).
+    pub acked: HashSet<String>,
     pub fetched_at: f64,
     pub error: Option<String>,
     /// Bumped to make the fetch thread reload now (settings changed).
@@ -249,6 +253,7 @@ impl EventFeed {
             occurrences: Vec::new(),
             notifier: Notifier::new(a.lead_minutes.max(0.0) * 60.0, a.at_start, a.muted.iter().cloned()),
             recent: Default::default(),
+            acked: HashSet::new(),
             fetched_at: 0.0,
             error: None,
             wake: 0,
@@ -264,7 +269,36 @@ impl EventFeed {
         while self.recent.len() > 20 {
             self.recent.pop_front();
         }
+        let recent = &self.recent;
+        self.acked.retain(|k| recent.iter().any(|a| &a.key == k));
     }
+    /// Should the alert window (still) get this alert? Shown ones stay in
+    /// the list a little while (for reports); unshown ones wait up to 10 min,
+    /// a "starts in" one only until its event starts.
+    pub fn listed(&self, a: &Alert, now: f64, banner_secs: f64) -> bool {
+        if self.acked.contains(&a.key) {
+            now - a.raised < banner_secs.max(3.0) + 5.0
+        } else {
+            self.pending(a, now)
+        }
+    }
+    fn pending(&self, a: &Alert, now: f64) -> bool {
+        !self.acked.contains(&a.key) && now - a.raised < 600.0 && (a.kind == "start" || now < a.starts)
+    }
+    /// An alert is waiting for the alert window to show it.
+    pub fn any_pending(&self, now: f64) -> bool {
+        self.recent.iter().any(|a| self.pending(a, now))
+    }
+}
+
+/// How the alert window is doing: when it last asked for alerts, and how
+/// often the meter had to wake it (nudge) or reload it.
+#[derive(Default)]
+pub struct ToastHealth {
+    pub seen: f64,
+    pub nudges: u32,
+    pub reloads: u32,
+    pub last_fix: Option<(f64, String)>,
 }
 
 const ROLLING_SECS: f64 = 300.0;
@@ -405,6 +439,7 @@ impl Core {
             gap_base: None,
             toast_rects: Vec::new(),
             alert_drag: None,
+            toast_health: ToastHealth::default(),
             held: Vec::new(),
             update_error: None,
             update_wake: false,
@@ -907,14 +942,25 @@ impl Core {
     }
 
     pub fn icons_view(&self) -> String {
-        let icons: serde_json::Map<String, serde_json::Value> = if self.settings.game_art {
+        let mut icons: serde_json::Map<String, serde_json::Value> = if self.settings.game_art {
             self.icons.iter().map(|(k, v)| (k.clone(), serde_json::json!(v))).collect()
         } else {
             Default::default()
         };
         // Icons come from your Daeva server's copy, never straight from the
         // gaming.tools CDN (their condition: download, don't hotlink).
-        let base = format!("{}/img", self.settings.names_mirror.trim().trim_end_matches('/'));
+        let mirror = self.settings.names_mirror.trim().trim_end_matches('/');
+        let base = format!("{mirror}/img");
+        // Our own skill icons where gaming.tools has none (the daily
+        // skill-icons.json from the same server), as full addresses.
+        if let (true, Some(ours)) = (self.settings.game_art, mirror.strip_suffix("/gt").filter(|b| b.starts_with("https://"))) {
+            let list: serde_json::Map<String, serde_json::Value> = std::fs::read_to_string(self.paths.data.join("aion2gg").join("skill-icons.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+            for (id, file) in list {
+                if let Some(file) = file.as_str().filter(|f| f.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.')) {
+                    icons.entry(format!("s{id}")).or_insert_with(|| serde_json::json!(format!("{ours}/aion2gg/skill-icons/{file}")));
+                }
+            }
+        }
         let on = self.settings.game_art && base.starts_with("https://");
         serde_json::json!({"base": base, "on": on, "icons": icons}).to_string()
     }
@@ -1235,6 +1281,17 @@ impl Core {
     }
 
     /// A note for problem reports, and an automatic marker in a research
+    /// The meter had to wake or reload the alert window: count it, and note
+    /// a reload in reports and recordings.
+    pub fn toast_fix(&mut self, now: f64, what: &str, reload: bool) {
+        let h = &mut self.toast_health;
+        if reload { h.reloads += 1 } else { h.nudges += 1 }
+        h.last_fix = Some((now, what.to_string()));
+        if reload {
+            self.auto_note(now, format!("alert window reloaded: {what}"));
+        }
+    }
+
     /// recording (so testers don't have to type what they're doing).
     fn auto_note(&mut self, ts: f64, what: String) {
         if let Some(r) = self.recorder.as_mut() {
@@ -1471,7 +1528,9 @@ impl Core {
                     .set("cp", m.cp)
                     .set("leader", p.leader.is_some() && m.id == p.leader)
                     .set("ready", m.status.map(|s| s & 0x02 != 0))
-                    .set("in_dungeon", m.status.map(|s| s & meter_core::engine::IN_DUNGEON != 0))
+                    // The game's bit, or seen fighting here (the bit stays off
+                    // for some members who joined mid-run).
+                    .set("in_dungeon", m.status.map(|s| s & meter_core::engine::IN_DUNGEON != 0 || (p.inside && e.fought_here(&m.name))))
                     .set("new", e.party_is_new(&m.name))
                     .set("is_self", e.self_name.as_deref() == Some(m.name.as_str()))
                     .build()
@@ -1482,7 +1541,10 @@ impl Core {
         Obj::new()
             .set("title", p.title.clone())
             .set("room", room)
-            .set("lobby", e.party_lobby())
+            // Queueing for a dungeon: the full panel while you're idle (even
+            // with a fight nearby), a slim bar over the rows while you fight.
+            .set("lobby", e.party_lobby() || e.party_queue_panel())
+            .set("queue_bar", e.party_queueing() && e.self_active())
             .set("entering", p.entering)
             .set("rerun", p.rerun)
             .set("ready", e.party_ready())
@@ -1519,7 +1581,33 @@ impl Core {
                     vec![]
                 }),
             )
-            .set("recent", Value::Arr(self.events.recent.iter().filter(|x| now - x.raised < a.banner_secs.max(3.0) + 5.0).map(|x| x.to_json()).collect()))
+            .set(
+                "recent",
+                Value::Arr(
+                    self.events
+                        .recent
+                        .iter()
+                        .filter(|x| self.events.listed(x, now, a.banner_secs))
+                        .map(|x| {
+                            let mut j = x.to_json();
+                            if let Value::Obj(m) = &mut j {
+                                m.insert("shown".into(), Value::from(self.events.acked.contains(&x.key)));
+                            }
+                            j
+                        })
+                        .collect(),
+                ),
+            )
+            // For reports: is the alert window answering?
+            .set("window", {
+                let h = &self.toast_health;
+                Obj::new()
+                    .set("last_poll_ago", if h.seen > 0.0 { Some(((now - h.seen) * 10.0).round() / 10.0) } else { None })
+                    .set("nudges", h.nudges)
+                    .set("reloads", h.reloads)
+                    .set("last_fix", h.last_fix.as_ref().map(|(t, w)| format!("{} ({:.0} s ago)", w, now - t)))
+                    .build()
+            })
             .build()
     }
 
@@ -2180,14 +2268,19 @@ fn boss_data_sync(shared: Arc<Shared>) {
             meta = serde_json::json!({});
         }
         let now = now_unix();
-        let due = now - meta["checked_at"].as_f64().unwrap_or(0.0) > 24.0 * 3600.0 && now >= meta["retry_at"].as_f64().unwrap_or(0.0);
+        // Also due while the skill icon list hasn't arrived yet (meters that
+        // fetched the boss data before the server had it), once an hour.
+        let due = (now - meta["checked_at"].as_f64().unwrap_or(0.0) > 24.0 * 3600.0 || !dir.join("skill-icons.json").exists()) && now >= meta["retry_at"].as_f64().unwrap_or(0.0);
         // Same server as the names mirror: ".../api/gt" -> ".../api/aion2gg".
         let base = mirror.strip_suffix("/gt").filter(|b| b.starts_with("https://")).map(|b| format!("{b}/aion2gg"));
         if let (true, Some(base)) = (due, base) {
             let _ = std::fs::create_dir_all(&dir);
             let mut ok = true;
             let mut fights_changed = false;
-            for file in ["boss-fights.json", "boss-skills.json"] {
+            // skill-icons.json: our icons for skills gaming.tools has none of
+            // (a missing list doesn't hold up the boss data).
+            for file in ["boss-fights.json", "boss-skills.json", "skill-icons.json"] {
+                let optional = file == "skill-icons.json";
                 let url = format!("{base}/{file}");
                 let mut req = agent.get(&url);
                 if dir.join(file).exists() {
@@ -2210,12 +2303,12 @@ fn boss_data_sync(shared: Arc<Shared>) {
                             }
                             meta["etag"][file] = serde_json::json!(tag);
                             fights_changed |= file == "boss-fights.json";
-                        } else {
+                        } else if !optional {
                             ok = false;
                         }
                     }
                     Err(ureq::Error::Status(304, _)) => {}
-                    Err(_) => ok = false,
+                    Err(_) => ok &= optional,
                 }
             }
             if ok {
@@ -2553,5 +2646,31 @@ mod names_tests {
         // A2Tools only fills ids nobody else names.
         assert_eq!(names.npcs.get(&2300809).map(String::as_str), Some("Eroded Kalgolem"));
         assert!(official.npcs.contains(&2300809));
+    }
+}
+
+#[cfg(test)]
+mod alert_tests {
+    use super::*;
+
+    fn alert(key: &str, kind: &'static str, raised: f64, starts: f64) -> Alert {
+        Alert { key: key.into(), id: "x".into(), title: "X".into(), body: String::new(), emoji: String::new(), kind, starts, raised }
+    }
+
+    #[test]
+    fn an_alert_waits_until_the_alert_window_shows_it() {
+        let mut ev = EventFeed::new(&crate::settings::Alerts::default());
+        ev.push(alert("soon", "soon", 0.0, 300.0));
+        ev.push(alert("start", "start", 0.0, 0.0));
+        // Not shown yet: still listed long after the old 17 s window.
+        assert!(ev.listed(&ev.recent[0], 60.0, 12.0) && ev.listed(&ev.recent[1], 60.0, 12.0));
+        assert!(ev.any_pending(60.0));
+        // "Starts in" alerts give up once the event starts; starts after 10 min.
+        assert!(!ev.listed(&ev.recent[0], 301.0, 12.0));
+        assert!(!ev.listed(&ev.recent[1], 601.0, 12.0));
+        // Shown: listed only for the banner's own time, nothing pending.
+        ev.acked.extend(["soon".to_string(), "start".to_string()]);
+        assert!(ev.listed(&ev.recent[0], 10.0, 12.0) && !ev.listed(&ev.recent[0], 18.0, 12.0));
+        assert!(!ev.any_pending(60.0));
     }
 }

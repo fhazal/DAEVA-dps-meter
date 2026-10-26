@@ -50,6 +50,8 @@ pub struct Pipeline {
     stall_since: f64,
     pub ping: Ping,
     events: Vec<GameEvent>,
+    /// The game connection the server last sent data on.
+    server_flow: Option<FlowKey>,
 }
 
 /// Passive latency from TCP: time between a client segment leaving and the
@@ -126,6 +128,7 @@ impl Pipeline {
             stall_since: 0.0,
             ping: Ping::default(),
             events: Vec::new(),
+            server_flow: None,
         }
     }
 
@@ -160,6 +163,13 @@ impl Pipeline {
         self.engine.see_time(ts);
         if from_server && !seg.payload.is_empty() {
             self.last_server_data_ts = ts;
+            // The game opens a new connection on every zone load.
+            if self.server_flow != Some(seg.flow) {
+                if self.server_flow.is_some() {
+                    self.engine.new_connection();
+                }
+                self.server_flow = Some(seg.flow);
+            }
         }
         if from_server {
             if seg.flags & net::TCP_ACK != 0 {

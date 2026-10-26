@@ -8,16 +8,20 @@ window.DAEVA_CREDITS = [
     ["LilSmokeyURA", ""],
     ["CrescentScyt", ""],
     ["DonIrfhan", ""],
-    ["Belon", ""],
+    ["Pa'an", ""],
+    ["Seyren", ""],
   ]],
   ["Contributors", [
     ["Adain", "gaming.tools"],
+    ["Belon", "bajubesi.org"],
+    ["timort", "aion2.gg"],
   ]],
   ["Special thanks", [
     ["aion2.gaming.tools", "Monster and skill names · AION 2 Global Database team"],
     ["A2Tools", "Names of zone and dungeon monster variants and newer skills · taengu · GPL-3.0"],
-    ["aion2.gg", "Boss data: enrage times · aion2.gg", "aion2gg"],
+    ["aion2.gg", "Boss data and skill names · aion2.gg", "aion2gg"],
     ["Lucide", "Icons · ISC licence"],
+    ["Oxanium", "Title and status font · Severin Meyer · SIL Open Font License"],
     ["Bajubesi Network", "Our community on Discord"],
   ]],
 ];
@@ -26,6 +30,7 @@ window.DAEVA_CREDITS = [
 window.DAEVA_OSS = [
   ["Tauri", "MIT or Apache-2.0", "The app framework"],
   ["Lucide", "ISC", "Icons"],
+  ["Oxanium (The Oxanium Project Authors)", "SIL OFL 1.1", "Title and status font (app/ui/fonts, licence included there)"],
   ["serde, serde_json", "MIT or Apache-2.0", "Reading and writing settings"],
   ["ureq", "MIT or Apache-2.0", "Web requests (updates, names, event schedule)"],
   ["lz4_flex", "MIT", "Unpacking game messages"],

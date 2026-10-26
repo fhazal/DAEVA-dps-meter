@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.5.4 (unreleased)
+
+- **New look for Solo when you're not fighting:** with no target, Solo used to show an empty boss line. It now shows the meter's own card: the logo, **DAEVA METER**, and under it the next event with a live countdown (or your last fight, *Last fight 1:12 · 46.2K DPS*). On the right are the version and your Odyle. Your combat power shows on your card before the first fight too. Solo's footer now says what the meter is doing (*server · status · ping*). In combat it shows *Party DPS · Odyle* instead.
+- **Class icons and colours:** every class has its own icon and a fresh colour, in both layouts and the party panel.
+- **Title and status font:** *DAEVA METER* and the footer status use the Oxanium font (SIL Open Font License, credited in *About*). In Classic, the version beside the title is smaller.
+- **Cleaner numbers:** thousands show as a capital *K* (46.2K), and the DPS column no longer repeats */s* on every row.
+- **Party queue while you fight:** queueing for a dungeon while you kill mobs outside used to hide the Ready check behind the fight. In Classic, a slim **Party queue** bar now sits above the boss card. It shows the room title, a dot per member (green = Ready) and *Ready 3/4*. Stop fighting for a few seconds and the full Ready panel comes back.
+- **Boss skill icons:** with *Game art* on, boss skills such as the Theostones show their icon in the skill details. The icons are downloaded with the boss data, so nothing extra is installed.
+- **More skill names:** 30 boss and system skills that showed as *Skill 3000017* now have names: the Theostones, Delayed Explosion, Contamination, and the bosses' plain *Attack*. A2Tools names refreshed: over 8,600 skills, up from 4,400. Skill names by [aion2.gg](https://aion2.gg), credited in *About*.
+- **Event cards no longer stop after a few hours:** in long sessions the event alert window could stop showing cards until you restarted the meter. The meter now waits until each card is really shown, and wakes up the alert window if it goes quiet.
+- **Names after entering a dungeon:** on entering, the game sometimes splits its first burst of monster and player names across two packets. The meter skipped that burst, so bosses and party members could show as *Unknown monster* or *Player #id*. The meter now waits for the rest and reads it.
+- **Restarting the meter in town:** the first dungeon after a restart wasn't seen as a zone change, and your own name could show as *You*, with your summon on a row of its own. Both are read correctly now.
+- **Party panel fixes:**
+  - **In town:** a leader's Enter click that didn't take you anywhere could leave *✓ Entering* on the panel, and going home then looked like entering a dungeon.
+  - **Leaving:** leaving the party as you leave the dungeon now empties the panel. A party that stays together comes back with its next list.
+  - **In dungeon:** when the game never marks a member as inside, the meter now shows them *In dungeon* once it has seen them in your zone or fighting with you.
+- **Boss fights don't split on adds:** in fights like Tetrata, killing an add that was your main target could end the boss fight early and start a new one. A boss fight now ends only when the boss itself dies. Bosses such as Bakarma and Siliator, which pause between phases, stay one fight too.
+- **Party icon:** the party queue bar and Solo's party line use a light-blue icon instead of the purple emoji.
+- **Credits:** new testers Pa'an and Seyren. Belon (bajubesi.org) and timort (aion2.gg) are now listed as contributors.
+
 ## 0.5.3 (2026-10-25)
 
 - **Enrage countdown for about 380 bosses:** the *⏱ Enrage* countdown on the boss card used to know 14 bosses from our community list. It now also uses the boss data from **[aion2.gg](https://aion2.gg)**, shared with us by their team, so nearly every dungeon and field boss counts down to its Frenzy. Our community list still wins where both have a boss (Vakron stays at 5:00). Hovering the countdown says where the timer comes from. The meter ships with a copy and downloads the current one from aion2.bajubesi.org at most once a day, so new times after a game patch arrive without a new meter version. Credited in *Settings → About*.

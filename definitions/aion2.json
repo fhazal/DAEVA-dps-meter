@@ -269,8 +269,9 @@
      "fields": [],
      "emit": {"event": "room_exit", "when": "1"}},
     // You left the dungeon: the room closes for you (u32 room id, the same
-    // as in the 0x9702 header). Comes with 0x971d/0x922f on every exit seen
-    // (two captures), whether or not you also left the party.
+    // as in the 0x9702 header). With 0x971d just before it you left the
+    // party too (test15 2026-10-26); the engine then empties the panel, and
+    // a party that did stay comes back with its next list.
     {"opcode": "0x971b", "name": "S_ROOM_CLOSED", "dir": "server",
      "fields": [],
      "emit": {"event": "dungeon_left", "when": "1"}},

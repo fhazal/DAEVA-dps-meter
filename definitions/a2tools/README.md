@@ -3,7 +3,7 @@
 `names.json` holds monster and skill names (id → name) taken from
 [A2Tools](https://github.com/taengu/A2Tools-DPS-Meter) by taengu
 (`src/data/i18n/npcs/en.json` and `src/data/i18n/skills/en.json`, commit
-`652abd1`). It only contains the ids the AION 2 Global Database (gaming.tools)
+`2555901, 25 Oct 2026`). It only contains the ids the AION 2 Global Database (gaming.tools)
 doesn't name, such as zone and dungeon variants (Vakron Sky Island 23008xx,
 open-world 24009xx) and newer class skills (Upward Strike, Piercing Strike,
 Elementalist spirit attacks). Internal names (test, unused, `<DNT>`) are left out.

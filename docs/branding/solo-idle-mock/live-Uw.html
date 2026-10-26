@@ -1,0 +1,1401 @@
+<!doctype html>
+<html lang="en">
+<head><base href="file:///C:/Users/Root/Documents/Claude%20Coding/DAEVA-dps-meter/app/ui/">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Daeva Meter</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  .titlebar { gap: 2px; }
+  /* The status dot follows the name; the buttons stay on the right. */
+  .titlebar .title { flex: 0 1 auto; }
+  /* "DAEVA METER" and the footer status in Oxanium (SIL OFL 1.1; fonts/oxanium-OFL.txt).
+     Title at the titlebar's usual 12px; the version tag keeps the normal font. */
+  @font-face { font-family: "Oxanium"; src: url("fonts/oxanium.ttf") format("truetype"); font-weight: 200 800; }
+  .titlebar .title { font-family: "Oxanium", var(--font); font-size: 11px; font-weight: 600; text-transform: uppercase; }
+  .titlebar .title .ver { font-family: var(--font); text-transform: none; }
+  .state-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); flex: none; margin: 0 auto 0 8px; box-shadow: 0 0 0 3px rgba(255,255,255,0.03); }
+  .state-dot.live { background: var(--good); box-shadow: 0 0 8px rgba(111,207,142,0.7); }
+  .state-dot.wait { background: var(--warn); }
+  /* Connected but no combat for 30 s: amber that dims three times, then
+     rests as a steady glow (a never-ending animation repaints the overlay
+     every frame). Each cycle starts and ends on the resting look. */
+  .state-dot.idle { background: var(--warn); box-shadow: 0 0 6px rgba(231,180,76,0.55); animation: idleglow 2s ease-in-out 3; }
+  @keyframes idleglow {
+    0%, 100% { opacity: 1; box-shadow: 0 0 6px rgba(231,180,76,0.55); }
+    50% { opacity: 0.45; box-shadow: 0 0 0 rgba(231,180,76,0); }
+  }
+  .state-dot.err { background: var(--bad); }
+  .state-dot.demo { background: #8f7ae0; }
+  .state-dot.rec { background: var(--bad); animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: 0.35; } }
+  .tools { display: flex; gap: 0; }
+  body.locked .tools .hide-locked { display: none; }
+  body.locked .lights { display: none; }
+
+  /* Target card: portrait, name, HP current / max · %, health bar,
+     kill-time estimate and damage on the target. */
+  .target { padding: 6px 7px 7px; border-bottom: 1px solid var(--line); container-type: inline-size; }
+  /* A narrow card keeps the rank and drops the family; nothing runs past the edge. */
+  @container (max-width: 330px) { .tc-bot .fam, .tc-bot .dotsep { display: none !important; } }
+  .tc-bot > span { min-width: 0; overflow: hidden; }
+  /* Card colour follows the monster's rank from aion2.gaming.tools:
+     --rk is the rank colour (border, bar, % and rank label). */
+  .tcard { --rk: 150,158,172; position: relative; padding: 8px 11px 7px; border-radius: 10px;
+    background: linear-gradient(180deg, rgba(var(--rk),0.16), rgba(var(--rk),0.06));
+    border: 1px solid rgba(var(--rk),0.38); }
+  .tcard.r-common { --rk: 150,158,172; }
+  .tcard.r-elite { --rk: 79,157,240; }
+  .tcard.r-heroic { --rk: 232,168,75; }
+  .tcard.r-legendary, .tcard.r-boss { --rk: 232,103,126; }
+  .tcard.dead .hp i { opacity: 0; }
+  .tc-bot > span { display: inline-flex; align-items: center; gap: 5px; }
+  .tc-bot .fam { color: var(--text); font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+  .tc-bot .famic svg { width: 13px; height: 13px; display: block; }
+  .tc-bot .dotsep { color: var(--dim); margin: 0 1px; }
+  .md-loading { color: var(--muted); font-style: italic; display: inline-flex; align-items: center; gap: 5px; }
+  .md-spin { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid rgba(255,255,255,.18); border-top-color: var(--accent); animation: mdspin .9s linear infinite; }
+  @keyframes mdspin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .md-spin { animation: none; } }
+  .tc-bot .rank { color: rgb(var(--rk)); font-weight: 700; letter-spacing: .02em; }
+  .target .row1 { display: flex; align-items: center; gap: 8px; }
+  .target .tc-ic { width: 24px; height: 24px; flex: none; display: grid; place-items: center; border-radius: 50%; color: rgb(var(--rk));
+    background: rgba(0,0,0,0.3); border: 1px solid rgba(var(--rk),0.3); }
+  .target .tc-ic svg { width: 14px; height: 14px; }
+  .target .name { flex: 1; min-width: 0; font-weight: 650; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .target .meta { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .target .meta b { color: var(--text); font-weight: 600; }
+  .target .meta .pc { color: rgb(var(--rk)); filter: brightness(1.15); font-weight: 700; }
+  .hp { height: 7px; border-radius: 4px; background: rgba(10,12,16,0.75); margin: 7px 0 6px; overflow: hidden; }
+  .hp i { display: block; height: 100%; border-radius: 4px; background: linear-gradient(90deg, rgba(var(--rk),0.85), rgb(var(--rk))); transition: width .25s; }
+  .tc-bot { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; color: #9c98a0; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tc-bot b.warn { color: var(--warn); }
+  /* Enrage countdown: quiet, amber in the last minute, red once it's on. */
+  .tc-bot .fz { color: var(--muted); }
+  .tc-bot .fz b { color: var(--text); }
+  .tc-bot .fz.soon, .tc-bot .fz.soon b { color: var(--warn); }
+  .tc-bot .fz.on { color: var(--bad); font-weight: 700; }
+  .tc-bot b.bad { color: var(--bad); }
+  .tc-bot b { color: var(--text); font-weight: 650; }
+  .tc-bot b.good { color: var(--good); }
+  .nameit { color: var(--accent); cursor: pointer; font-size: 11px; font-weight: 600; margin-left: 6px; white-space: nowrap; }
+  .nameit:hover { text-decoration: underline; }
+  .target input.nm { width: 100%; font: inherit; font-weight: 600; padding: 2px 6px; }
+
+  .rows { padding: 4px 4px 6px; }
+  .row { position: relative; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; height: 26px; padding: 0 8px 0 10px; border-radius: 6px; cursor: pointer; overflow: hidden; }
+  .row + .row { margin-top: 2px; }
+  .odo { display: inline-block; text-align: right; font-variant-numeric: tabular-nums; transition: color .35s ease, text-shadow .35s ease; }
+  .odo.main { min-width: 62px; }
+  .odo.main.up { color: #b8f5c8; text-shadow: 0 0 8px rgba(120,230,150,.45); }
+  .odo.main.down { color: #ffd0cc; }
+  .rows.cols .row { grid-template-columns: 1fr var(--xc) auto; }
+  .rdy { display: flex; align-items: center; gap: 6px; margin: 4px 4px 8px; padding: 7px 10px; border-radius: 8px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.07); font-size: 11.5px; color: var(--muted); }
+  .rdy b { color: var(--good); font-weight: 700; }
+  .rdy i { width: 7px; height: 7px; border-radius: 50%; background: var(--good); box-shadow: 0 0 6px var(--good); animation: rdyp 1.6s ease-in-out infinite; }
+  @keyframes rdyp { 50% { opacity: .35; } }
+  .rows.cols.nox .row, .rows.cols.nox .colhead { grid-template-columns: 1fr auto; }
+  .xcs { display: grid; grid-auto-flow: column; grid-auto-columns: 44px; text-align: right; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .xcs b { color: var(--text); font-weight: 600; }
+  /* Underlined by a thin line that fades at both ends (softer over the game). */
+  .colhead { display: grid; grid-template-columns: 1fr var(--xc) auto; gap: 8px; padding: 2px 12px 5px 10px; margin-bottom: 4px; font-size: 9.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: #c9ccd3;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.16) 12%, rgba(255,255,255,0.16) 88%, transparent) bottom / 100% 1px no-repeat; }
+  .colhead .xcs { font-size: 9.5px; color: inherit; }
+  /* The figure the list is ranked by (DPS, DMG or DMG %) is gold. */
+  .colhead .vh span:first-child { color: var(--accent); }
+  /* With columns on, each figure on the right gets its own label, centred over it. */
+  .colhead .vh { width: var(--vw); display: grid; grid-template-columns: var(--vc); text-align: center; }
+  .rows.cols .val { width: var(--vw); display: grid; grid-template-columns: var(--vc); align-items: baseline; text-align: center; }
+  .rows.cols .val > * { min-width: 0; margin-left: 0; text-align: center; }
+  .rows.cols .val .odo.main { min-width: 0; }
+  .colhead { padding-right: 8px; }
+  .chk { color: var(--good); font-weight: 600; } .chk.wb { color: #8fc6ff; } .chk.warn { color: var(--warn); } .chk.ow svg { width: 11px; height: 11px; vertical-align: -1px; margin-right: 2px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
+  .pbline { flex: none; display: flex; align-items: center; gap: 8px; padding: 5px 10px; font-size: 11px; color: #ffe6a8; background: rgba(232,176,75,.14); border-top: 1px solid rgba(232,176,75,.35); }
+  .pbline b { color: #ffd166; }
+  .pbline .up { color: var(--good); font-weight: 600; }
+  .pbline .x { margin-left: auto; background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 11px; padding: 0 2px; }
+  .row:hover { background: rgba(255,255,255,0.05); }
+  .row .fill { position: absolute; left: 0; top: 0; bottom: 0; opacity: 0.22; border-radius: 6px; transition: width .3s ease; }
+  .row .edge { position: absolute; left: 0; top: 4px; bottom: 4px; width: 3px; border-radius: 2px; }
+  .row.self { background: var(--self); }
+  .row.climb { box-shadow: inset 0 0 0 1px rgba(232,176,75,.55), 0 0 10px rgba(232,176,75,.25); }
+  .row > * { position: relative; }
+  .rank { color: var(--dim); font-size: 11px; text-align: right; font-variant-numeric: tabular-nums; }
+  .who { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 6px; }
+  .who .nm { overflow: hidden; text-overflow: ellipsis; }
+  .who .cls { color: var(--muted); font-size: 11px; }
+  .val { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; font-weight: 600; }
+  .val small { color: var(--muted); font-weight: 400; margin-left: 6px; font-size: 11px; display: inline-block; min-width: 34px; }
+  .val .sub { color: var(--muted); font-weight: 400; font-size: 11px; margin-left: 6px; }
+
+  .empty { padding: 18px 14px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+  .empty b { color: var(--text); font-weight: 600; }
+  .empty a { color: var(--accent); cursor: pointer; text-decoration: underline; }
+  .foot { flex: none; display: flex; align-items: center; gap: 8px; padding: 3px 10px; font-size: 10.5px; color: var(--dim); border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; }
+  .footc { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; overflow: hidden; }
+  .footc > span:last-child { margin-left: auto; }
+  .titlebar .title .ver { color: var(--muted); font-weight: 400; font-size: 11px; }
+  .foot .lockb { width: 20px; height: 20px; margin: -2px -4px -2px 0; flex: none; }
+  .foot .lockb svg { width: 13px; height: 13px; }
+  .ping { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .ping { color: var(--dim); }
+  .warnline { color: var(--warn); cursor: pointer; overflow: hidden; text-overflow: ellipsis; }
+  .ping.good { color: var(--good); } .ping.warn { color: var(--warn); } .ping.bad { color: var(--bad); }
+  .sig { display: inline-flex; align-items: flex-end; gap: 1px; margin-right: 4px; height: 9px; }
+  .sig i { width: 2px; background: currentColor; opacity: 0.25; border-radius: 1px; }
+  .sig i.on { opacity: 1; }
+
+
+  .alerts { position: absolute; left: 6px; right: 6px; top: 34px; z-index: 20; display: flex; flex-direction: column; gap: 4px; pointer-events: none; }
+  .alert { pointer-events: auto; display: grid; grid-template-columns: 26px 1fr; align-items: center; gap: 2px 8px; padding: 7px 10px 7px 8px;
+    background: rgba(24,22,19,0.96); border: 1px solid var(--accent); border-left: 4px solid var(--accent); border-radius: 8px;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.45); cursor: pointer; animation: slidein .25s ease-out; transition: opacity .4s, transform .4s; }
+  .alert.start { border-color: var(--good); }
+  .alert.out { opacity: 0; transform: translateY(-6px); }
+  .alert .em { grid-row: span 2; font-size: 20px; line-height: 1; text-align: center; }
+  .alert .t { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .alert .b { color: var(--muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  @keyframes slidein { from { opacity: 0; transform: translateY(-8px); } }
+  .foot .srv { color: var(--text); font-weight: 600; letter-spacing: .02em; display: inline-flex; align-items: center; gap: 6px; }
+  .foot .fr { display: inline-flex; align-items: center; gap: 8px; }
+  .foot .sep { width: 1px; height: 11px; background: rgba(255,255,255,0.14); }
+  .foot .fx { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
+  .foot .fx b { color: var(--text); font-weight: 650; font-variant-numeric: tabular-nums; }
+  .foot .fx .dl { color: #4fb8e8; margin-left: 1px; }
+  .foot .fx.stale { opacity: .55; }
+  .foot .ody { width: 13px; height: 13px; object-fit: contain; }
+  /* Connected to your server: blue, so it isn't confused with the green "in combat" light. */
+  .foot .srv-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); flex: none; }
+  .foot .srv-dot.live { background: var(--good); box-shadow: 0 0 7px rgba(111,207,142,0.75); animation: livepulse 1.6s ease-in-out infinite; }
+  /* Idle: online and fine, just no fight right now. */
+  .foot .srv-dot.idle { background: #4fb8e8; box-shadow: 0 0 6px rgba(79,184,232,0.6); }
+  .foot .srv-dot.err, .foot .srv-dot.rec { background: var(--bad); box-shadow: 0 0 6px rgba(229,103,95,0.6); }
+  .foot .srv-dot.demo { background: #8f7ae0; }
+  @keyframes livepulse { 50% { box-shadow: 0 0 2px rgba(111,207,142,0.3); } }
+  .foot .fl .st b { color: var(--good); font-weight: 600; }
+  /* The light lives in the footer now; the title bar keeps the spacing. */
+  .titlebar .state-dot { visibility: hidden; width: 0; }
+  .foot .fl { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+  .foot .fl .st { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+  /* Status text in Oxanium like the title, same 10.5px as before. */
+  .foot .fl .st { font-family: "Oxanium", var(--font); font-weight: 500; position: relative; top: 1px; }
+  .zonetip { flex: none; display: flex; align-items: center; gap: 8px; padding: 5px 10px; font-size: 11px; line-height: 1.35; color: #e8d3a6;
+    background: rgba(232,176,75,0.10); border-top: 1px solid rgba(232,176,75,0.30); }
+  .zonetip b { color: #f3c46b; font-weight: 650; }
+  .tp-hint { color: #f3c46b; font-weight: 600; }
+  /* New version on GitHub. */
+  .updline { flex: none; display: flex; align-items: center; gap: 8px; padding: 5px 10px; font-size: 11px; color: #bfe3ff;
+    background: rgba(80,150,230,.12); border-top: 1px solid rgba(120,180,255,.25); }
+  .updline > svg { width: 14px; height: 14px; flex: none; color: #8fd0ff; stroke: currentColor; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+  .updline b { color: #8fd0ff; }
+  .updline .go { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; color: #fff; background: rgba(80,150,230,.35);
+    border: 0; border-radius: 5px; padding: 1px 7px; font: inherit; font-weight: 600; cursor: pointer; }
+  .updline .go:hover { background: rgba(80,150,230,.55); }
+  .updline .go svg { width: 11px; height: 11px; stroke: currentColor; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+  .updline .x { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 11px; padding: 0 2px; }
+  /* The meter updating itself at start-up (green). */
+  .updline.self { position: relative; color: #c8f2d4; background: rgba(60,190,110,.13); border-top-color: rgba(90,210,130,.35); white-space: nowrap; overflow: hidden; container-type: inline-size; }
+  .updline.self > svg, .updline.self b { color: #6fdc93; }
+  .updline.self .prog, .so-ft .prog { position: absolute; left: 0; bottom: 0; height: 2px; background: #4fd07f; transition: width .4s; }
+  .updline.self .pill { color: #1a1206; background: #e8b04b; border-radius: 8px; padding: 0 6px; font-weight: 700; }
+  .updline.self .go, .so-ft .go { margin-left: auto; color: #6fdc93; background: none; border: 0; padding: 0; font: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+  /* Never wrap: drop the old version, then the words. */
+  @container (max-width: 300px) { .updline.self .from { display: none; } .updline.self .to-word { display: inline; } }
+  @container (max-width: 220px) { .updline.self .words { display: none; } }
+  .updline.self .to-word { display: none; }
+  .zonetip .x { margin-left: auto; flex: none; background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 11px; padding: 0 2px; }
+  .nextev { flex: none; display: flex; gap: 12px; padding: 3px 10px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; font-variant-numeric: tabular-nums; }
+  .nextev > span { color: var(--text); display: inline-flex; align-items: center; gap: 4px; }
+  .nextev .ev-ic { vertical-align: 0; }
+  .nextev b { color: var(--text); font-weight: 600; }
+  .nextev .live b { color: var(--good); }
+  .nextev .soon b { color: var(--warn); }
+
+  /* ---- Party panel: in a party and not fighting (the lobby, the queue) ---- */
+  /* Queueing for a dungeon while you fight: the room in one slim line. */
+  .qbar { display: flex; align-items: center; gap: 8px; margin: 6px 8px 2px; padding: 5px 10px; border-radius: 8px; font-size: 11.5px;
+    background: rgba(232,176,75,.08); border: 1px solid rgba(232,176,75,.35); color: #d9d4c7; }
+  .qbar[hidden] { display: none; }
+  .qbar b { color: #fff; font-weight: 700; }
+  .qbar .ttl { color: #c9b98f; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .qbar .dots { display: flex; gap: 3px; flex: none; }
+  .qbar .dots i { width: 7px; height: 7px; border-radius: 50%; background: rgba(255,255,255,.18); } .qbar .dots i.r { background: var(--good); }
+  .qbar .rd { margin-left: auto; flex: none; font-weight: 700; padding: 0 7px; border-radius: 9px; color: #e5675f; background: rgba(229,103,95,.12); border: 1px solid rgba(229,103,95,.35); }
+  .qbar .rd.all { color: var(--good); background: rgba(111,207,142,.12); border-color: rgba(111,207,142,.3); }
+  .pty { padding: 8px 4px 6px; }
+  .pty-h { display: flex; align-items: center; gap: 8px; padding: 0 8px 6px; }
+  .pty-h b { font-size: 13px; }
+  .pty-h .ttl { color: var(--muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+  .pty-rd { margin-left: auto; flex: none; font-size: 12px; font-weight: 700; padding: 1px 8px; border-radius: 10px; color: #e5675f; background: rgba(229,103,95,.12); border: 1px solid rgba(229,103,95,.35); }
+  .pty-rd.all { color: var(--good); background: rgba(111,207,142,.12); border-color: rgba(111,207,142,.3); }
+  .pty-bar { height: 3px; margin: 0 8px 8px; background: rgba(255,255,255,.07); border-radius: 2px; overflow: hidden; }
+  .pty-bar i { display: block; height: 100%; background: #e5675f; } .pty-bar i.all { background: var(--good); }
+  .pty-hd, .pty-m { display: grid; grid-template-columns: 1fr 40px 50px 50px 70px; align-items: center; gap: 6px; padding: 0 8px; }
+  .pty-hd { font-size: 9.5px; letter-spacing: .06em; color: #7d7a72; padding-bottom: 3px; } .pty-hd span:nth-child(n+2) { text-align: right; }
+  .pty-m { position: relative; height: 28px; margin: 2px 0; border-radius: 6px; font-size: 12px; padding-left: 10px; }
+  .pty-m::before { content: ""; position: absolute; left: 0; top: 4px; bottom: 4px; width: 3px; border-radius: 2px; background: rgba(255,255,255,.12); }
+  .pty-m.s-ok::before { background: var(--good); } .pty-m.s-no::before { background: #e5675f; } .pty-m.s-ld::before { background: var(--accent); }
+  .pty-m.me { background: rgba(255,255,255,.07); }
+  .pty-m .nm { display: flex; align-items: center; gap: 5px; min-width: 0; } .pty-m .nm .n { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+  .pty-m .metag { font-size: 9px; font-weight: 800; color: var(--accent); background: var(--accent-soft); padding: 0 4px; border-radius: 3px; flex: none; }
+  .pty-m .sv { font-size: 9.5px; color: var(--muted); background: rgba(255,255,255,.06); padding: 0 4px; border-radius: 3px; justify-self: end; }
+  .pty-m .num { text-align: right; font-variant-numeric: tabular-nums; color: var(--text); }
+  .pty-m .st { text-align: right; font-size: 11px; font-weight: 600; white-space: nowrap; }
+  .pty-m .st.ok { color: var(--good); } .pty-m .st.no { color: #e5675f; } .pty-m .st.ld { color: var(--accent); }
+  /* Inside a dungeon: blue = on the way (or new), a member who left fades out. */
+  .pty-m.s-way::before { background: #8fd0ff; } .pty-m .st.way { color: #8fd0ff; }
+  .pty-rd.in { color: #8fd0ff; background: rgba(80,150,230,.12); border-color: rgba(143,208,255,.35); } .pty-bar i.in { background: #8fd0ff; }
+  .pty-m .newtag { font-size: 9px; font-weight: 800; color: #8fd0ff; background: rgba(80,150,230,.16); padding: 0 4px; border-radius: 3px; flex: none; }
+  .pty-m.gone { opacity: .45; } .pty-m.gone .n { text-decoration: line-through; }
+  .pty-empty { height: 28px; margin: 2px 0; border: 1px dashed rgba(255,255,255,.10); border-radius: 6px; display: flex; align-items: center; justify-content: center; color: var(--dim); font-size: 11px; }
+  .pty-ft { display: flex; justify-content: flex-end; gap: 10px; padding: 6px 8px 0; font-size: 11px; color: var(--muted); } .pty-ft b { color: var(--text); }
+  .so-pty { display: flex; align-items: center; gap: 6px; margin: 4px 6px 0; padding: 3px 8px; border-radius: 6px; background: rgba(255,255,255,.04); font-size: 10.5px; color: var(--muted); }
+  .so-pty b { color: var(--text); } .so-pty .ok { color: var(--good); font-weight: 700; } .so-pty .no { color: #e5675f; font-weight: 700; }
+
+  /* ---- Solo layout: just you, in a card the size of the window ---- */
+  .solo { display: none; }
+  body.lay-solo .titlebar, body.lay-solo #target, body.lay-solo .scroll, body.lay-solo #zonetip,
+  body.lay-solo #nextev, body.lay-solo #foot { display: none !important; }
+  /* Same frame as Classic (the hairline in your class colour); the card is
+     drawn 1.28x, about 476 x 178 like other meters' solo cards. */
+  body.lay-solo .solo { display: block; zoom: 1.28; }
+  /* The window fits the card's height; nothing below it. */
+  body.lay-solo .shell { bottom: auto; }
+  body.lay-solo .shell { --k: var(--cls, var(--accent)); }
+  .so-hd { display: flex; align-items: center; gap: 8px; padding: 5px 9px 3px; }
+  .so-hd .gt-ic, .so-hd .tc-ic { width: 22px; height: 22px; border-radius: 6px; flex: none; }
+  .so-rk { --rk: 150,158,172; width: 22px; height: 22px; flex: none; display: grid; place-items: center; border-radius: 6px;
+    color: rgb(var(--rk)); background: rgba(var(--rk),0.14); border: 1px solid rgba(var(--rk),0.45); }
+  .so-rk svg { width: 14px; height: 14px; }
+  .so-rk.r-common { --rk: 150,158,172; } .so-rk.r-elite { --rk: 79,157,240; } .so-rk.r-heroic { --rk: 232,168,75; }
+  .so-rk.r-legendary, .so-rk.r-boss { --rk: 232,103,126; }
+  .so-bn { min-width: 0; flex: 1; }
+  .so-bn b { display: block; font-size: 12px; font-weight: 650; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .so-bn span { color: var(--muted); font-size: 9.5px; line-height: 1.1; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .so-rt { display: flex; align-items: center; gap: 6px; flex: none; }
+  .so-clock { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 11px; color: #bfe3ff; background: rgba(79,184,232,.12); border: 1px solid rgba(79,184,232,.25); padding: 1px 7px; border-radius: 5px; }
+  .so-enr { font-size: 10px; color: var(--muted); background: rgba(255,255,255,.05); padding: 1px 6px; border-radius: 5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .so-enr.soon { color: var(--warn); background: rgba(231,180,76,.12); } .so-enr.on { color: var(--bad); background: rgba(229,103,95,.14); }
+  .so-pc { font-weight: 800; font-size: 13px; color: #f29a88; font-variant-numeric: tabular-nums; min-width: 34px; text-align: right; }
+  .so-pc.dead { color: var(--good); font-size: 11px; }
+  .so-hp { height: 4px; margin: 0 10px; border-radius: 2px; background: rgba(255,255,255,.07); overflow: hidden; }
+  .so-hp i { display: block; height: 100%; background: linear-gradient(90deg, #b8392f, #ec7a64); box-shadow: 0 0 8px rgba(236,122,100,.8); transition: width .25s; }
+  .so-me { margin: 5px 5px 0; padding: 5px 7px 5px; border-radius: 8px; cursor: pointer;
+    background: linear-gradient(100deg, color-mix(in srgb, var(--k) 12%, transparent), rgba(255,255,255,.02) 70%);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--k) 20%, transparent); }
+  .so-l1 { display: flex; align-items: center; gap: 8px; }
+  .so-crest { position: relative; width: 26px; height: 26px; border-radius: 4px; display: grid; place-items: center; flex: none;
+    background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(0,0,0,.35)); border: 1px solid color-mix(in srgb, var(--k) 70%, transparent);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.10); }
+  .so-crest .on { position: absolute; right: -2px; bottom: -2px; width: 8px; height: 8px; border-radius: 50%; background: var(--dim); border: 2px solid rgb(var(--bg)); }
+  .so-crest .on.live { background: var(--good); }
+  .so-who { min-width: 0; flex: 1; }
+  .so-who b { display: block; font-size: 12.5px; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: color-mix(in srgb, var(--k) 35%, #fff); }
+  .so-who span { color: var(--muted); font-size: 9.5px; white-space: nowrap; line-height: 1.1; }
+  .so-who .cp { color: #c9b6ff; } .so-who .rk { color: var(--accent); font-weight: 700; }
+  .so-num { text-align: right; flex: none; white-space: nowrap; }
+  .so-num .odo { font-size: 21px; font-weight: 800; letter-spacing: -.3px; line-height: 1; color: #f6e3a6; text-shadow: 0 0 10px rgba(231,199,90,.35); }
+  .so-num small { color: var(--muted); font-size: 9.5px; margin-left: 2px; }
+  .so-chips { display: grid; grid-template-columns: repeat(5, 1fr); gap: 3px; margin-top: 4px; }
+  .so-chips div { display: flex; align-items: baseline; justify-content: center; gap: 4px; background: rgba(0,0,0,.3); border: 1px solid color-mix(in srgb, var(--k) 14%, transparent); border-radius: 4px; padding: 1px 3px; line-height: 1.25; white-space: nowrap; }
+  .so-chips small { font-size: 8px; letter-spacing: .06em; color: var(--dim); }
+  .so-chips b { font-size: 10px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .so-share { height: 2px; margin-top: 4px; border-radius: 2px; background: rgba(255,255,255,.08); overflow: hidden; }
+  .so-share i { display: block; height: 100%; background: var(--k); box-shadow: 0 0 6px var(--k); transition: width .3s; }
+  .so-ft { display: flex; align-items: center; gap: 10px; padding: 2px 7px 2px 10px; color: var(--muted); font-size: 10px; white-space: nowrap; }
+  .so-ft b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .so-ft .ody { width: 12px; height: 12px; object-fit: contain; vertical-align: -2px; }
+  .so-ft .sep { width: 1px; height: 10px; background: rgba(255,255,255,.12); }
+  .so-ft .btns { margin-left: auto; display: flex; align-items: center; gap: 0; }
+  .so-ft.upd { position: relative; color: #c8f2d4; background: rgba(60,190,110,.13); }
+  .so-ft.upd b { color: #6fdc93; }
+  .so-ft.upd .go { margin-left: 0; }
+  .so-ft .lights { margin-left: 6px; gap: 6px; }
+  .so-ft .lt { width: 11px; height: 11px; } .so-ft .lt svg { inset: 1.5px; }
+  .titlebar .lights { margin: 0 10px 0 2px; }
+  .so-ft .icon-btn { width: 18px; height: 18px; }
+  .so-ft .icon-btn svg { width: 12px; height: 12px; }
+  body.locked .so-ft .hide-locked { display: none; }
+  .so-pad { height: 6px; }
+  .so-idle { color: var(--muted); font-size: 10.5px; padding: 2px 0 1px; }
+</style>
+<style>
+.so-bn > b.so-app { font-family: "Oxanium", var(--font); text-transform: uppercase; font-weight: 600; font-size: 11px; }
+.so-bn > b.so-app span { font-family: var(--font); text-transform: none; }
+.so-ft { gap: 7px; }
+.so-ft .fl { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.so-ft .srv-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); flex: none; }
+.so-ft .srv-dot.live { background: var(--good); box-shadow: 0 0 7px rgba(111,207,142,0.75); }
+.so-ft .srv-dot.idle { background: #4fb8e8; box-shadow: 0 0 6px rgba(79,184,232,0.6); }
+.so-ft .srv { color: var(--text); font-weight: 600; }
+.so-ft .st { font-family: "Oxanium", var(--font); font-weight: 500; position: relative; top: 1px; }
+.so-ft .st b { color: var(--good); font-weight: 600; }
+</style><style>
+.so-rk.r-idle { --rk: 79,184,232; }
+.so-rk.r-idle.idle { animation: idleblink 2.4s ease-in-out infinite; }
+@keyframes idleblink { 50% { opacity: .35; } }
+.so-rk.r-idle.wait, .so-rk.r-idle.err { --rk: 150,158,172; animation: none; }
+.so-rk.logo { overflow: hidden; } .so-rk.logo img { width: 18px; height: 18px; object-fit: contain; }
+.so-rk.logo.idle { animation: ringpulse 2.4s ease-in-out 3; box-shadow: 0 0 8px rgba(79,184,232,.45); }
+@keyframes ringpulse { 50% { box-shadow: 0 0 0 rgba(79,184,232,0); border-color: rgba(79,184,232,.15); } }
+.so-hp.idle i { background: linear-gradient(90deg, #2b7fa8, #4fb8e8); box-shadow: 0 0 8px rgba(79,184,232,.7); }
+.so-hp.idle.idle:not(.sweep) i { animation: idleblink 2.4s ease-in-out infinite; }
+.so-hp.idle.wait i, .so-hp.idle.err i { background: #4a4f5a; box-shadow: none; animation: none; }
+.so-hp.sweep { position: relative; }
+.so-hp.sweep.idle::after { content: ""; position: absolute; inset: 0; width: 30%; background: linear-gradient(90deg, transparent, rgba(255,255,255,.75), transparent); animation: sweep 2.4s ease-in-out 3; transform: translateX(-120%); }
+@keyframes sweep { to { transform: translateX(380%); } }
+.so-pill { font: 600 9.5px "Oxanium", var(--font); text-transform: uppercase; letter-spacing: .06em; padding: 1px 7px; border-radius: 5px; color: #9fdcf7; background: rgba(79,184,232,.12); border: 1px solid rgba(79,184,232,.3); }
+.so-pill.wait, .so-pill.err { color: var(--muted); background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.12); }
+@media (prefers-reduced-motion: reduce) { .so-rk.r-idle, .so-hp.idle i, .so-hp.sweep::after { animation: none !important; } }
+</style><style>.so-ft .lt.y{display:none}</style><style>.shell{right:auto!important;width:476px!important}</style></head>
+<body>
+<div class="shell">
+  <div class="titlebar" data-drag>
+    <span id="lights"></span>
+    <div class="title" id="title" data-drag>Daeva Meter</div>
+    <span class="state-dot" id="dot" data-drag></span>
+    <div class="tools">
+      <button class="icon-btn hide-locked" id="bMetric" title="Switch DPS / damage / share"></button>
+      <button class="icon-btn hide-locked" id="bCopy" title="Copy summary for Discord"></button>
+      <button class="icon-btn hide-locked" id="bReset" title="End the fight and clear the meter"></button>
+      <button class="icon-btn hide-locked" id="bHistory" title="History"></button>
+      <button class="icon-btn hide-locked" id="bResearch" title="Research mode"></button>
+      <button class="icon-btn hide-locked" id="bSettings" title="Settings"></button>
+    </div>
+  </div>
+  <div class="solo" id="solo" data-drag></div>
+  <div class="qbar" id="qbar" hidden></div>
+  <div class="target" id="target" hidden></div>
+  <div class="scroll"><div class="rows" id="rows"></div></div>
+  <div class="zonetip" id="zonetip" hidden><span>📍 <b>Teleport or change zone once</b> so Daeva Meter can read names, monster health, Odyle and keys.</span><button class="x" id="zonetipX" title="Hide">✕</button></div>
+  <div class="pbline" id="pbline" hidden></div>
+  <div class="updline" id="updline" hidden></div>
+  <div class="nextev" id="nextev" hidden></div>
+  <div class="foot" id="foot"><div class="footc" id="footc"></div><i class="sep"></i><button class="icon-btn lockb" id="bLock" title="Click-through (Ctrl+Shift+L)"></button></div>
+</div>
+<script>window.__DAEVA_MOCK__=async(cmd)=>{if(cmd==="get_snapshot")return "{\"party\":null,\"status\":{\"version\":\"0.5.4\",\"server\":null,\"ping_ms\":null,\"odyle\":640,\"odyle_bonus\":40,\"self_class\":\"Cleric\",\"self_name\":\"Seraphiel\",\"devices\":[1],\"game_process\":false,\"servers\":[],\"game_idle\":1},\"fight\":{\"fight_id\":7,\"live\":false,\"duration\":212,\"clock\":\"boss\",\"clock_secs\":212,\"clock_target_name\":\"Watcher Kaira\",\"total\":10850000,\"players\":[{\"id\":2,\"name\":\"Seraphiel\",\"class\":\"Cleric\",\"is_self\":true,\"in_party\":true,\"dmg\":2734800,\"dps\":12900,\"share\":0.28,\"hits\":400,\"crit_rate\":0.31,\"back_rate\":0.42,\"perfect_rate\":0.09,\"front_rate\":0.5800000000000001,\"double_rate\":0.17,\"cp\":74100,\"max_hit\":99000,\"max_hit_skill\":\"x\",\"heal\":0,\"hps\":0,\"taken\":0,\"deaths\":0},{\"id\":3,\"name\":\"Nyxara\",\"class\":\"Sorcerer\",\"is_self\":false,\"in_party\":true,\"dmg\":2501600,\"dps\":11800,\"share\":0.26,\"hits\":400,\"crit_rate\":0.28,\"back_rate\":0.18,\"perfect_rate\":0.09,\"front_rate\":0.8200000000000001,\"double_rate\":0.17,\"cp\":null,\"max_hit\":99000,\"max_hit_skill\":\"x\",\"heal\":0,\"hps\":0,\"taken\":0,\"deaths\":0},{\"id\":4,\"name\":\"Drakthar\",\"class\":\"Gladiator\",\"is_self\":false,\"in_party\":true,\"dmg\":2058520,\"dps\":9710,\"share\":0.21,\"hits\":400,\"crit_rate\":0.24,\"back_rate\":0.55,\"perfect_rate\":0.09,\"front_rate\":0.44999999999999996,\"double_rate\":0.17,\"cp\":null,\"max_hit\":99000,\"max_hit_skill\":\"x\",\"heal\":0,\"hps\":0,\"taken\":0,\"deaths\":0},{\"id\":5,\"name\":\"Kaelith\",\"class\":\"Chanter\",\"is_self\":false,\"in_party\":true,\"dmg\":1318640,\"dps\":6220,\"share\":0.14,\"hits\":400,\"crit_rate\":0.19,\"back_rate\":0.08,\"perfect_rate\":0.09,\"front_rate\":0.92,\"double_rate\":0.17,\"cp\":null,\"max_hit\":99000,\"max_hit_skill\":\"x\",\"heal\":0,\"hps\":0,\"taken\":0,\"deaths\":0},{\"id\":6,\"name\":\"Vaelor\",\"class\":\"Ranger\",\"is_self\":false,\"in_party\":true,\"dmg\":312276,\"dps\":1473,\"share\":0.03,\"hits\":400,\"crit_rate\":0.22,\"back_rate\":0.37,\"perfect_rate\":0.09,\"front_rate\":0.63,\"double_rate\":0.17,\"cp\":null,\"max_hit\":99000,\"max_hit_skill\":\"x\",\"heal\":0,\"hps\":0,\"taken\":0,\"deaths\":0}],\"target\":null},\"ui\":{\"layout\":\"solo\",\"solo\":{\"rank\":true,\"chips\":true,\"footer\":true},\"show_target\":true,\"opacity\":0.94,\"scale\":1,\"accent\":\"#d9a441\",\"rows\":8,\"columns\":[],\"primary_metric\":\"dps\"},\"alerts\":{\"enabled\":true,\"show_next\":false,\"next\":[]}}";if(cmd==="get_settings")return JSON.parse("{\"solo\":{\"rank\":true,\"chips\":true,\"footer\":true},\"accent\":\"#d9a441\",\"opacity\":0.94,\"scale\":1,\"rows\":8,\"columns\":[],\"show_players\":\"auto\",\"primary_metric\":\"dps\",\"dps_clock\":\"boss\",\"alerts\":{\"enabled\":true},\"hotkeys\":{},\"layout\":\"solo\"}");if(cmd==="get_events")return JSON.stringify({catalog:[]});if(cmd==="update_status")return JSON.stringify({current:"0.5.4"});if(cmd==="get_names")return JSON.stringify({lookup_on:true});return null;};</script><script>// Shared helpers for every Daeva Meter window.
+(function () {
+  const T = window.__TAURI__;
+  const mock = window.__DAEVA_MOCK__;
+
+  async function call(cmd, args) {
+    if (mock) return mock(cmd, args || {});
+    if (!T) throw new Error("Tauri API unavailable");
+    return T.core.invoke(cmd, args || {});
+  }
+  async function callJSON(cmd, args) {
+    const r = await call(cmd, args);
+    return typeof r === "string" ? JSON.parse(r) : r;
+  }
+
+  function fmt(n) {
+    n = Number(n) || 0;
+    const a = Math.abs(n);
+    if (a >= 1e9) return (n / 1e9).toFixed(2) + "B";
+    if (a >= 1e6) return (n / 1e6).toFixed(2) + "M";
+    if (a >= 1e4) return (n / 1e3).toFixed(1) + "K";
+    if (a >= 1000) return (n / 1e3).toFixed(2) + "K";
+    return Math.round(n).toString();
+  }
+  function pct(x, digits) {
+    return ((Number(x) || 0) * 100).toFixed(digits == null ? 0 : digits) + "%";
+  }
+  function dur(s) {
+    s = Math.max(0, Math.floor(Number(s) || 0));
+    const m = Math.floor(s / 60);
+    const h = Math.floor(m / 60);
+    const ss = String(s % 60).padStart(2, "0");
+    return h ? `${h}:${String(m % 60).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
+  }
+  function when(unix) {
+    if (!unix) return "";
+    const d = new Date(unix * 1000);
+    const today = new Date();
+    const t = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    return d.toDateString() === today.toDateString() ? t : d.toLocaleDateString([], { day: "numeric", month: "short" }) + " " + t;
+  }
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  // Class colours (AION 2 classes plus a fallback hash for unknown ids).
+  const CLASS_COLORS = {
+    gladiator: "#36C6DC",  // Glacier Cyan
+    templar: "#4C88EE",  // Guardian Blue
+    assassin: "#4FD66B",  // Venom Green
+    ranger: "#2DAF8C",  // Forest Teal
+    sorcerer: "#A25CF0",  // Arcane Purple
+    elementalist: "#E04FC4",  // Spirit Magenta
+    spiritmaster: "#E04FC4",
+    cleric: "#F2D24A",  // Holy Gold
+    chanter: "#EE9F3A",  // Mystic Amber
+  };
+  // Original line-art class glyphs (16x16, stroke = currentColor).
+  const CLASS_ICONS = {
+    gladiator: '<path d="M3 13l7-7M10 6l2.5-2.5L13 3l-.5.5L10 6"/><path d="M4.5 9.5l2 2M2.5 13.5l1-1"/><path d="M8 3.5l1 1M11.5 7l1 1"/>',
+    templar: '<path d="M8 2l5 2v4c0 3-2.2 5-5 6-2.8-1-5-3-5-6V4z"/><path d="M8 5v6M6 7.5h4"/>',
+    assassin: '<path d="M3 13l6.5-6.5M9.5 6.5L13 3l-.6 3.4z"/><path d="M5 9.5l1.5 1.5M10 13l1.5-1.5L13 13"/>',
+    ranger: '<path d="M4 2.5c4.5 2 4.5 9 0 11"/><path d="M4 2.5v11"/><path d="M2.5 8h10M10.5 6l2 2-2 2"/>',
+    sorcerer: '<path d="M8 2.5c2 2.2 3.5 3.8 3.5 6a3.5 3.5 0 0 1-7 0c0-1.6.9-2.7 1.8-3.5.1 1.2.7 2 1.4 2.2C7.4 5.5 7.6 3.9 8 2.5z"/>',
+    elementalist: '<path d="M8 8a2 2 0 1 1 2-2c0 2.8-2.2 5-5 5"/><path d="M8 8a2 2 0 1 0-2 2c2.8 0 5-2.2 5-5" opacity=".7"/><circle cx="8" cy="8" r="6"/>',
+    spiritmaster: '<path d="M8 8a2 2 0 1 1 2-2c0 2.8-2.2 5-5 5"/><circle cx="8" cy="8" r="6"/>',
+    cleric: '<path d="M8 2v12M4.5 5.5h7"/><circle cx="8" cy="5.5" r="2.2"/>',
+    chanter: '<circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="8" r="2.5"/><path d="M8 2.5v2.5M8 11v2.5M2.5 8H5M11 8h2.5"/>',
+  };
+  // ---- game art from aion2.gaming.tools (used with permission) ----
+  // Images belong to NCSOFT; served by gaming.tools. Built-in SVGs are the
+  // fallback whenever art is off or an image fails.
+  const art = { on: false, base: "", icons: {} };
+  async function loadArt() {
+    try {
+      const a = await callJSON("get_icons");
+      art.on = !!a.on; art.base = a.base || ""; art.icons = a.icons || {};
+    } catch { art.on = false; }
+  }
+  if (!mock) { loadArt(); setInterval(loadArt, 60 * 1000); }
+  function skillKey(id) {
+    id = Number(id) || 0;
+    if (id >= 2147483648) id -= 2147483648; // DoT entries carry the top bit
+    return id >= 10000000 && id < 20000000 ? Math.floor(id / 10000) * 10000 : id;
+  }
+  // Our own skill icons come as full addresses; gaming.tools' as paths.
+  const imgTag = (path, px, cls, title) => `<img class="gt-ic ${cls || ""}" src="${esc(/^https:\/\//.test(path) ? path : art.base + path)}" width="${px}" height="${px}" loading="lazy" alt="" ${title ? `title="${esc(title)}"` : ""} onerror="this.remove()">`;
+  function skillIcon(id, size) {
+    if (!art.on) return "";
+    const raw = Number(id) >= 2147483648 ? Number(id) - 2147483648 : Number(id);
+    const p = art.icons["s" + raw] || art.icons["s" + skillKey(id)];
+    return p ? imgTag(p, size || 18, "sk-ic") : "";
+  }
+  // Event artwork from gaming.tools' activities data (mirrored by the Daeva
+  // server). Events without a fitting picture keep their emoji.
+  const EVENT_ART = {
+    shugo_festival: "/images/ui/resource/texture/icon_fieldevent/thumbnail/ut_fieldevent_thumbnail_defence.webp",
+    dimensional_invasion: "/images/ui/resource/texture/icon/ut_marker_battlefield.webp",
+    artifact_siege: "/images/ui/resource/texture/icon/ut_marker_abyssartifact_neutral.webp",
+    watcher_kaira: "/images/ui/resource/texture/icon/ut_marker_monster_boss.webp",
+    executor_bosses: "/images/ui/resource/texture/icon/ut_marker_monster_boss.webp",
+    guardian_nahma: "/images/ui/resource/texture/icon/ut_marker_monster_boss.webp",
+    arena_of_tactics: "/images/ui/resource/texture/icon/ut_marker_dungeon.webp",
+    gartua: "/images/ui/resource/texture/portrait/portrait_256/ut_256_mob_gartua_01.webp",
+  };
+  // Icons shipped with the meter: always shown, even with game art off.
+  const EVENT_LOCAL = {
+    spacetime_rift: "spacetime_rift",
+    shugo_festival: "shugo_festival",
+    dimensional_invasion: "dimensional_invasion",
+    artifact_siege: "artifact_siege",
+    arena_of_tactics: "arena_of_tactics",
+    daily_reset: "reset",
+    weekly_reset: "reset",
+    watcher_kaira: "field_boss",
+    executor_bosses: "field_boss",
+    guardian_nahma: "field_boss",
+  };
+  function eventIcon(id, emoji, size) {
+    const px = size || 14;
+    const local = EVENT_LOCAL[id];
+    const src = local ? `img/events/${local}.webp` : art.on && art.base && EVENT_ART[id] ? art.base + EVENT_ART[id] : null;
+    const fallback = `<span class="ev-emoji">${esc(emoji || "🔔")}</span>`;
+    if (!src) return fallback;
+    // If the picture is missing, swap back to the emoji.
+    return `<img class="gt-ic ev-ic" src="${esc(src)}" width="${px}" height="${px}" alt="" data-e="${esc(emoji || "🔔")}" onerror="this.outerHTML='<span class=&quot;ev-emoji&quot;>'+this.dataset.e+'</span>'">`;
+  }
+  function npcIcon(tid, size) {
+    if (!art.on || !tid) return "";
+    const p = art.icons["n" + tid];
+    return p ? imgTag(p, size || 28, "npc-ic") : "";
+  }
+  function classIcon(cls, size) {
+    let key = String(cls || "").toLowerCase();
+    if (key === "spiritmaster") key = "elementalist";
+    const px = size || 14;
+    // Our own class icons (bundled, same set as the website and Discord).
+    if (CLASS_COLORS[key]) {
+      return `<img class="cls-icon" src="img/classes/${key}.png" title="${esc(cls)}" width="${px}" height="${px}" alt="${key}" style="flex:none;object-fit:contain" onerror="this.outerHTML=Daeva.classGlyph('${key}',${px})">`;
+    }
+    return classGlyph(key, px);
+  }
+  // Line-art fallback (unknown classes, or an icon that failed to load).
+  function classGlyph(key, px) {
+    const path = CLASS_ICONS[key];
+    if (!path) return "";
+    return `<svg class="cls-icon" viewBox="0 0 16 16" width="${px}" height="${px}" style="color:${classColor(key)};flex:none" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-label="${key}">${path}</svg>`;
+  }
+  function classColor(cls, name) {
+    const key = String(cls || "").toLowerCase();
+    if (CLASS_COLORS[key]) return CLASS_COLORS[key];
+    let h = 0;
+    for (const c of String(cls || name || "?")) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+    return `hsl(${h % 360} 55% 62%)`;
+  }
+
+  // Window border in your class colour, shared by every window (remembered).
+  function applyClassBorder(cls) {
+    try { if (cls) localStorage.setItem("daeva.selfClass", cls); else cls = localStorage.getItem("daeva.selfClass"); } catch {}
+    const sh = document.querySelector(".shell");
+    if (sh) sh.style.setProperty("--cls", cls ? classColor(cls) : "");
+  }
+  function applyTheme(ui) {
+    applyClassBorder(null);
+    if (!ui) return;
+    const r = document.documentElement.style;
+    if (ui.accent) {
+      r.setProperty("--accent", ui.accent);
+      r.setProperty("--accent-soft", hexAlpha(ui.accent, 0.18));
+      r.setProperty("--self", hexAlpha(ui.accent, 0.14));
+    }
+    if (ui.opacity != null) r.setProperty("--bg-alpha", String(Math.min(1, Math.max(0.2, ui.opacity))));
+    if (ui.scale) document.body.style.zoom = String(ui.scale);
+  }
+  function hexAlpha(hex, a) {
+    const m = /^#?([0-9a-f]{6})$/i.exec(hex || "");
+    if (!m) return `rgba(217,164,65,${a})`;
+    const v = parseInt(m[1], 16);
+    return `rgba(${v >> 16},${(v >> 8) & 255},${v & 255},${a})`;
+  }
+
+  let toastTimer;
+  function toast(msg) {
+    let el = document.querySelector(".toast");
+    if (!el) {
+      el = document.createElement("div");
+      el.className = "toast";
+      document.body.appendChild(el);
+    }
+    el.textContent = msg;
+    el.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove("show"), 2200);
+  }
+
+  // Icons: Lucide (lucide.dev, ISC licence), drawn on its 24-unit grid and
+  // scaled into our 16-unit buttons. Lucide is the project's icon set.
+  const ICONS = {
+    close: '<g transform="scale(0.6667)" stroke-width="2.4"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></g>',
+    min: '<g transform="scale(0.6667)" stroke-width="2.4"><path d="M5 12h14"/></g>',
+    // Download tray from Lucide (lucide.dev, ISC licence), 24-unit grid.
+    download: '<g transform="scale(0.6667)" stroke-width="2.4"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></g>',
+    // Globe from Lucide (lucide.dev, ISC licence), 24-unit grid: open-world bosses.
+    globe: '<g transform="scale(0.6667)" stroke-width="2.4"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></g>',
+    // Cog wheel from Lucide (lucide.dev, ISC licence), drawn on a 24-unit grid.
+    gear: '<g transform="scale(0.6667)" stroke-width="2.4"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></g>',
+    history: '<g transform="scale(0.6667)" stroke-width="2.4"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></g>',
+    reset: '<g transform="scale(0.6667)" stroke-width="2.4"><circle cx="12" cy="12" r="10"/><rect x="9" y="9" width="6" height="6" rx="1"/></g>',
+    copy: '<g transform="scale(0.6667)" stroke-width="2.4"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></g>',
+    lock: '<g transform="scale(0.6667)" stroke-width="2.4"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></g>',
+    unlock: '<g transform="scale(0.6667)" stroke-width="2.4"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></g>',
+    flask: '<g transform="scale(0.6667)" stroke-width="2.4"><path d="M14 2v6a2 2 0 0 0 .245.96l5.51 10.08A2 2 0 0 1 18 22H6a2 2 0 0 1-1.755-2.96l5.51-10.08A2 2 0 0 0 10 8V2"/><path d="M6.453 15h11.094"/><path d="M8.5 2h7"/></g>',
+    metric: '<g transform="scale(0.6667)" stroke-width="2.4"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></g>',
+    // Panels from Lucide (lucide.dev, ISC licence), 24-unit grid: switch layout.
+    layout: '<g transform="scale(0.6667)" stroke-width="2.4"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></g>',
+  };
+  // Red quit, yellow minimise, green switch layout (`to`: the other layout).
+  function lights(to) {
+    const g = to === "solo" ? "Switch to Solo: just you" : "Switch to Classic: the whole party";
+    return `<span class="lights hide-locked"><button type="button" class="lt r" data-lt="close" title="Quit Daeva Meter"><svg viewBox="0 0 8 8"><path d="M2 2l4 4M6 2L2 6"/></svg></button>`
+      + `<button type="button" class="lt y" data-lt="min" title="Minimise"><svg viewBox="0 0 8 8"><path d="M1.6 4h4.8"/></svg></button>`
+      + `<button type="button" class="lt g" data-lt="layout" data-to="${to}" title="${g} (Ctrl+Shift+O)"><svg viewBox="0 0 8 8"><path d="M2.2 5.8L5.8 2.2M3.4 2.2h2.4v2.4"/></svg></button></span>`;
+  }
+  function icon(name) {
+    return `<svg viewBox="0 0 16 16">${ICONS[name] || ""}</svg>`;
+  }
+
+  async function winAction(action) {
+    try { await call("win_action", { action }); } catch (e) { console.warn(e); }
+  }
+
+  async function params() {
+    try { return await callJSON("window_params"); } catch { return {}; }
+  }
+
+  function wireTitlebar(root) {
+    (root || document).querySelectorAll("[data-win]").forEach((b) => {
+      b.addEventListener("click", (e) => { e.stopPropagation(); winAction(b.dataset.win); });
+    });
+  }
+
+  // Window dragging by title bar. Not Tauri's data-tauri-drag-region: that
+  // maximises the window on double-click. A single press drags; double-clicks
+  // do nothing; nothing drags while the meter is locked.
+  document.addEventListener("mousedown", (e) => {
+    if (e.button !== 0 || e.detail !== 1 || !T) return;
+    if (!e.target.closest || !e.target.closest("[data-drag]")) return;
+    if (e.target.closest("button, input, select, textarea, a")) return;
+    if (document.body.classList.contains("locked")) return;
+    try { T.window.getCurrentWindow().startDragging(); } catch (err) { console.warn(err); }
+  });
+  document.addEventListener("dblclick", (e) => {
+    if (e.target.closest && e.target.closest("[data-drag]")) e.preventDefault();
+  });
+
+  window.Daeva = { call, callJSON, fmt, pct, dur, when, esc, classColor, classIcon, classGlyph, skillIcon, npcIcon, eventIcon, loadArt, art, applyTheme, applyClassBorder, toast, icon, lights, winAction, params, wireTitlebar };
+})();
+</script>
+<script>
+(() => {
+  const D = window.Daeva;
+  const $ = (id) => document.getElementById(id);
+  // The overlay is rebuilt 4 times a second; only touch the page when the
+  // markup really changed, so an idle meter doesn't relayout and repaint.
+  const setHTML = (el, html) => { if (el.__html === html) return false; el.__html = html; el.innerHTML = html; return true; };
+  const setProp = (el, k, v) => { if (el[k] !== v) el[k] = v; };
+  const metrics = ["dps", "dmg", "share"];
+  let metric = null;
+  let ui = {};
+  let share = null;
+  let lastFight = null;
+
+  $("lights").outerHTML = D.lights("solo");
+  // Ctrl + mouse wheel over the meter: bigger or smaller (Scale, 5% steps).
+  let scaleToast = 0;
+  window.addEventListener("wheel", (ev) => {
+    if (!ev.ctrlKey) return;
+    ev.preventDefault();
+    const now = Number(ui.scale) || 1;
+    D.call("set_scale", { scale: now + (ev.deltaY < 0 ? 0.05 : -0.05) }).then((s) => {
+      ui.scale = s;
+      D.applyTheme(ui);
+      clearTimeout(scaleToast);
+      scaleToast = setTimeout(() => D.toast(`Size ${Math.round(s * 100)}% · Ctrl + mouse wheel to change`), 150);
+    });
+  }, { passive: false });
+  // The window lights, in the title bar and on the Solo card.
+  document.addEventListener("click", (ev) => {
+    const b = ev.target.closest("[data-lt]");
+    if (!b) return;
+    ev.stopPropagation();
+    if (b.dataset.lt === "close") D.winAction("close");
+    else if (b.dataset.lt === "min") D.winAction("minimize");
+    else D.call("set_layout", { layout: b.dataset.to });
+  });
+  $("bMetric").innerHTML = D.icon("metric");
+  $("bCopy").innerHTML = D.icon("copy");
+  $("bReset").innerHTML = D.icon("reset");
+  $("bHistory").innerHTML = D.icon("history");
+  $("bResearch").innerHTML = D.icon("flask");
+  $("bSettings").innerHTML = D.icon("gear");
+  D.wireTitlebar();
+
+  $("bMetric").onclick = () => { metric = metrics[(metrics.indexOf(metric || ui.primary_metric || "dps") + 1) % metrics.length]; D.toast("Showing " + ({ dps: "DPS", dmg: "total damage", share: "damage share" })[metric]); render(lastSnap); };
+  $("bCopy").onclick = async () => { try { await D.call("copy_summary", {}); D.toast("Summary copied — paste it in Discord"); } catch (e) { D.toast(String(e)); } };
+  $("bReset").onclick = async () => { await D.call("reset_fight"); D.toast("Fight ended and cleared"); };
+  $("bHistory").onclick = () => D.call("open_window", { kind: "history" });
+  $("bResearch").onclick = () => D.call("open_window", { kind: "research" });
+  $("bSettings").onclick = () => D.call("open_window", { kind: "settings" });
+  $("bLock").onclick = async () => { const on = await D.call("toggle_click_through"); D.toast(on ? "Click-through on — Ctrl+Shift+L to unlock" : "Click-through off"); };
+
+  let lastSnap = null;
+  let lastReport = null, lastOpened = null;
+  let anonMap = new Map();
+  let lastUiKey = "", lastFootKey = "", borderClass, savedClass = null;
+  try { savedClass = localStorage.getItem("daeva.selfClass"); } catch {}
+
+  function displayName(p, i) {
+    if (!ui.anonymize_others || p.is_self) return p.name;
+    return (p.class || "Player") + " " + (i + 1);
+  }
+
+  // Green while fighting; idle (pulsing amber) after 30 s without combat.
+  // Starts as "no fight yet", so a freshly opened meter shows idle, not combat.
+  const IDLE_MS = 30000;
+  let lastCombatAt = 0;
+  function statusLine(s) {
+    if (s.demo) return ["demo", "Demo mode — simulated party"];
+    if (s.npcap_error) return ["err", s.npcap_error];
+    if (s.defs_error) return ["err", "Definitions: " + s.defs_error];
+    if (!s.devices || !s.devices.length) return ["wait", "Opening network adapters…"];
+    if (!s.game_process) return ["wait", "Waiting for AION 2 to start"];
+    if (!s.servers.length) return ["wait", "AION 2 found — waiting for server connection"];
+    if (s.game_idle != null && s.game_idle < 5) {
+      return Date.now() - lastCombatAt > IDLE_MS ? ["idle", "Capturing · idle (no combat for 30s)"] : ["live", "Capturing · in combat"];
+    }
+    return ["wait", "Connected — no game traffic yet"];
+  }
+
+  function f0(snap) { return snap.fight && snap.fight.players && snap.fight.players.find((p) => p.is_self); }
+  function render(snap) {
+    if (!snap) return;
+    lastSnap = snap;
+    ui = snap.ui || {};
+    const uiKey = JSON.stringify(ui);
+    if (uiKey !== lastUiKey) { lastUiKey = uiKey; D.applyTheme(ui); borderClass = undefined; }
+    document.body.classList.toggle("locked", !!ui.click_through);
+    // Research mode only for testers (Settings → Data → Show research tools),
+    // or while a recording is running so it can always be stopped.
+    setProp($("bResearch"), "hidden", !ui.show_research && !snap.research);
+    setHTML($("bLock"), D.icon(ui.click_through ? "lock" : "unlock"));
+    $("bLock").classList.toggle("on", !!ui.click_through);
+
+    const s = snap.status;
+    // Ctrl+Shift+P saved a report: say so here (no window pops up in game).
+    if (s.report_saved && s.report_saved !== lastReport) D.toast("📋 Report saved to your Desktop: " + s.report_saved);
+    lastReport = s.report_saved || lastReport;
+    if (s.opened_again && s.opened_again !== lastOpened) D.toast("Daeva Meter is already open");
+    lastOpened = s.opened_again || lastOpened;
+    if (snap.fight && snap.fight.live) lastCombatAt = Date.now();
+    // Window border follows your class colour (remembered between sessions).
+    const myClass = s.self_class || (f0(snap) || {}).class || savedClass;
+    if (myClass !== borderClass) { borderClass = savedClass = myClass; D.applyClassBorder(myClass); }
+    let [state, text] = statusLine(s);
+    if (snap.research) { state = "rec"; text = `Recording · ${snap.research.packets} pkts · ${snap.research.markers} markers`; }
+    setProp($("dot"), "className", "state-dot " + state);
+    setProp($("dot"), "title", text);
+
+    const appName = (st) => `Daeva Meter${st.version ? ` <span class="ver">v${D.esc(st.version)}</span>` : ""}`;
+    const f = snap.fight;
+    lastFight = f;
+    const m = metric || ui.primary_metric || "dps";
+    setHTML($("title"), appName(s));
+    const solo = ui.layout === "solo";
+    document.body.classList.toggle("lay-solo", solo);
+    const qb = !solo && snap.party && snap.party.queue_bar ? queueBar(snap.party) : "";
+    setProp($("qbar"), "hidden", !qb);
+    if (qb) setHTML($("qbar"), qb);
+    if (solo) {
+      // Classic redraws again from scratch when switched back.
+      $("rows").__html = null; lastTargetHtml = "";
+    } else if (snap.party && snap.party.lobby) {
+      // In a party and not fighting yet: who's here and who's ready.
+      setProp($("target"), "hidden", true);
+      setHTML($("rows"), partyPanel(snap.party));
+    } else if (snap.party && snap.party.ready) {
+      // In a party, after a zone change and before the first fight there: the
+      // party in the usual rows, dashes for figures, so the meter reads ready.
+      setProp($("target"), "hidden", true);
+      setHTML($("rows"), readyRoster(snap.party, m));
+    } else if (!f || !f.players.length) {
+      setProp($("target"), "hidden", true);
+      if (setHTML($("rows"), emptyState(s, state, text))) wireEmpty();
+    } else {
+      renderTarget(f);
+      renderRows(f, m);
+    }
+    // Left: your server while capturing (status messages otherwise); right: ping.
+    // Left: your server whenever connected (idle too, with a short note after
+    // a divider); status messages otherwise. The full status is the tooltip.
+    const srvOn = !snap.research && !!s.server && (state === "live" || state === "idle" || (state === "wait" && s.servers && s.servers.length));
+    const footLeft = snap.research ? `<span title="${D.esc(text)}">● REC ${D.dur(snap.research.elapsed)}</span>`
+      : srvOn ? `<span class="fl" title="${D.esc(text)}"><span class="srv"><i class="srv-dot ${state}"></i>${D.esc(s.server)}</span><i class="sep"></i><span class="st">${state === "live" ? `<b>In combat</b> · ${D.dur(f && f.duration || 0)}` : state === "idle" ? "Idle · no combat for 30s" : D.esc(text)}</span></span>`
+      : `<span class="fl" title="${D.esc(text)}"><i class="srv-dot ${state}"></i><span class="st">${D.esc(text)}</span></span>`;
+    // Green under 100 ms, amber to 179 ms, red from 180 ms (typical Asia
+    // pings, direct or through a tunnel, shouldn't sit on a boundary).
+    const pc = s.ping_ms == null ? "" : s.ping_ms < 100 ? "good" : s.ping_ms < 180 ? "warn" : "bad";
+    const bars = s.ping_ms == null ? 0 : s.ping_ms < 100 ? 4 : s.ping_ms < 180 ? 3 : s.ping_ms < 250 ? 2 : 1;
+    const sig = [1, 2, 3, 4].map((i) => `<i style="height:${i * 2 + 1}px" class="${i <= bars ? "on" : ""}"></i>`).join("");
+    const ping = `<b class="ping ${pc}" title="${s.ping_ms != null ? `Latency to the AION 2 game servers (${s.ping_where || "your region"}), checked every minute` : s.ping_note === "region" ? "Ping isn't available for your region yet" : s.ping_note === "unreachable" ? "Couldn't reach the game server to time it; trying again every minute" : "Checking the ping to the game server…"}"><span class="sig">${sig}</span>${s.ping_ms == null ? "-- ms" : Math.round(s.ping_ms) + " ms"}</b>`;
+    const odyle = s.odyle != null ? `<span class="fx${s.odyle_stale ? " stale" : ""}" title="${s.odyle_stale ? "Last seen: " : ""}Odyle ${Number(s.odyle).toLocaleString()}${s.odyle_bonus ? ` (+${Number(s.odyle_bonus).toLocaleString()} from Odyle Energy)` : ""} · from the game, updated whenever it changes"><img class="ody" src="img/odyle.webp" alt=""><b>${Number(s.odyle).toLocaleString()}</b>${s.odyle_bonus ? `<span class="dl"> (+${Number(s.odyle_bonus).toLocaleString()})</span>` : ""}</span><i class="sep"></i>` : "";
+    setProp($("zonetip"), "hidden", !s.needs_zone || zoneTipHidden);
+    renderUpdate(s); renderPB(s);
+    if (solo) { renderSolo(f, s, state, text, ping); return; }
+    const foot =`${footLeft}<span class="fr">${s.uploads_pending ? `<span>↑${s.uploads_pending}</span><i class="sep"></i>` : ""}${odyle}${ping}</span>`;
+    setProp($("foot"), "title", "Daeva Meter " + (s.version || ""));
+    renderAlerts(snap.alerts);
+    // The warning replaces the left part of the footer, so it is part of the key.
+    const footKey = foot + "\u0000" + (s.warning || "");
+    if (footKey === lastFootKey) return;
+    lastFootKey = footKey;
+    $("footc").innerHTML = foot;
+    if (s.warning) {
+      const w = document.createElement("span");
+      w.className = "warnline";
+      w.textContent = "⚠ " + s.warning;
+      w.title = "Click to save a problem report to your Desktop";
+      w.onclick = sendReport;
+      $("footc").firstElementChild.replaceWith(w);
+    }
+  }
+
+  // ---- in-game event alerts (Daeva schedule feed) ----
+  const shown = new Set();
+  function countdown(sec) {
+    sec = Math.max(0, Math.round(sec));
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    return h ? `${h}h ${String(m).padStart(2, "0")}m` : m >= 10 ? `${m}m` : `${m}:${String(s).padStart(2, "0")}`;
+  }
+  function renderAlerts(a) {
+    const next = $("nextev");
+    if (!a || !a.enabled) { setProp(next, "hidden", true); return; }
+    const now = Date.now() / 1000;
+    if (a.show_next && a.next && a.next.length) {
+      setProp(next, "hidden", false);
+      // Two places, what needs you soonest first: events on now that end
+      // soon, then events starting within the hour, then events open for
+      // hours (Arena), then anything later. Pointing at the line lists all.
+      const rank = (o) => {
+        const long = o.ends - o.starts > 90 * 60;
+        if (o.active) return long ? [2, o.ends] : [0, o.ends];
+        return o.starts - now <= 3600 ? [1, o.starts] : [3, o.starts];
+      };
+      const shown = a.next.slice().sort((x, y) => rank(x)[0] - rank(y)[0] || rank(x)[1] - rank(y)[1]).slice(0, 2);
+      setHTML(next, shown.map((o) => {
+        const live = o.active;
+        const t = live ? `Now · ${countdown(o.ends - now)} left` : countdown(o.starts - now);
+        const cls = live ? "live" : o.starts - now < 600 ? "soon" : "";
+        return `<span class="${cls}">${D.eventIcon(o.id, o.emoji, 13)} ${D.esc(o.short)} <b>${t}</b></span>`;
+      }).join(""));
+      const all = a.next.slice().sort((x, y) => (y.active - x.active) || (x.active ? x.ends - y.ends : x.starts - y.starts)).map((o) => {
+        const at = new Date(o.starts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        return `${o.name} · ${o.active ? `ongoing, ${countdown(o.ends - now)} left` : `starts in ${countdown(o.starts - now)} (${at})`}${o.note ? " · " + o.note : ""}`;
+      });
+      setProp(next, "title", all.join("\n") + (a.error ? "\n\nEvent feed: " + a.error + " (showing last known times)" : ""));
+    } else {
+      setProp(next, "hidden", true);
+    }
+    // Banners are shown by the separate alert window (toast.html).
+  }
+
+  // Monster family glyphs (our own artwork; the game data names the family
+  // but has no icon for it).
+  const FAMILY_ICON = {
+    fera: '<svg viewBox="0 0 16 16"><path d="M3 13c1-4 2-7 3.2-9M7 13.5c.6-4 1.3-7 2.3-9.5M11 13c.3-3 .8-5.5 1.8-7.5" stroke="#e08a52" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg>',
+    cogni: '<svg viewBox="0 0 16 16"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z" stroke="#9b8cf0" stroke-width="1.5" fill="none"/><circle cx="8" cy="8" r="2.1" fill="#9b8cf0"/></svg>',
+    natura: '<svg viewBox="0 0 16 16"><path d="M3 13C3 7 7 3 13.5 2.5 13 9 9 13 3 13zM3 13l6-6" stroke="#6fc28a" stroke-width="1.5" fill="none" stroke-linejoin="round"/></svg>',
+    varian: '<svg viewBox="0 0 16 16"><path d="M8 2.5c3 0 5.5 2.3 5.5 5.2 0 2.4-1.9 4.3-4.3 4.3-1.9 0-3.4-1.5-3.4-3.4 0-1.5 1.2-2.7 2.7-2.7 1.1 0 2 .9 2 2" stroke="#d76fc2" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>',
+    special: '<svg viewBox="0 0 16 16"><path d="M8 1.8l1.7 4.1 4.4.4-3.3 2.9 1 4.3L8 11.2l-3.8 2.3 1-4.3-3.3-2.9 4.4-.4z" stroke="#e8b04b" stroke-width="1.4" fill="none" stroke-linejoin="round"/></svg>',
+  };
+  let zoneTipHidden = false;
+  // New version on GitHub: Download opens the release page; ✕ hides this version.
+  let updShown = "";
+  let pbHidden = null, pbShown = null;
+  function renderPB(s) {
+    gaps = s.fight_gaps || 0;
+    const pb = s.pb && s.pb.fight_id !== pbHidden ? s.pb : null;
+    setProp($("pbline"), "hidden", !pb);
+    if (!pb) { pbShown = null; return; }
+    const sig = pb.fight_id + ":" + pb.dps;
+    if (sig === pbShown) return;
+    pbShown = sig;
+    const line = pb.prev == null
+      ? `<span title="Your first recorded kill on this boss (at least 30 s on the boss). Beat this DPS next time for a new personal best.">🏆 <b>First record</b> on ${D.esc(pb.target)} · <b>${D.fmt(pb.dps)}/s</b> <span style="color:var(--muted)">· your best to beat next time</span></span>`
+      : `<span title="Your DPS on this boss beat your best saved fight (same DPS clock, at least 30 s on the boss).">🏆 <b>New personal best</b> on ${D.esc(pb.target)} · <b>${D.fmt(pb.dps)}/s</b> <span class="up">▲ ${D.pct(pb.dps / pb.prev - 1, 0)}</span> <span style="color:var(--muted)">(was ${D.fmt(pb.prev)})</span></span>`;
+    $("pbline").innerHTML = `${line}<button class="x" id="pbX" title="Hide">✕</button>`;
+    $("pbX").onclick = () => { pbHidden = pb.fight_id; $("pbline").hidden = true; pbShown = null; };
+  }
+  // The meter updating itself at start-up (Classic: this line; Solo: the
+  // footer). Updating · % → Installing → (restart) → ✓ Updated, which fades.
+  // When it can't, the usual blue "available" line says why on hover.
+  function selfUpdateHtml(u, solo) {
+    const v = D.esc(u.version);
+    const go = (label) => `<button class="go" data-upd="go">${label}</button>`;
+    if (u.stage === "downloading")
+      return { cls: "", html: `<span>Updating to <b>${v}</b>${u.pct != null ? ` · ${u.pct}%` : ""}</span><i class="prog" style="width:${u.pct || 0}%"></i>` };
+    if (u.stage === "installing")
+      return { cls: "", html: `<span>Installing <b>${v}</b> · restarting</span><i class="prog" style="width:100%"></i>` };
+    if (u.stage === "updated")
+      return solo
+        ? { cls: "", html: `<span>✓ Updated to <b>${v}</b></span>${go("What's new")}` }
+        : { cls: "", html: `<span>✓ <span class="words">Updated <span class="from">${D.esc(u.from || "")} → </span><span class="to-word">to </span></span><span class="pill">${v}</span></span>${go("What's new")}` };
+    return { cls: "", html: "" };
+  }
+  function selfUpdateClick(ev, u) {
+    if (!ev.target.closest("[data-upd]")) return false;
+    ev.stopPropagation();
+    D.call("open_release", { url: u.url }).catch((e) => D.toast(String(e)));
+    return true;
+  }
+  let selfUpd = null;
+  function renderUpdate(s) {
+    const su = s.self_update;
+    selfUpd = su || null;
+    const solo = document.body.classList.contains("lay-solo");
+    $("updline").classList.toggle("self", !!su && !solo);
+    if (su) {
+      setProp($("updline"), "hidden", solo);
+      const sig = "self:" + JSON.stringify(su);
+      if (solo || sig === updShown) return;
+      updShown = sig;
+      $("updline").innerHTML = D.icon("download") + selfUpdateHtml(su, false).html;
+      $("updline").onclick = (ev) => selfUpdateClick(ev, su);
+      return;
+    }
+    $("updline").onclick = null;
+    const v = s.update_version || "";
+    setProp($("updline"), "hidden", !v);
+    const note = s.update_note || "";
+    if (!v || v + note === updShown) return;
+    updShown = v + note;
+    $("updline").innerHTML = `${D.icon("download")}<span${note ? ` title="${D.esc(note)}"` : ""}><b>Daeva Meter ${D.esc(v)}</b> is available</span><button class="go" id="updGo">${D.icon("download")}Download</button><button class="x" id="updX" title="Hide until the next version">✕</button>`;
+    $("updGo").onclick = () => D.call("open_release", { url: s.update_url }).catch((e) => D.toast(String(e)));
+    $("updX").onclick = async () => { await D.call("dismiss_update", { version: v }); $("updline").hidden = true; };
+  }
+  $("zonetipX").onclick = () => { zoneTipHidden = true; $("zonetip").hidden = true; };
+  let editing = null; // template being named; pauses target redraws
+  let lastTargetHtml = "";
+  // HP check: once a monster dies, how much of its health the meter saw.
+  // Over 100% happens when it healed; under 97% means hits were missed,
+  // unless the meter watched it from full health with nothing lost: then
+  // it's an open-world boss, where the game only sends the hits of players
+  // near you, and all of yours were recorded.
+  let gaps = 0;
+  // Players from outside your party (a full dungeon party isn't a world boss).
+  const WORLD_BOSS_STRANGERS = 3;
+  function hpCheck(t) {
+    if (t.counted == null) return "";
+    const c = t.counted, low = c < 0.97;
+    if (low && t.watched === true && !gaps) {
+      const tip = `Open-world boss: the game only sends you the hits of players near you, so the meter saw ${D.pct(c, 1)} of its health go. Every one of your own hits was recorded, from the pull to the kill, and your DPS is complete.`;
+      return ` · <span class="chk ow" title="${D.esc(tip)}">${D.icon("globe")} All your hits seen</span>`;
+    }
+    // Joined a busy world boss after the pull: the low figure is the game's
+    // nearby-only rule (players arrive at different times), not missed hits,
+    // and nothing was lost. Say so instead of warning.
+    const f = lastFight;
+    const crowd = f && f.players ? f.players.filter((p) => !p.in_party && !p.is_self).length : 0;
+    if (low && !gaps && f && f.clock === "boss" && t.id === f.clock_target && crowd >= WORLD_BOSS_STRANGERS) {
+      const tip = `World boss: the game only sends you the hits of players near you, so the meter saw ${D.pct(c, 1)} of its health go. Every one of your hits since you joined was recorded. The meter didn't see this boss at full health, so it can't confirm the fight from the pull.`;
+      return ` · <span class="chk ow wb" title="${D.esc(tip)}">${D.icon("globe")} World Boss</span>`;
+    }
+    const tip = low
+      ? `The hits the meter saw add up to ${D.pct(c, 1)} of this monster's health, so some were missed${gaps ? ` (${gaps} gaps in the captured traffic)` : ""}. DPS for this fight may be a little low.`
+      : `Every hit was counted: the damage the meter saw adds up to this monster's full health${c > 1.005 ? ` (${D.pct(c, 1)}: it healed during the fight)` : ""}.`;
+    return ` · <span class="chk${low ? " warn" : ""}" title="${D.esc(tip)}">${low ? "⚠" : "✓"} ${D.pct(Math.min(c, 1), 1)} of HP counted</span>`;
+  }
+  function renderTarget(f) {
+    const t = f.target;
+    if (editing) return;
+    if (!ui.show_target || !t) { setProp($("target"), "hidden", true); return; }
+    setProp($("target"), "hidden", false);
+    // Health bar = the target's HP left (from the game's HP updates).
+    // A dead target shows KILLED instead of an empty bar and "0.0%".
+    const dead = t.hp_pct != null ? t.hp_pct <= 0.0005 : !!f.boss_killed;
+    const secs = t.secs || f.duration || 1; // time on this target
+    const pctv = t.hp_pct == null ? null : Math.min(1, Math.max(0, t.hp_pct));
+    const hpNow = t.hp != null && t.max_hp ? Math.min(t.hp, t.max_hp) : null;
+    // Always "HP / max · %" top right; a dead target reads 0 and 0%.
+    const showPct = dead ? 0 : pctv;
+    const hp = showPct != null || dead ? `<div class="hp" title="Health left"><i style="width:${((showPct || 0) * 100).toFixed(1)}%"></i></div>` : "";
+    const hpText = t.max_hp ? `${D.fmt(dead ? 0 : hpNow != null ? hpNow : t.max_hp)} / ${D.fmt(t.max_hp)} · ` : "";
+    const kill = showPct != null ? `<span class="meta" title="Health left">${hpText}<span class="pc">${D.pct(showPct < 1 ? Math.min(showPct, 0.999) : 1, (showPct > 0 && showPct < 0.1) || (showPct > 0.99 && showPct < 1) ? 1 : 0)}</span></span>` : "";
+    // Kill-time estimate: HP left ÷ the group's damage rate on this target.
+    const onTarget = t.dmg_taken || f.total || 0;
+    const rate = onTarget / Math.max(1, secs);
+    const killIn = !dead && f.live && hpNow != null && rate > 0 ? D.dur(hpNow / rate) : null;
+    // Bottom right: the monster's rank (Common, Elite, Heroic...) from
+    // aion2.gaming.tools; the fight time when the rank isn't known.
+    const rank = t.rank ? String(t.rank) : "";
+    const rkey = rank.toLowerCase().replace(/monster$/, "").replace(/^hero(ic)?$/, "heroic").replace(/^normal$/, "common").replace(/[^a-z]/g, "");
+    // Without a rank: the fight time while it runs; after the kill the left
+    // side already says "Killed in", so show the damage dealt instead.
+    const famIc = FAMILY_ICON[String(t.family || "").toLowerCase()] || "";
+    const fam = t.family ? `<span class="fam">${famIc ? `<i class="famic">${famIc}</i>` : ""}${D.esc(t.family)}</span><span class="dotsep">·</span>` : "";
+        // The game only names a monster when it first comes into range; a big boss
+    // is announced from far away, so a short hop nearby isn't enough.
+    // Only when teleporting would help: the meter started inside this zone.
+    // After a zone change the game has introduced everything, so an unknown
+    // monster then is one it described in a way the meter doesn't read yet.
+    const needTp = t.name === "Unknown monster" && !!(lastSnap && lastSnap.status && lastSnap.status.needs_zone);
+    // Fresh install: the monster data (type, family, picture) is still downloading.
+    const loadingData = !rank && !t.family && !dead && lastSnap && lastSnap.status && lastSnap.status.monster_data === "loading";
+    const right = needTp ? `<span class="tp-hint" title="The meter started while this monster was already nearby, so the game hasn't said which one it is. Teleport to another region and come back (or start the meter before heading to a boss).">📍 Teleport away and back to identify</span>` : loadingData ? `<span class="md-loading" title="Downloading the monster list (type, family and picture). This only happens once."><i class="md-spin"></i>Loading monster data…</span>` : rank ? `${fam}<span class="rank">${D.esc(rank)}</span>` : t.family && !dead ? `${fam}Fight <b>${D.dur(secs)}</b>` : dead ? `Damage <b>${D.fmt(onTarget)}</b>` : `Fight <b>${D.dur(secs)}</b>`;
+    // Enrage ("berserk"): a set time after the first hit on the boss it hits
+    // harder and faster. Counts down while the fight runs.
+    let fz = "";
+    if (t.berserk && !dead && f.live) {
+      const left = t.berserk - secs;
+      const tip = `Enrage ${D.dur(t.berserk)} after the first hit: the boss deals more damage and attacks faster (in game it may show as Frenzy). ${t.berserk_from === "aion2.gg" ? "Timer from aion2.gg (boss data: aion2.gg)" : "Community-reported timer"}; it may differ by difficulty.`;
+      fz = left > 0
+        ? ` · <span class="fz${left <= 60 ? " soon" : ""}" title="${D.esc(tip)}">⏱ Enrage <b>${D.dur(left)}</b></span>`
+        : ` · <span class="fz on" title="${D.esc(tip)}">🔥 Enraged</span>`;
+    }
+    const bot = `<div class="tc-bot"><span>${dead ? `Killed in <b class="good">${D.dur(secs)}</b>${hpCheck(t)}` : killIn ? `Kill in <b class="good">${killIn}</b>${fz}` : `Damage <b>${D.fmt(onTarget)}</b>${fz}`}</span><span>${right}</span></div>`;
+    // Not while the monster list is still downloading: its name is on the way.
+    const nameit = t.named === false && t.npc_id && !(lastSnap && lastSnap.status && lastSnap.status.monster_data === "loading") ? `<span class="nameit" data-npc="${t.npc_id}" title="Looking it up on aion2.gaming.tools… or type the name yourself (saved for good)">✎ name it</span><span class="nameit" data-lk="${t.npc_id}" title="Open on aion2.gaming.tools">🔎</span>` : "";
+    const unknownTip = t.name === "Unknown monster" ? ` title="This monster was already nearby when the meter started, so the game never said which one it is. It gets its name after you change zone or it comes back into view."` : "";
+    const portrait = D.npcIcon(t.art_npc || t.npc_id, 24) || '<span class="tc-ic"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.5C4.5 1.5 2 4 2 7c0 1.9 1 3.3 2.3 4.1V13c0 .6.4 1 1 1h.7v-1.5h1V14h2v-1.5h1V14h.7c.6 0 1-.4 1-1v-1.9C13 10.3 14 8.9 14 7c0-3-2.5-5.5-6-5.5zM5.6 9.2a1.3 1.3 0 1 1 0-2.6 1.3 1.3 0 0 1 0 2.6zm4.8 0a1.3 1.3 0 1 1 0-2.6 1.3 1.3 0 0 1 0 2.6z"/></svg></span>';
+    const html = `<div class="tcard${dead ? " dead" : ""}${rkey ? " r-" + rkey : ""}"><div class="row1">${portrait}<div class="name"${unknownTip}>${D.esc(t.name)}${nameit}</div>${kill}</div>${hp}${bot}</div>`;
+    if (html !== lastTargetHtml) { $("target").innerHTML = html; lastTargetHtml = html; }
+  }
+  // Handled on press, on the container: the target bar redraws 4x a second,
+  // which used to swallow clicks on these buttons.
+  $("target").addEventListener("pointerdown", (ev) => {
+    const b = ev.target.closest("[data-npc]");
+    const l = ev.target.closest("[data-lk]");
+    if (!b && !l) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (b) startNaming(Number(b.dataset.npc));
+    else D.call("open_lookup", { kind: "npc", id: Number(l.dataset.lk) }).then(() => D.toast("Opened in your browser")).catch((e) => D.toast(String(e)));
+  });
+
+  function startNaming(npc) {
+    editing = npc;
+    const box = $("target").querySelector(".name");
+    box.innerHTML = `<input class="nm" maxlength="60" placeholder="Name on the target frame, then Enter">`;
+    const i = box.querySelector("input");
+    i.focus();
+    const done = () => { editing = null; lastTargetHtml = ""; render(lastSnap); };
+    i.onkeydown = async (ev) => {
+      if (ev.key === "Escape") return done();
+      if (ev.key !== "Enter" || !i.value.trim()) return;
+      try { const n = await D.call("set_name", { kind: "npc", id: npc, name: i.value }); D.toast("Saved: " + n); } catch (e) { D.toast(String(e)); }
+      done();
+    };
+    i.onblur = () => setTimeout(() => { if (editing === npc && document.activeElement !== i) done(); }, 150);
+  }
+
+  function clockRule(f) {
+    if (f.clock === "boss") return `DPS clock: boss fight, damage on all enemies ÷ ${D.dur(f.clock_secs)} since the first hit on ${f.clock_target_name || "the boss"} (adds included)`;
+    if (f.clock === "target") return `DPS clock: damage on this target ÷ ${D.dur(f.clock_secs)} since the first hit on it`;
+    if (f.clock === "personal") return "DPS clock: your time, each player's damage ÷ their own first-to-last hit";
+    return `DPS clock: whole fight, all damage ÷ ${D.dur(f.clock_secs || f.duration)}`;
+  }
+  const COLS = { crit: ["Crit", (p) => D.pct(p.crit_rate)], back: ["Back", (p) => D.pct(p.back_rate)], perfect: ["Perf", (p) => D.pct(p.perfect_rate)], hits: ["Hits", (p) => p.hits], max: ["Max", (p) => D.fmt(p.max_hit)], hps: ["HPS", (p) => D.fmt(p.hps)], taken: ["Taken", (p) => D.fmt(p.taken)], deaths: ["Died", (p) => p.deaths ? `<b style="color:var(--bad,#e5675f)">${p.deaths}</b>` : "–"] };
+  const cols = () => (ui.columns || []).filter((c) => COLS[c]);
+  const xc = (p, cc) => cc.length ? `<span class="xcs">${cc.map((c) => `<span>${COLS[c][1](p)}</span>`).join("")}</span>` : "";
+  // ---- Live "digital dash" numbers: every figure counts smoothly to its new value
+  const odoShown = {}; const trend = {};
+  // The DPS column says DPS, so figures there go without "/s".
+  const FMT = { rate: (v) => D.fmt(v), num: (v) => D.fmt(v), int: (v) => (v < 100000 ? Math.round(v).toLocaleString("en") : D.fmt(v)), pct: (v) => D.pct(v), pct1: (v) => D.pct(v, 1) };
+  const odo = (k, v, f, cls) => `<span class="odo${cls ? " " + cls : ""}${trend[k] ? " " + trend[k] : ""}" data-k="${k}" data-v="${v}" data-f="${f}">${FMT[f](odoShown[k] ?? v)}</span>`;
+  const anims = {};
+  function runOdos() {
+    document.querySelectorAll(".odo").forEach((el) => {
+      const k = el.dataset.k, to = Number(el.dataset.v), f = el.dataset.f;
+      const from = odoShown[k] ?? to;
+      if (Math.abs(to - from) < 1e-9) { odoShown[k] = to; return; }
+      const a = anims[k] = { from, to, t0: performance.now(), el };
+      const up = to > from; trend[k] = up ? "up" : "down";
+      el.classList.remove("up", "down"); void el.offsetWidth; el.classList.add(up ? "up" : "down");
+      const step = (now) => {
+        if (anims[k] !== a) return;
+        const t = Math.min(1, (now - a.t0) / 320), e = 1 - Math.pow(1 - t, 3);
+        odoShown[k] = a.from + (a.to - a.from) * e;
+        const live = document.querySelector(`.odo[data-k="${k}"]`) || a.el;
+        live.textContent = FMT[f](odoShown[k]);
+        if (t < 1) requestAnimationFrame(step); else trend[k] = "";
+      };
+      requestAnimationFrame(step);
+    });
+  }
+  // Rows that change place slide to their new spot (FLIP); one that moves
+  // up glows gold for a moment. Off when Windows asks for reduced motion.
+  const calm = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function glide(before) {
+    if (calm || !before.size) return;
+    document.querySelectorAll("#rows .row").forEach((r) => {
+      const old = before.get(r.dataset.id);
+      if (old == null) return;
+      const dy = old - r.getBoundingClientRect().top;
+      if (Math.abs(dy) < 1) return;
+      r.style.transition = "none";
+      r.style.transform = `translateY(${dy}px)`;
+      r.style.zIndex = dy > 0 ? "2" : "1";
+      if (dy > 0) r.classList.add("climb");
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        r.style.transition = "transform .35s cubic-bezier(.2,.8,.2,1)";
+        r.style.transform = "";
+        setTimeout(() => r.classList.remove("climb"), 700);
+      }));
+    });
+  }
+  function readyRoster(p, m) {
+    const cc = cols();
+    const vparts = m === "share" ? [["Dmg %", 66], ["DPS", 54]] : [[m === "dps" ? "DPS" : "Dmg", 66], [m === "dps" ? "Dmg" : "DPS", 54], ["Dmg %", 50]];
+    const rowsEl = $("rows");
+    rowsEl.classList.add("cols");
+    rowsEl.classList.toggle("nox", cc.length === 0);
+    rowsEl.style.setProperty("--xc", cc.length * 44 + "px");
+    rowsEl.style.setProperty("--vc", vparts.map((v) => v[1] + "px").join(" "));
+    rowsEl.style.setProperty("--vw", vparts.reduce((a, v) => a + v[1], 0) + "px");
+    const xh = cc.length ? `<span class="xcs">${cc.map((c) => `<span>${COLS[c][0]}</span>`).join("")}</span>` : "";
+    const head = `<div class="colhead"><span>Player</span>${xh}<span class="vh">${vparts.map((v) => `<span>${v[0]}</span>`).join("")}</span></div>`;
+    const dash = '<span class="dim">–</span>';
+    const mem = (p.members || []).slice().sort((a, b) => (b.is_self ? 1 : 0) - (a.is_self ? 1 : 0));
+    const rows = mem.map((x) => {
+      const color = D.classColor(x.class, x.name);
+      return `<div class="row${x.is_self ? " self" : ""}"><i class="edge" style="background:${color}"></i>
+        <span class="who">${D.classIcon(x.class, 18)}<span class="nm">${D.esc(x.name)}</span></span>
+        ${cc.length ? `<span class="xcs">${cc.map(() => `<span>${dash}</span>`).join("")}</span>` : ""}<span class="val">${vparts.map(() => `<span>${dash}</span>`).join("")}</span></div>`;
+    }).join("");
+    const ready = `<div class="rdy"><i></i><b>Ready</b> · ${mem.length} in party · waiting for the first hit</div>`;
+    return ready + head + rows;
+  }
+
+  function renderRows(f, m) {
+    // Auto: your party once another member of it is in the fight, else everyone.
+    const inParty = f.players.some((p) => p.in_party && !p.is_self);
+    const mode = ui.show_players === "auto" || !ui.show_players ? (inParty ? "party" : "all") : ui.show_players;
+    const list = mode === "me" ? f.players.filter((p) => p.is_self)
+      : mode === "party" ? f.players.filter((p) => p.in_party || p.is_self)
+      : f.players;
+    const rows = list.slice(0, Math.max(1, ui.rows || 8));
+    const top = Math.max(1, ...rows.map((p) => (m === "dps" ? p.dps : p.dmg)));
+    const fk = f.fight_id + "_";
+    for (const k of Object.keys(odoShown)) if (!k.startsWith(fk)) { delete odoShown[k]; delete trend[k]; delete anims[k]; }
+    // Figures on the right, each with its own label: [label, width in px].
+    const vparts = m === "share" ? [["Dmg %", 66], ["DPS", 54]] : [[m === "dps" ? "DPS" : "Dmg", 66], [m === "dps" ? "Dmg" : "DPS", 54], ["Dmg %", 50]];
+    if (ui.show_heal) vparts.splice(1, 0, ["Heal", 54]);
+    // A narrow meter drops extra columns (from the right) before a name
+    // gets squeezed out: every name keeps about 80 px.
+    const cc = cols();
+    const room = ($("rows").clientWidth || 380) - 34 - vparts.reduce((a, v) => a + v[1], 0);
+    while (cc.length && 80 + cc.length * 44 > room) cc.pop();
+    // The titles and the labelled figures stay with no extra column too.
+    $("rows").classList.add("cols");
+    $("rows").classList.toggle("nox", cc.length === 0);
+    $("rows").style.setProperty("--xc", cc.length * 44 + "px");
+    $("rows").style.setProperty("--vc", vparts.map((v) => v[1] + "px").join(" "));
+    $("rows").style.setProperty("--vw", vparts.reduce((a, v) => a + v[1], 0) + "px");
+    const xh = cc.length ? `<span class="xcs">${cc.map((c) => `<span>${COLS[c][0]}</span>`).join("")}</span>` : "";
+    const head = `<div class="colhead" style="--xc:${cc.length * 44}px"><span>Player</span>${xh}<span class="vh">${vparts.map((v) => `<span>${v[0]}</span>`).join("")}</span></div>`;
+    const html = head + rows.map((p, i) => {
+      const v = m === "dps" ? p.dps : p.dmg;
+      const color = D.classColor(p.class, p.name);
+      // Main number per the metric switch, plus the other figure in grey
+      // (DPS view shows total damage and vice versa) and the share.
+      const main = m === "share" ? odo(fk + "sh" + p.id, p.share, "pct1", "main") : m === "dps" ? odo(fk + "dps" + p.id, p.dps, "rate", "main") : odo(fk + "dmg" + p.id, p.dmg, "num", "main");
+      const other = m === "dps" ? odo(fk + "dmg" + p.id, p.dmg, "num") : odo(fk + "dps" + p.id, p.dps, "rate");
+      const sub = m === "share" ? `<span class="sub">${odo(fk + "dps" + p.id, p.dps, "rate")}</span>` : `<span class="sub">${other}</span><small>${odo(fk + "sh" + p.id, p.share, "pct")}</small>`;
+      // With columns on, the heal cell is always there (a dash when none) so the figures stay under their labels.
+      const heal = ui.show_heal && (p.heal || cc.length) ? `<span class="sub">${p.heal ? `♥ ${D.fmt(p.hps)}/s` : "–"}</span>` : "";
+      const tip = `${p.name}${p.class ? " (" + p.class + ")" : ""}\nDamage ${D.fmt(p.dmg)} · ${D.fmt(p.dps)}/s\n${clockRule(f)}\nCrit ${D.pct(p.crit_rate)} · Back ${D.pct(p.back_rate)} · Hits ${p.hits}\nMax hit ${D.fmt(p.max_hit)} (${p.max_hit_skill})${p.heal ? "\nHealing " + D.fmt(p.heal) : ""}${p.deaths ? "\nDeaths " + p.deaths : ""}`;
+      return `<div class="row${p.is_self ? " self" : ""}" data-id="${p.id}" title="${D.esc(tip)}">
+        <i class="fill" style="width:${((v / top) * 100).toFixed(1)}%;background:${color}"></i>
+        <i class="edge" style="background:${color}"></i>
+        <span class="who">${D.classIcon(p.class, 18)}<span class="nm">${D.esc(displayName(p, i))}</span></span>
+        ${xc(p, cc)}<span class="val">${main}${heal}${sub}</span>
+      </div>`;
+    }).join("");
+    // Nothing changed (idle, or a finished fight on screen): leave the rows be.
+    if ($("rows").__html === html) return;
+    // Remember where each row was, so rows that change place glide there.
+    const before = new Map([...document.querySelectorAll("#rows .row")].map((r) => [r.dataset.id, r.getBoundingClientRect().top]));
+    setHTML($("rows"), html);
+    runOdos();
+    glide(before);
+    document.querySelectorAll(".row").forEach((r) => {
+      r.onclick = () => D.call("open_window", { kind: "detail", params: JSON.stringify({ fight_id: lastFight.fight_id, actor_id: Number(r.dataset.id) }) });
+    });
+  }
+
+  // ---- Party panel (the lobby, the queue filling up) ----
+  // The stripe shows Ready: green ready, red not yet, gold the leader (who
+  // doesn't click Ready); grey in an open-world party (no ready check there).
+  function partyPanel(p) {
+    const ms = p.members || [];
+    if (p.inside) return dungeonPanel(p, ms);
+    const voters = ms.filter((m) => !m.leader && m.ready != null);
+    const readyN = voters.filter((m) => m.ready).length;
+    const all = p.room && voters.length > 0 && readyN === voters.length;
+    const head = `<div class="pty-h"><b>Party</b>${p.title ? `<span class="ttl" title="${D.esc(p.title)}">“${D.esc(p.title)}”</span>` : `<span class="ttl"></span>`}${p.room ? `<span class="pty-rd${all ? " all" : ""}">${all ? "✓ " : ""}${readyN}/${voters.length} ready</span>` : `<span class="pty-rd all" style="color:var(--muted);background:none;border-color:var(--line)">${ms.length} in party</span>`}</div>`
+      + (p.room ? `<div class="pty-bar"><i class="${all ? "all" : ""}" style="width:${voters.length ? Math.round((readyN / voters.length) * 100) : 0}%"></i></div>` : "");
+    const rows = ms.map((m) => {
+      const st = m.leader && p.entering ? ["ok", "✓ Entering"] : m.leader ? ["ld", "Leader"] : m.ready === true ? ["ok", "✓ Ready"] : m.ready === false ? ["no", "● Not ready"] : ["", ""];
+      return `<div class="pty-m${st[0] ? " s-" + st[0] : ""}${m.is_self ? " me" : ""}">
+        <span class="nm">${D.classIcon(m.class, 16)}${m.leader ? `<span title="Party leader">👑</span>` : ""}<span class="n">${D.esc(m.name)}</span>${m.is_self ? `<span class="metag">ME</span>` : ""}</span>
+        <span class="sv" title="${D.esc(m.server || "")}">${D.esc(m.server_tag || "")}</span>
+        <span class="num" title="Gear score">${m.gs ? m.gs.toLocaleString() : "–"}</span>
+        <span class="num" title="Combat power">${m.cp ? D.fmt(m.cp) : "–"}</span>
+        <span class="st ${st[0]}">${st[1]}</span></div>`;
+    }).join("");
+    const empty = p.room && ms.length < 5 ? `<div class="pty-empty">Looking for more members…</div>` : "";
+    const gs = ms.filter((m) => m.gs), cp = ms.filter((m) => m.cp);
+    const avg = (xs, k) => Math.round(xs.reduce((a, m) => a + m[k], 0) / xs.length);
+    const foot = gs.length ? `<div class="pty-ft"><span>Avg GS <b>${avg(gs, "gs").toLocaleString()}</b></span>${cp.length ? `<span>CP <b>${D.fmt(avg(cp, "cp"))}</b></span>` : ""}</div>` : "";
+    return `<div class="pty">${head}<div class="pty-hd"><span>Member</span><span>Server</span><span>GS</span><span>CP</span><span>Status</span></div>${rows}${empty}${foot}</div>`;
+  }
+
+  // Queueing for a dungeon while you fight: room, size, a dot per member
+  // (green = Ready, or you) and how many clicked Ready.
+  function queueBar(p) {
+    const ms = p.members || [];
+    const n = ms.filter((m) => m.ready).length;
+    const dots = ms.map((m) => `<i class="${m.ready || m.is_self ? "r" : ""}" title="${D.esc(m.name)}${m.ready ? " · ready" : ""}"></i>`).join("");
+    return `👥 <b>Party queue</b><span class="ttl">${p.title ? `“${D.esc(p.title)}” · ` : ""}${ms.length}/5</span><span class="dots">${dots}</span><span class="rd${n === ms.length ? " all" : ""}">Ready ${n}/${ms.length}</span>`;
+  }
+
+  // Inside the dungeon there's no Ready check any more: the panel says who
+  // is inside and who is still on the way (the game's own status), marks
+  // who just joined, and shows who left for a few seconds.
+  function dungeonPanel(p, ms) {
+    const inN = ms.filter((m) => m.in_dungeon).length;
+    const all = ms.length > 0 && inN === ms.length;
+    const head = `<div class="pty-h"><b>Party</b>${p.title ? `<span class="ttl" title="${D.esc(p.title)}">“${D.esc(p.title)}”</span>` : `<span class="ttl"></span>`}${p.rerun ? `<span class="pty-rd all" title="The leader started the dungeon again">✓ Entering · Rerun</span>` : `<span class="pty-rd ${all ? "all" : "in"}">${all ? "✓ " : ""}${inN}/${ms.length} in dungeon</span>`}</div>`
+      + `<div class="pty-bar"><i class="${all ? "all" : "in"}" style="width:${ms.length ? Math.round((inN / ms.length) * 100) : 0}%"></i></div>`;
+    const rows = ms.map((m) => {
+      const st = m.in_dungeon ? ["ok", "● In dungeon"] : ["way", "→ On the way"];
+      return `<div class="pty-m s-${st[0]}${m.is_self ? " me" : ""}">
+        <span class="nm">${D.classIcon(m.class, 16)}${m.leader ? `<span title="Party leader">👑</span>` : ""}<span class="n">${D.esc(m.name)}</span>${m.is_self ? `<span class="metag">ME</span>` : ""}${m.new ? `<span class="newtag" title="Joined during this run">NEW</span>` : ""}</span>
+        <span class="sv" title="${D.esc(m.server || "")}">${D.esc(m.server_tag || "")}</span>
+        <span class="num" title="Gear score">${m.gs ? m.gs.toLocaleString() : "–"}</span>
+        <span class="num" title="Combat power">${m.cp ? D.fmt(m.cp) : "–"}</span>
+        <span class="st ${st[0]}">${st[1]}</span></div>`;
+    }).join("") + (p.left || []).map((m) => `<div class="pty-m s-no gone">
+        <span class="nm">${D.classIcon(m.class, 16)}<span class="n">${D.esc(m.name)}</span></span>
+        <span class="sv"></span><span class="num">–</span><span class="num">–</span>
+        <span class="st no">✕ Left</span></div>`).join("");
+    const gs = ms.filter((m) => m.gs), cp = ms.filter((m) => m.cp);
+    const avg = (xs, k) => Math.round(xs.reduce((a, m) => a + m[k], 0) / xs.length);
+    const foot = gs.length ? `<div class="pty-ft"><span>Avg GS <b>${avg(gs, "gs").toLocaleString()}</b></span>${cp.length ? `<span>CP <b>${D.fmt(avg(cp, "cp"))}</b></span>` : ""}</div>` : "";
+    return `<div class="pty">${head}<div class="pty-hd"><span>Member</span><span>Server</span><span>GS</span><span>CP</span><span>Status</span></div>${rows}${foot}</div>`;
+  }
+
+  // ---- Solo layout: the boss on top, your own card, Odyle/party/ping ----
+  const SKULL = '<span class="tc-ic"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.5C4.5 1.5 2 4 2 7c0 1.9 1 3.3 2.3 4.1V13c0 .6.4 1 1 1h.7v-1.5h1V14h2v-1.5h1V14h.7c.6 0 1-.4 1-1v-1.9C13 10.3 14 8.9 14 7c0-3-2.5-5.5-6-5.5zM5.6 9.2a1.3 1.3 0 1 1 0-2.6 1.3 1.3 0 0 1 0 2.6zm4.8 0a1.3 1.3 0 1 1 0-2.6 1.3 1.3 0 0 1 0 2.6z"/></svg></span>';
+  const clock = (sec) => { sec = Math.max(0, Math.floor(sec || 0)); return `${String(Math.floor(sec / 60)).padStart(2, "0")}:${String(sec % 60).padStart(2, "0")}`; };
+  // Solo: the monster icon in its rank colour (Common, Elite, Heroic,
+  // Legendary/Boss), the same colours as the Classic card.
+  function rankIcon(t) {
+    const rk = String(t.rank || "").toLowerCase().replace(/monster$/, "").replace(/^hero(ic)?$/, "heroic").replace(/^normal$/, "common").replace(/[^a-z]/g, "");
+    return `<span class="so-rk${rk ? " r-" + rk : ""}"${t.rank ? ` title="${D.esc(t.rank)}"` : ""}>${SKULL.replace(/^<span class="tc-ic">|<\/span>$/g, "")}</span>`;
+  }
+  function renderSolo(f, s, state, text, ping) {
+    const so = ui.solo || {};
+    const me = f && f.players ? f.players.find((p) => p.is_self) : null;
+    const t = f && f.target && ui.show_target !== false ? f.target : null;
+    // Boss line: portrait, name, HP left / max; enrage, fight clock, HP %.
+    let hd;
+    if (t) {
+      const dead = t.hp_pct != null ? t.hp_pct <= 0.0005 : !!f.boss_killed;
+      const pctv = dead ? 0 : t.hp_pct == null ? null : Math.min(1, Math.max(0, t.hp_pct));
+      const secs = t.secs || f.duration || 0;
+      const hpNow = t.hp != null && t.max_hp ? Math.min(t.hp, t.max_hp) : null;
+      let enr = "";
+      if (t.berserk && !dead && f.live) {
+        const left = t.berserk - secs;
+        enr = left > 0 ? `<span class="so-enr${left <= 60 ? " soon" : ""}" title="Enrage: the boss hits harder and faster${t.berserk_from === "aion2.gg" ? " · timer from aion2.gg" : ""}">⏱ ${D.dur(left)}</span>` : `<span class="so-enr on">🔥 Enraged</span>`;
+      }
+      const pc = dead ? `<span class="so-pc dead">✓ Killed</span>` : pctv != null ? `<span class="so-pc">${D.pct(pctv < 1 ? Math.min(pctv, 0.999) : 1, (pctv > 0 && pctv < 0.1) || (pctv > 0.99 && pctv < 1) ? 1 : 0)}</span>` : "";
+      const sub = t.max_hp ? `${D.fmt(dead ? 0 : hpNow != null ? hpNow : t.max_hp)} / ${D.fmt(t.max_hp)}` : t.rank ? D.esc(t.rank) : "";
+      hd = `<div class="so-hd" data-drag>${rankIcon(t)}<div class="so-bn" data-drag><b>${D.esc(t.name)}</b><span>${sub}</span></div><div class="so-rt">${enr}<span class="so-clock">${clock(secs)}</span>${pc}</div></div>`
+        + (pctv != null ? `<div class="so-hp"><i style="width:${(pctv * 100).toFixed(1)}%"></i></div>` : "");
+    } else {
+      hd = `<div class="so-hd" data-drag>${rankIcon({}).replace('class="so-rk"', `class="so-rk r-idle ${state}"`)}<div class="so-bn" data-drag><b class="so-app">Daeva Meter</b><span>${s.version ? "v" + D.esc(s.version) : ""}</span></div><div class="so-rt">${f && f.duration ? `<span class="so-clock" title="Last fight">${clock(f.duration)}</span>` : ""}</div></div><div class="so-hp idle ${state}"><i style="width:100%"></i></div>`;
+    }
+    // Your card.
+    const fk = f ? f.fight_id + "_" : "x_";
+    // Rank and share both count everyone on the fight's damage list (you and
+    // whoever fought with you), as Details and ACT do, so they always agree.
+    const pool = f ? f.players : [];
+    const grouped = pool.some((p) => p.in_party && !p.is_self);
+    const rank = me ? pool.indexOf(me) + 1 : 0;
+    const name = (me && me.name) || s.self_name || "You";
+    const cls = (me && me.class) || s.self_class || savedClass;
+    const cp = me && me.cp ? `<span class="cp" title="Combat power">◆ ${D.fmt(me.cp)}</span> · ` : "";
+    const line = [cls ? D.esc(cls) : "", so.rank !== false && me && pool.length > 1 ? `<span class="rk">#${rank} of ${pool.length}</span>` : "", so.rank !== false && me && pool.length > 1 ? D.pct(me.share) : ""].filter(Boolean).join(" · ");
+    const dps = me ? odo(fk + "solo", me.dps, "int") : `<span class="odo">0</span>`;
+    const tip = me ? `Damage ${D.fmt(me.dmg)} · ${D.fmt(me.dps)}/s\n${clockRule(f)}\nClick for your full breakdown` : "";
+    const chip = (k, v) => `<div><small>${k}</small><b>${me ? D.pct(v || 0) : "–"}</b></div>`;
+    const chips = so.chips !== false ? `<div class="so-chips">${chip("CRIT", me && me.crit_rate)}${chip("DBL", me && me.double_rate)}${chip("PERF", me && me.perfect_rate)}${chip("FRONT", me && me.front_rate)}${chip("BACK", me && me.back_rate)}</div>` : "";
+    const shareLine = so.rank !== false ? `<div class="so-share" title="Your share of the damage"><i style="width:${me ? (Math.min(1, me.share || 0) * 100).toFixed(1) : 0}%"></i></div>` : "";
+    const card = `<div class="so-me" title="${D.esc(tip)}" data-act="detail"><div class="so-l1"><span class="so-crest">${D.classIcon(cls, 22)}<i class="on${f && f.live ? " live" : ""}"></i></span><div class="so-who"><b>${D.esc(name)}</b><span>${cp}${line}</span></div><div class="so-num">${dps}<small>DPS</small></div></div>${chips}${shareLine}</div>`;
+    // Bottom: Odyle, party DPS, ping and the buttons.
+    const partyDps = pool.reduce((a, p) => a + (p.dps || 0), 0);
+    const ody = s.odyle != null ? `<span title="Odyle${s.odyle_bonus ? ` (+${Number(s.odyle_bonus).toLocaleString()} from Odyle Energy)` : ""}"><img class="ody" src="img/odyle.webp" alt=""> <b>${Number(s.odyle).toLocaleString()}</b>${s.odyle_bonus ? ` <span style="color:#4fb8e8">(+${Number(s.odyle_bonus).toLocaleString()})</span>` : ""}</span><i class="sep"></i>` : "";
+    const btns = `<span class="btns"><button class="icon-btn hide-locked" data-act="settings" title="Settings">${D.icon("gear")}</button><button class="icon-btn${ui.click_through ? " on" : ""}" data-act="lock" title="Click-through (Ctrl+Shift+L)">${D.icon(ui.click_through ? "lock" : "unlock")}</button>${D.lights("classic")}</span>`;
+    const su = s.self_update;
+    const suh = su && selfUpdateHtml(su, true);
+    const ft = su ? `<div class="so-ft upd" data-drag>${suh.html}${btns}</div>`
+      : so.footer !== false ? `<div class="so-ft" data-drag>${state === "live" ? `<span class="fl"><i class="srv-dot live"></i><span class="srv">${D.esc(s.server || "")}</span></span><i class="sep"></i>` + (pool.length > 1 ? `<span>${grouped ? "Party" : "All"} <b>${D.fmt(partyDps)}</b></span><i class="sep"></i>` : "") + ody : `<span class="fl"><i class="srv-dot ${state}"></i>${s.server ? `<span class="srv">${D.esc(s.server)}</span><i class="sep"></i>` : ""}<span class="st">${state === "live" ? "<b>In combat</b>" : state === "idle" ? "Idle · no combat for 30s" : D.esc(text)}</span></span><i class="sep"></i>`}${ping}${btns}</div>` : `<div class="so-ft" data-drag style="padding-top:3px;padding-bottom:3px">${btns}</div>`;
+    // In a party and not fighting yet: one line, "Party 4/5 · 3/4 ready".
+    const pt = lastSnap && lastSnap.party;
+    let strip = "";
+    if (pt && pt.lobby) {
+      const v = (pt.members || []).filter((m) => !m.leader && m.ready != null), r = v.filter((m) => m.ready).length;
+      // Inside the dungeon: who's in, not who's Ready.
+      const inN = (pt.members || []).filter((m) => m.in_dungeon).length, n = (pt.members || []).length;
+      const count = pt.inside ? ` <span style="margin-left:auto;${inN === n ? "" : "color:#8fd0ff;font-weight:700"}" class="${inN === n ? "ok" : ""}">${inN === n ? "✓ " : ""}${inN}/${n} in dungeon</span>`
+        : pt.room && v.length ? ` <span style="margin-left:auto" class="${r === v.length ? "ok" : "no"}">${r === v.length ? "✓ " : ""}${r}/${v.length} ready</span>` : "";
+      strip = `<div class="so-pty">👥 Party <b>${(pt.members || []).length}</b>${pt.title ? ` · <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px">“${D.esc(pt.title)}”</span>` : ""}${count}</div>`;
+    }
+    if (setHTML($("solo"), hd + card + strip + ft)) runOdos();
+    fitSolo();
+  }
+  $("solo").addEventListener("click", (ev) => {
+    if (selfUpd && selfUpdateClick(ev, selfUpd)) return;
+    const a = ev.target.closest("[data-act]");
+    if (!a) return;
+    const act = a.dataset.act;
+    if (act === "settings") D.call("open_window", { kind: "settings" });
+    else if (act === "lock") D.call("toggle_click_through").then((on) => D.toast(on ? "Click-through on — Ctrl+Shift+L to unlock" : "Click-through off"));
+    else if (act === "detail" && lastFight) {
+      const me = lastFight.players.find((p) => p.is_self);
+      if (me) D.call("open_window", { kind: "detail", params: JSON.stringify({ fight_id: lastFight.fight_id, actor_id: me.id }) });
+    }
+  });
+  // Solo is a fixed card, 372 wide (times Scale); the window fits it.
+  const SOLO_W = 476;
+  let fitting = false;
+  function fitSolo() {
+    if (fitting) return;
+    const T = window.__TAURI__;
+    const sh = document.querySelector(".shell");
+    const z = parseFloat(document.body.style.zoom) || 1;
+    const h = Math.ceil(sh.offsetHeight * z) + 1, w = Math.round(SOLO_W * z) + 1;
+    if (!T || (Math.abs(h - window.innerHeight) <= 1 && Math.abs(w - window.innerWidth) <= 1)) return;
+    const Size = (T.dpi && T.dpi.LogicalSize) || (T.window && T.window.LogicalSize);
+    if (!Size) return;
+    fitting = true;
+    T.window.getCurrentWindow().setSize(new Size(w, h)).catch((e) => console.warn(e)).finally(() => setTimeout(() => (fitting = false), 300));
+  }
+
+  function emptyState(s, state, text) {
+    if (s.npcap_error) {
+      return `<div class="empty"><b>Npcap is needed to read game traffic.</b><br>Install it from <a data-link="https://npcap.com/#download">npcap.com</a> with the default options, then restart Daeva Meter.<br><br>Or try <a data-act="demo">demo mode</a> to see the overlay.</div>`;
+    }
+    const hint = s.defs_messages === 0 && !s.demo
+      ? `<br><span class="dim">The AION 2 protocol definitions are not filled in yet, so no damage can be decoded. Use <a data-act="research">Research mode</a> to record captures for decoding.</span>`
+      : "";
+    return `<div class="empty"><b>${D.esc(text)}</b><br>Damage appears here as soon as combat starts.${hint}</div>`;
+  }
+
+  function wireEmpty() {
+    document.querySelectorAll("[data-act=demo]").forEach((a) => (a.onclick = () => D.call("set_demo", { on: true })));
+    document.querySelectorAll("[data-act=research]").forEach((a) => (a.onclick = () => D.call("open_window", { kind: "research" })));
+    document.querySelectorAll("[data-link]").forEach((a) => (a.onclick = () => D.call("copy_text", { text: a.dataset.link }).then(() => D.toast("Link copied — paste it in your browser"))));
+  }
+
+  async function sendReport() {
+    try {
+      const p = await D.call("report_problem", { note: "overlay" });
+      D.toast("Report saved: " + p.split(/[\\/]/).pop() + " — send it in the chat");
+    } catch (e) { D.toast("Could not save report: " + e); }
+  }
+  window.__sendReport = sendReport;
+
+  async function poll() {
+    try { render(await D.callJSON("get_snapshot", {})); } catch (e) { console.warn(e); }
+    setTimeout(poll, 250);
+  }
+  poll();
+
+  // ---- sharing to the Daeva bot (fights and loot) ----
+  const retry = [];
+  async function loadShare() {
+    try { share = (await D.call("get_settings")).share; } catch { share = null; }
+  }
+  async function pump() {
+    try {
+      if (!share) await loadShare();
+      const fresh = await D.call("take_uploads");
+      for (const body of fresh) retry.push({ body, tries: 0 });
+      if (share && share.enabled && share.endpoint) {
+        for (let i = 0; i < retry.length; ) {
+          const item = retry[i];
+          try {
+            const r = await fetch(share.endpoint, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", ...(share.token ? { Authorization: "Bearer " + share.token } : {}) },
+              body: item.body,
+            });
+            // A refusal (bad token, not counted, too big) won't change on retry; drop it.
+            if (!r.ok && r.status >= 400 && r.status < 500 && r.status !== 408 && r.status !== 429) { retry.splice(i, 1); console.warn("upload refused", r.status); continue; }
+            if (!r.ok) throw new Error("HTTP " + r.status);
+            retry.splice(i, 1);
+          } catch (e) {
+            item.tries++;
+            if (item.tries >= 5) { retry.splice(i, 1); console.warn("upload dropped", e); } else i++;
+          }
+        }
+      } else {
+        retry.length = 0;
+      }
+    } catch (e) { console.warn(e); }
+    setTimeout(pump, 3000);
+  }
+  setInterval(loadShare, 15000);
+  pump();
+})();
+</script>
+</body>
+</html>

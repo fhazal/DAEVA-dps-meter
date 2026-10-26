@@ -809,6 +809,11 @@ fn find_sync(fr: &Framing, known: &dyn Fn(u64) -> bool, buf: &[u8]) -> Option<us
                     }
                 }
                 Try::Waiting(total, op) if total > BIG_FRAME && !known(op) => continue 'outer,
+                // A packet that starts a known message longer than itself: the
+                // first data of a connection we joined without its handshake is
+                // often the zone's big spawn bundle, split over several packets
+                // (Vakron, 2026-10-25: skipping it lost every name in the zone).
+                Try::Waiting(_, op) if start == 0 && n == 0 && known(op) => return Some(0),
                 Try::NeedMore | Try::Waiting(..) => {
                     if n >= 1 && first_known {
                         return Some(start);
@@ -1276,6 +1281,27 @@ mod tests {
         }
         d3.push(flow(), true, &rest, false, 1.1, &mut out3);
         assert_eq!(out3.len(), 8, "{out3:?}");
+
+        // Joined without the handshake, and the first message is longer than
+        // the first packet (the zone's spawn bundle, Vakron 2026-10-25): wait
+        // for the rest of it instead of looking for a start inside it.
+        let mut d4 = Decoder::new(d.defs.clone(), None);
+        let mut actor = Vec::new();
+        encode_varint(1001, &mut actor);
+        actor.push(1);
+        let name = "Palacicih".repeat(12);
+        encode_varint(name.len() as u64, &mut actor);
+        actor.extend_from_slice(name.as_bytes());
+        actor.push(7);
+        let mut s4 = frame(514, &actor);
+        for _ in 0..3 {
+            s4.extend(frame(0x0101, &hit_body()));
+        }
+        let mut out4 = Vec::new();
+        d4.push(flow(), true, &s4[..80], true, 1.0, &mut out4);
+        d4.push(flow(), true, &s4[80..], false, 1.1, &mut out4);
+        assert!(matches!(&out4[0], GameEvent::Actor { name: Some(n), .. } if *n == name), "{out4:?}");
+        assert_eq!(out4.len(), 7, "{out4:?}");
     }
 
     #[test]
