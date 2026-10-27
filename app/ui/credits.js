@@ -18,7 +18,7 @@ window.DAEVA_CREDITS = [
   ]],
   ["Special thanks", [
     ["aion2.gaming.tools", "Monster and skill names · AION 2 Global Database team"],
-    ["A2Tools", "Names of zone and dungeon monster variants and newer skills · taengu · GPL-3.0"],
+    ["A2Tools", "Names of zone and dungeon monster variants and newer skills · taengu · used with permission"],
     ["aion2.gg", "Boss data and skill names · aion2.gg", "aion2gg"],
     ["Lucide", "Icons · ISC licence"],
     ["Oxanium", "Title and status font · Severin Meyer · SIL Open Font License"],
@@ -38,7 +38,7 @@ window.DAEVA_OSS = [
   ["libloading", "ISC", "Loading Npcap"],
   ["windows-sys", "MIT or Apache-2.0", "Windows features (hotkeys, sounds, links)"],
   ["tauri-plugin-single-instance", "MIT or Apache-2.0", "One meter at a time"],
-  ["A2Tools monster and skill names", "GPL-3.0", "Zone and dungeon monster names and skill names (definitions/a2tools, licence included there)"],
+  ["A2Tools monster and skill names (taengu)", "MIT terms, by permission", "Zone and dungeon monster names and skill names (definitions/a2tools)"],
 ];
 
 window.DAEVA_LUCIDE_LICENSE = `ISC License

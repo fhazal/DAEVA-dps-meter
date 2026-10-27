@@ -35,6 +35,11 @@ pub enum FType {
     /// `marker`, an index, a u32 id, u16 0, u16 server, then a u8-length
     /// UTF-8 name. Reads to the end; names are joined with newlines.
     MemberNames { marker: u8, header: bool },
+    /// Force members (0x9602 list, 0x960a join): each entry is an entity id
+    /// u32, 4 bytes, then a "$GUID" (37 ASCII bytes), the member key u32,
+    /// 2 bytes, server u16, u8-length UTF-8 name and a class number u32.
+    /// Reads to the end; one "name\tclass\tid\tserver\tkey" line each.
+    ForceMembers,
     Bytes(LenSpec),
     StrVarint,
     StrU16Utf16,
@@ -346,6 +351,7 @@ fn parse_ftype(v: &Value, ctx: &str) -> Result<FType, String> {
         "svarint" | "zigzag" => FType::Svarint,
         "skip" => FType::Skip(v.u64_or("len", 0) as usize),
         "member_names" => FType::MemberNames { marker: v.u64_or("marker", 0x1e) as u8, header: v.u64_or("header", 1) != 0 },
+        "force_members" => FType::ForceMembers,
         "seek" => {
             let pattern: Vec<u8> = v
                 .str_or("pattern", "")
@@ -601,6 +607,36 @@ fn read_fields(r: &mut Reader<'_>, defs: &[FieldDef], parents: &[&Scope], out: &
                 r.pos = r.buf.len();
                 FVal::S(names.join("\n"))
             }
+            FType::ForceMembers => {
+                let b = r.rest();
+                let u32_at = |i: usize| b.get(i..i + 4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]));
+                let guid = |i: usize| {
+                    b.get(i..i + 37).map_or(false, |g| {
+                        g[0] == b'$' && g[1..].iter().enumerate().all(|(k, c)| if [8, 13, 18, 23].contains(&k) { *c == b'-' } else { c.is_ascii_hexdigit() })
+                    })
+                };
+                let mut lines: Vec<String> = Vec::new();
+                let mut i = 8;
+                while i + 37 <= b.len() {
+                    if !guid(i) {
+                        i += 1;
+                        continue;
+                    }
+                    let e = i + 37;
+                    let id = u32_at(i - 8).unwrap_or(0);
+                    let key = u32_at(e).unwrap_or(0);
+                    let server = b.get(e + 6..e + 8).map(|c| u16::from_le_bytes([c[0], c[1]])).unwrap_or(0);
+                    let len = b.get(e + 8).copied().unwrap_or(0) as usize;
+                    let name = b.get(e + 9..e + 9 + len).and_then(|n| std::str::from_utf8(n).ok()).filter(|n| !n.is_empty() && !n.chars().any(|c| c.is_control()));
+                    if let Some(name) = name {
+                        let code = u32_at(e + 9 + len).unwrap_or(0);
+                        lines.push(format!("{name}\t{code}\t{id}\t{server}\t{key}"));
+                    }
+                    i = e;
+                }
+                r.pos = r.buf.len();
+                FVal::S(lines.join("\n"))
+            }
             FType::Seek { pattern, back, optional } => {
                 let rest = r.rest();
                 let at = rest.windows(pattern.len()).position(|w| w == pattern.as_slice()).filter(|i| *i >= *back);
@@ -828,6 +864,19 @@ fn find_sync(fr: &Framing, known: &dyn Fn(u64) -> bool, buf: &[u8]) -> Option<us
         }
     }
     None
+}
+
+/// One Force member line, "name\tclass\tid\tserver\tkey" (0 = not known).
+fn force_member(l: &str) -> crate::events::ForceMember {
+    let opt = |s: Option<&str>| s.and_then(|v| v.parse::<u64>().ok()).filter(|v| *v > 0);
+    let f: Vec<&str> = l.split('\t').collect();
+    crate::events::ForceMember {
+        name: f[0].to_string(),
+        code: opt(f.get(1).copied()).map(|v| v as u32),
+        id: opt(f.get(2).copied()),
+        server: opt(f.get(3).copied()).map(|v| v as u32),
+        key: f.get(4).and_then(|v| v.parse::<u32>().ok()).unwrap_or(0),
+    }
 }
 
 /// One member line, "name\tclass\tid\tserver\tgs\tcp\tstatus" (empty or 0 = not known).
@@ -1126,6 +1175,20 @@ fn emit(e: &Emit, header: &Scope, scope: &Scope, ts: f64, out: &mut Vec<GameEven
             "party_join" => match txt("members").and_then(|s| s.split('\n').find(|l| !l.is_empty() && !l.starts_with("@\t")).map(party_member)) {
                 Some(member) => GameEvent::PartyJoin { member },
                 None => continue,
+            },
+            "force" | "force_join" => {
+                let members: Vec<crate::events::ForceMember> = txt("members").map(|s| s.split('\n').filter(|l| !l.is_empty()).map(force_member).collect()).unwrap_or_default();
+                match (e.event.as_str(), members.into_iter()) {
+                    ("force", m) => GameEvent::ForceInfo { members: m.collect() },
+                    (_, mut m) => match m.next() {
+                        Some(member) => GameEvent::ForceJoin { member },
+                        None => continue,
+                    },
+                }
+            }
+            "force_leave" => match num("key") {
+                Some(key) if key > 0 => GameEvent::ForceLeave { key: key as u32 },
+                _ => continue,
             },
             "party_ready" => match num("id") {
                 Some(id) if id > 0 => GameEvent::PartyReady { id, ready: num("ready").unwrap_or(0) != 0 },
@@ -1502,6 +1565,25 @@ mod party_tests {
         let mut out = Vec::new();
         d.push(flow, true, &[0x0a, 0x1b, 0x97, 0x08, 0xc1, 0x0c, 0x00], false, 1.0, &mut out);
         assert!(out.iter().any(|e| matches!(e, GameEvent::DungeonLeft)), "{out:?}");
+    }
+
+    /// Real Force messages (Watcher Kaira, capture 1793040837): Aboos joins
+    /// the Force (0x960a), then Krocs leaves it (0x9622, member key only).
+    #[test]
+    fn force_join_and_leave_messages() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
+        let mut d = Decoder::new(Arc::new(Definitions::from_json(&src).unwrap()), None);
+        let flow = FlowKey { src: Endpoint { ip: Ipv4Addr::new(9, 9, 9, 9), port: 13328 }, dst: Endpoint { ip: Ipv4Addr::new(10, 0, 0, 2), port: 5000 } };
+        let hex = "83 01 0a 96 fa 19 1a 00 83 24 d5 00 00 03 94 39 00 00 cc 09 b4 0d 24 37 37 38 32 31 35 41 43 2d 36 44 42 43 2d 34 36 32 34 2d 41 42 30 42 2d 31 32 32 32 31 45 43 41 33 32 45 42 d8 65 04 00 00 00 cc 09 05 41 62 6f 6f 73 23 00 00 00 ec 8b 01 ec 8b 01 14 00 00 00 01 00 00 00 5a 02 00 00 03 2d 00 00 00 00 00 00 00 00 06 00 00 16 fb af c7 14 0e f5 c7 00 70 05 47 f0 17 01 00 00 00 00 00 01 \
+                   17 22 96 86 56 02 00 00 00 cc 09 72 19 1a 00 83 24 d5 00 03";
+        let bytes: Vec<u8> = hex.split_whitespace().filter(|h| *h != "\\").map(|h| u8::from_str_radix(h, 16).unwrap()).collect();
+        let mut out = Vec::new();
+        d.push(flow, true, &bytes, false, 1.0, &mut out);
+        assert!(
+            out.iter().any(|e| matches!(e, GameEvent::ForceJoin { member } if member.name == "Aboos" && member.id == Some(14_740) && member.code == Some(35) && member.server == Some(2508) && member.key == 288_216)),
+            "{out:?}"
+        );
+        assert!(out.iter().any(|e| matches!(e, GameEvent::ForceLeave { key: 153_222 })), "{out:?}");
     }
 
     /// A real 0x920d: Palabuto (Templar, GS 3158) accepted your invite.

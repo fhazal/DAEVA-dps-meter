@@ -66,6 +66,19 @@ pub struct PartyMember {
     pub status: Option<u8>,
 }
 
+/// One member of a Force list.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ForceMember {
+    pub name: String,
+    /// Entity id in your zone (the id their hits carry).
+    pub id: Option<u64>,
+    /// Party-list class number (see names.json `party_class_ranges`).
+    pub code: Option<u32>,
+    pub server: Option<u32>,
+    /// The game's key for this member; "left the Force" names only this.
+    pub key: u32,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum GameEvent {
     Damage { ts: f64, src: u64, tgt: u64, skill: u32, amount: u64, flags: u32 },
@@ -101,6 +114,13 @@ pub enum GameEvent {
     PartyInfo { title: Option<String>, leader: Option<u64>, members: Vec<PartyMember> },
     /// Someone joined the dungeon room (sent the moment they join).
     PartyJoin { member: PartyMember },
+    /// The Force (several parties together, at field bosses): every member,
+    /// sent when you join one. Replaces the last list.
+    ForceInfo { members: Vec<ForceMember> },
+    /// Someone joined your Force.
+    ForceJoin { member: ForceMember },
+    /// Someone left your Force: their member key (see ForceMember).
+    ForceLeave { key: u32 },
     /// A room member clicked Ready (or took it back).
     PartyReady { id: u64, ready: bool },
     /// You clicked Ready (or Cancel Ready): the game doesn't send your own
@@ -140,6 +160,9 @@ impl GameEvent {
             GameEvent::Party { .. } => "party",
             GameEvent::PartyInfo { .. } => "party_info",
             GameEvent::PartyJoin { .. } => "party_join",
+            GameEvent::ForceInfo { .. } => "force_info",
+            GameEvent::ForceJoin { .. } => "force_join",
+            GameEvent::ForceLeave { .. } => "force_leave",
             GameEvent::PartyReady { .. } => "party_ready",
             GameEvent::SelfReady { .. } => "self_ready",
             GameEvent::PartyEntering => "party_entering",

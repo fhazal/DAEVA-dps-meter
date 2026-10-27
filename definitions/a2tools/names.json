@@ -1,6 +1,6 @@
 {
- "about": "Monster and skill names from A2Tools (https://github.com/taengu/A2Tools-DPS-Meter, src/data/i18n/npcs/en.json and src/data/i18n/skills/en.json, commit 2555901, 25 Oct 2026), by taengu. Only the ids the AION 2 Global Database (gaming.tools) doesn't name; internal names (test, unused, <DNT>) left out. This folder is licensed under the GNU GPL v3 (see LICENSE here), not under Daeva Meter's MIT licence.",
- "license": "GPL-3.0-only",
+ "about": "Monster and skill names from A2Tools (https://github.com/taengu/A2Tools-DPS-Meter, src/data/i18n/npcs/en.json and src/data/i18n/skills/en.json, commit 2555901, 25 Oct 2026), by taengu. Only the ids the AION 2 Global Database (gaming.tools) doesn't name; internal names (test, unused, <DNT>) left out. Used with taengu's permission under MIT terms, like the rest of Daeva Meter.",
+ "license": "MIT (by permission of taengu)",
  "npcs": {
   "2000000": "Punching Bag",
   "2000001": "Punching Bag",

@@ -256,6 +256,20 @@ pub fn cursor_pos() -> Option<(i32, i32)> {
     None
 }
 
+/// Puts a window back at the very top without focusing it. Windows can drop
+/// an always-on-top window under a borderless game (2026-10-27: alert sound
+/// played, banner hidden behind AION 2).
+#[cfg(windows)]
+pub fn keep_on_top(hwnd: isize) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE};
+    unsafe {
+        SetWindowPos(hwnd as _, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    }
+}
+
+#[cfg(not(windows))]
+pub fn keep_on_top(_hwnd: isize) {}
+
 /// Plays an in-memory WAV without blocking. The bytes are kept alive in a
 /// static until the next sound replaces them (PlaySound reads them while
 /// playing).

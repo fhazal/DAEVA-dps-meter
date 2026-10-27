@@ -6,7 +6,7 @@
 // updates after a game patch never need a new build.
 {
   "name": "AION 2 (global)",
-  "version": "0.6.24",
+  "version": "0.6.25",
   "process_names": ["aion2"],
   // Server ports, if they turn out to be fixed. Auto-detection by process
   // already finds the server, so this can stay empty.
@@ -250,6 +250,23 @@
     {"opcode": "0x9213", "name": "S_PARTY_LEAVE", "dir": "server",
      "fields": [],
      "emit": {"event": "party", "when": "1"}},
+    // Force (several parties together at a field boss): every member, sent
+    // when you join one (Watcher Kaira, capture 1793040837: 18 members at
+    // 278 s, a new Force of 12 at 864 s). Entries: entity id, "$GUID",
+    // member key, server, name, class number (see force_members).
+    {"opcode": "0x9602", "name": "S_FORCE_INFO", "dir": "server",
+     "fields": [{"name": "members", "type": "force_members"}],
+     "emit": {"event": "force", "when": "1", "members": "members"}},
+    // Someone joined your Force: one entry as in 0x9602 (10 in that capture,
+    // matching the party joins at 883, 1089 and 1268 s).
+    {"opcode": "0x960a", "name": "S_FORCE_JOINED", "dir": "server",
+     "fields": [{"name": "members", "type": "force_members"}],
+     "emit": {"event": "force_join", "when": "1", "members": "members"}},
+    // Someone left your Force: their member key (BLCKSTR at 1195 s, the
+    // moment the party list lost him).
+    {"opcode": "0x9622", "name": "S_FORCE_LEFT", "dir": "server",
+     "fields": ["key:u32le"],
+     "emit": {"event": "force_leave", "when": "1", "key": "key"}},
     // You left the party (no body; seen 2.5 s after "leave party" in two
     // captures, never otherwise). An empty party list.
     {"opcode": "0x8d3f", "name": "S_PARTY_LEFT", "dir": "server",

@@ -575,6 +575,7 @@ fn toast_positioner(handle: AppHandle, sh: Arc<Shared>) {
     // No banner on screen and nothing being dragged: the empty window can
     // follow the meter at a gentler pace.
     let mut idle = false;
+    let mut banner_up = false;
     let started = state::now_unix();
     let (mut nudged, mut reloaded) = (0.0f64, 0.0f64);
     loop {
@@ -620,6 +621,16 @@ fn toast_positioner(handle: AppHandle, sh: Arc<Shared>) {
                     cx >= l && cx < l + px(*w) && cy >= tt && cy < tt + px(*h)
                 })
             });
+        // A banner up: keep its window above the game, at once and then
+        // about once a second.
+        let raise = !rects.is_empty() && (!banner_up || tick % 12 == 0);
+        banner_up = !rects.is_empty();
+        if raise {
+            #[cfg(windows)]
+            if let Ok(h) = t.hwnd() {
+                winsys::keep_on_top(h.0 as isize);
+            }
+        }
         let ignore = !(over || dragging);
         if ignoring != Some(ignore) || tick % 25 == 0 {
             if t.set_ignore_cursor_events(ignore).is_ok() {

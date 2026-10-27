@@ -273,6 +273,9 @@
   .so-bn { min-width: 0; flex: 1; }
   .so-bn b { display: block; font-size: 12px; font-weight: 650; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .so-bn span { color: var(--muted); font-size: 9.5px; line-height: 1.1; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .wb-share b { color: var(--good); font-weight: 700; }
+  .so-bn .wb-share b { display: inline; font-size: inherit; line-height: inherit; }
+  .so-bn .chk.ow svg { vertical-align: -2px; }
   .so-rt { display: flex; align-items: center; gap: 6px; flex: none; }
   .so-clock { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 11px; color: #bfe3ff; background: rgba(79,184,232,.12); border: 1px solid rgba(79,184,232,.25); padding: 1px 7px; border-radius: 5px; }
   .so-enr { font-size: 10px; color: var(--muted); background: rgba(255,255,255,.05); padding: 1px 6px; border-radius: 5px; font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -704,7 +707,20 @@
   let gaps = 0;
   // Players from outside your party (a full dungeon party isn't a world boss).
   const WORLD_BOSS_STRANGERS = 3;
+  // World boss (a crowd, the list is you, your party and your Force): the
+  // label and your exact share of its health. Same markup in Classic and Solo.
+  function worldBoss(t) {
+    const f = lastFight;
+    if (!f || !f.world_boss || t.id !== f.clock_target) return "";
+    const share = f.boss_share != null ? f.boss_share : null;
+    const me = (f.players || []).find((p) => p.is_self);
+    const tip = `World boss: the game only sends the hits of players near you, so the list shows just you, your party and your Force.` + (share != null ? `
+Your damage: ${D.fmt(me ? me.dmg : 0)}, ${D.pct(share, 1)} of ${t.name}'s ${D.fmt(t.max_hp || 0)} HP.` : "");
+    return ` · <span class="chk ow wb" title="${D.esc(tip)}">${D.icon("globe")} World Boss</span>` + (share != null ? ` · <span class="wb-share" title="${D.esc(tip)}"><b>${D.pct(share, 1)}</b> HP</span>` : "");
+  }
   function hpCheck(t) {
+    const wb = worldBoss(t);
+    if (wb) return wb;
     if (t.counted == null) return "";
     const c = t.counted, low = c < 0.97;
     if (low && t.watched === true && !gaps) {
@@ -1034,7 +1050,7 @@
         enr = left > 0 ? `<span class="so-enr${left <= 60 ? " soon" : ""}" title="Enrage: the boss hits harder and faster${t.berserk_from === "aion2.gg" ? " · timer from aion2.gg" : ""}">⏱ ${D.dur(left)}</span>` : `<span class="so-enr on">🔥 Enraged</span>`;
       }
       const pc = dead ? `<span class="so-pc dead">✓ Killed</span>` : pctv != null ? `<span class="so-pc">${D.pct(pctv < 1 ? Math.min(pctv, 0.999) : 1, (pctv > 0 && pctv < 0.1) || (pctv > 0.99 && pctv < 1) ? 1 : 0)}</span>` : "";
-      const sub = t.max_hp ? `${D.fmt(dead ? 0 : hpNow != null ? hpNow : t.max_hp)} / ${D.fmt(t.max_hp)}` : t.rank ? D.esc(t.rank) : "";
+      const sub = (t.max_hp ? `${D.fmt(dead ? 0 : hpNow != null ? hpNow : t.max_hp)} / ${D.fmt(t.max_hp)}` : t.rank ? D.esc(t.rank) : "") + worldBoss(t);
       hd = `<div class="so-hd" data-drag>${rankIcon(t)}<div class="so-bn" data-drag><b>${D.esc(t.name)}</b><span>${sub}</span></div><div class="so-rt">${enr}<span class="so-clock">${clock(secs)}</span>${pc}</div></div>`
         + (pctv != null ? `<div class="so-hp"><i style="width:${(pctv * 100).toFixed(1)}%"></i></div>` : "");
     } else {

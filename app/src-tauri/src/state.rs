@@ -1211,11 +1211,12 @@ impl Core {
         let d = &self.pipeline.decoder;
         let decoded: u64 = d.stats.values().map(|s| s.decoded).sum();
         let frames = d.frames_total;
-        // Keep-alives (0x3600) and other players' movement (0x371x,
-        // thousands a minute in a busy town) never decode, so they don't
-        // count towards "messages arrive but none decode". Unknown opcodes
-        // still do: after a patch that renumbers messages, that's all there is.
-        let content: u64 = d.stats.iter().filter(|((_, op), _)| *op != KEEPALIVE_OPCODE && !(0x3710..=0x371f).contains(op)).map(|(_, s)| s.count).sum();
+        // Keep-alives (0x3600) and other players' movement (0x371x in a busy
+        // town, also 0x3728-0x372a in an Abyss crowd: 2026-10-27, warning while
+        // idle there) never decode, so they don't count towards "messages
+        // arrive but none decode". Unknown opcodes still do: after a patch
+        // that renumbers messages, that's all there is.
+        let content: u64 = d.stats.iter().filter(|((_, op), _)| *op != KEEPALIVE_OPCODE && !(0x3710..=0x372f).contains(op)).map(|(_, s)| s.count).sum();
         let resyncs = d.resyncs();
         if self.health_at > 0.0 {
             let new_content = content.saturating_sub(self.health_content);
@@ -1765,7 +1766,7 @@ fn load_definitions(paths: &Paths, status: &mut Status) -> (Arc<Definitions>, Na
     // definitions adds to it and wins where both have an entry. (It used to
     // replace it outright, so an older copy there hid newer data such as
     // enrage timers and party class numbers.)
-    // A2Tools' monster names (GPL-3.0, in their own folder) come first: they
+    // A2Tools' monster names (by permission, in their own folder) come first: they
     // only fill ids gaming.tools doesn't list, so everything else wins.
     let mut names = Names::default();
     // aion2.gg enrage times: the daily download, else the copy in the

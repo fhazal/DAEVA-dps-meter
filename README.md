@@ -227,11 +227,11 @@ More: [docs/DECODING.md](docs/DECODING.md) · [docs/DEFINITIONS.md](docs/DEFINIT
 ## 🙏 Credits
 
 - **[AION 2 Global Database](https://aion2.gaming.tools)** by gaming.tools: monster and skill names and game icons, with thanks to their team.
-- **[A2Tools](https://github.com/taengu/A2Tools-DPS-Meter)** by taengu: names of monsters and skills (GPL-3.0).
+- **[A2Tools](https://github.com/taengu/A2Tools-DPS-Meter)** by taengu: names of monsters and skills (used with permission).
 - **[Boss data and skill names](https://aion2.gg)** by aion2.gg: boss enrage times for the Frenzy countdown, and names of skills.
 - **[Lucide](https://lucide.dev)** (ISC licence): the icon set used throughout the meter.
 - **[Daeva](https://github.com/fhazal/Daeva-aion2-discordbot)**, our Discord assistant, supplies the event schedule.
-- Released under the [MIT licence](LICENSE), except `a2tools` (GPL-3.0).
+- Released under the [MIT licence](LICENSE).
 
 <div align="center">
 

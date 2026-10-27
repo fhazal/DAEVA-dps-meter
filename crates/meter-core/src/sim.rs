@@ -69,6 +69,8 @@ impl Simulator {
                 self.players.push(SimPlayer { id, power: p.2, crit: p.3, skills: p.4, next: now + self.rng.f() });
             }
             out.push(GameEvent::Actor { id: 2005, name: None, class: None, kind: ActorKind::Summon, npc_id: None, owner: Some(1002), max_hp: None });
+            // The group is your party, as the game's party list says.
+            out.push(GameEvent::Party { names: PARTY.iter().map(|p| p.0.to_string()).collect(), codes: vec![None; PARTY.len()] });
             self.new_boss(now, &mut out);
         }
         if now < self.pause_until {

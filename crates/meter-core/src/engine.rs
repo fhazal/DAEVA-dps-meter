@@ -11,6 +11,13 @@ use std::collections::{HashMap, VecDeque};
 /// listed separately like "Chain of Torment (DOT)".
 pub const DOT_KEY: u32 = 1 << 31;
 
+/// A heal "amount" this big (i32::MAX) means "heal to full"; never counted.
+pub const HEAL_TO_FULL: u64 = 0x7fff_ffff;
+/// No monster comes near this much health (the biggest bosses have about
+/// 100 million). A garbled health value above it was remembered as the
+/// monster type's maximum (Drana Predator, 2026-10-27: "0 / 108728033.00B").
+const MAX_PLAUSIBLE_HP: u64 = 100_000_000_000;
+
 /// Lookup tables for skills, NPCs, classes and items. Loaded from
 /// `names.json` so the community can maintain them.
 #[derive(Default, Debug, Clone)]
@@ -360,6 +367,19 @@ impl SkillStat {
             self.multi += 1;
         }
     }
+
+    /// Adds another breakdown of the same skill (one player under two ids).
+    fn absorb(&mut self, o: &SkillStat) {
+        for (a, b) in [
+            (&mut self.dmg, o.dmg), (&mut self.swings, o.swings), (&mut self.hits, o.hits), (&mut self.crits, o.crits),
+            (&mut self.back, o.back), (&mut self.front, o.front), (&mut self.perfect, o.perfect), (&mut self.double, o.double),
+            (&mut self.parry, o.parry), (&mut self.block, o.block), (&mut self.dot, o.dot), (&mut self.casts, o.casts), (&mut self.multi, o.multi),
+        ] {
+            *a += b;
+        }
+        self.max = self.max.max(o.max);
+        self.min = match (self.min, o.min) { (0, m) | (m, 0) => m, (a, b) => a.min(b) };
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -394,6 +414,49 @@ pub struct ActorStat {
     pub doubles: u64,
     /// Damage per second bucket from fight start.
     pub timeline: Vec<u64>,
+}
+
+impl ActorStat {
+    /// Adds the stats of the same player under another id (died and came
+    /// back, or named late): one row instead of two.
+    fn absorb(&mut self, o: ActorStat) {
+        for (a, b) in [
+            (&mut self.dmg, o.dmg), (&mut self.hits, o.hits), (&mut self.crits, o.crits), (&mut self.back, o.back),
+            (&mut self.front, o.front), (&mut self.perfect, o.perfect), (&mut self.heal, o.heal), (&mut self.taken, o.taken),
+            (&mut self.taken_hits, o.taken_hits), (&mut self.taken_parry, o.taken_parry), (&mut self.taken_block, o.taken_block),
+            (&mut self.taken_perfect_block, o.taken_perfect_block), (&mut self.doubles, o.doubles),
+        ] {
+            *a += b;
+        }
+        self.deaths += o.deaths;
+        if o.max_hit > self.max_hit {
+            self.max_hit = o.max_hit;
+            self.max_hit_skill = o.max_hit_skill;
+        }
+        self.first = self.first.min(o.first);
+        self.last = self.last.max(o.last);
+        let skills = |a: &mut HashMap<u32, SkillStat>, b: HashMap<u32, SkillStat>| {
+            for (k, v) in b {
+                a.entry(k).or_default().absorb(&v);
+            }
+        };
+        skills(&mut self.skills, o.skills);
+        skills(&mut self.heal_skills, o.heal_skills);
+        for (t, m) in o.target_skills {
+            skills(self.target_skills.entry(t).or_default(), m);
+        }
+        for (a, b) in [(&mut self.by_target, o.by_target), (&mut self.taken_from, o.taken_from), (&mut self.healed, o.healed)] {
+            for (k, v) in b {
+                *a.entry(k).or_default() += v;
+            }
+        }
+        if self.timeline.len() < o.timeline.len() {
+            self.timeline.resize(o.timeline.len(), 0);
+        }
+        for (i, v) in o.timeline.into_iter().enumerate() {
+            self.timeline[i] += v;
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -468,13 +531,17 @@ pub struct Fight {
     pub twatch: HashMap<u64, bool>,
     /// Frozen health-per-damage factor per target (see `hp_scale`).
     pub tscale: HashMap<u64, f64>,
-    /// When you last used a skill on each target (damage-over-time ticks
-    /// left out), to tell when you've moved on from a boss.
+    /// When you or your party last used a skill on each target
+    /// (damage-over-time ticks left out), to tell when you've moved on from
+    /// a boss.
     pub own_last: HashMap<u64, f64>,
     /// You were in a dungeon party during this fight: the boss clock and a
     /// card that stays on the boss. On your own (or in an open-world party):
     /// the whole fight and your target.
     pub grouped: bool,
+    /// Names in your party or Force while this fight ran (a world boss
+    /// lists only them, also later in the history).
+    pub group: std::collections::HashSet<String>,
 }
 
 impl Fight {
@@ -615,8 +682,13 @@ pub struct Engine {
     pub self_keys: Option<u64>,
     /// Your group members' names (from the game's party list).
     pub party: std::collections::HashSet<String>,
+    /// A player back under a new entity id (died and returned, Divine
+    /// Auldor 2026-10-27): new id -> the id their row already has.
+    player_alias: HashMap<u64, u64>,
     /// The party panel's details (title, leader, gear, ready), if in one.
     pub party_info: Option<PartyState>,
+    /// Your Force (several parties at a field boss), by the game's member key.
+    pub force: HashMap<u32, crate::events::ForceMember>,
     /// Each group member's class number from the party list.
     pub party_member_codes: HashMap<String, u32>,
     /// Class numbers that turned out to mean more than one class.
@@ -627,6 +699,10 @@ pub struct Engine {
     /// When you last changed zone (teleport, relog): the party panel is for
     /// before that, the ready list for after.
     zone_at: f64,
+    /// When you last came into a dungeon (or any zone outside one): the
+    /// Ready line waits for the first hit after this. A respawn inside the
+    /// same run is a zone change too, but not an entry.
+    entry_at: f64,
     /// You left the party: the dungeon keeps listing who is still inside,
     /// which isn't your party. Cleared when you join one again.
     left_party: bool,
@@ -691,11 +767,14 @@ impl Engine {
             self_odyle: None,
             self_keys: None,
             party: Default::default(),
+            player_alias: HashMap::new(),
+            force: HashMap::new(),
             party_info: None,
             party_member_codes: HashMap::new(),
             bad_codes: Default::default(),
             zone_first_fight: 1,
             zone_at: f64::NEG_INFINITY,
+            entry_at: f64::NEG_INFINITY,
             left_party: false,
             rerun_click_at: f64::NEG_INFINITY,
             room_entered_at: f64::NEG_INFINITY,
@@ -733,6 +812,7 @@ impl Engine {
     }
 
     fn resolve_owner(&self, id: u64) -> u64 {
+        let id = self.player_alias.get(&id).copied().unwrap_or(id);
         if !self.cfg.merge_summons {
             return id;
         }
@@ -757,7 +837,8 @@ impl Engine {
                 }
             }
         }
-        cur
+        // A spirit found by its owner's name can land on the owner's new id.
+        self.player_alias.get(&cur).copied().unwrap_or(cur)
     }
 
     fn owner_by_name(&self, name: &str) -> Option<u64> {
@@ -917,20 +998,48 @@ impl Engine {
                 // The boss is down and you (or your group) start on another
                 // monster: that's a new fight. The boss fight ends as it was,
                 // and the card follows what you fight next.
-                // On your own you left a boss (no skill of yours on it for
-                // 10 s: your damage-over-time ticks and other players' hits
-                // don't count) and started on another monster: a new fight.
+                // On your own you left a boss (no skill of yours or your
+                // party's on it for 10 s: damage-over-time ticks and other
+                // players' hits don't count) and started on another monster:
+                // a new fight. Only a real boss: leaving an Elite for the mobs
+                // around it is the same fight (the daily dungeon split into 30
+                // pieces, Shugo into three, 2026-10-27).
                 // In a dungeon party, bosses have add phases, so their fight
                 // goes on.
                 let boss_left = !dungeon_party
                     && attacker == self.self_id.unwrap_or(u64::MAX)
                     && fl & flags::DOT == 0
                     && self.current.as_ref().map_or(false, |f| {
-                        !f.finished && !f.targets.contains_key(tgt) && self.card_boss(f).map_or(false, |b| f.own_last.get(&b).map_or(true, |t| *ts - t > 10.0))
+                        !f.finished && !f.targets.contains_key(tgt) && self.card_boss(f).filter(|b| self.is_real_boss(*b)).map_or(false, |b| f.own_last.get(&b).map_or(true, |t| *ts - t > 10.0))
                     });
+                let group_hit = fl & flags::DOT == 0
+                    && (attacker == self.self_id.unwrap_or(u64::MAX)
+                        || (self.party.len() >= 2 && self.actors.get(&attacker).and_then(|a| a.name.as_ref()).map_or(false, |n| self.party.contains(n))));
                 let dead_boss = self.current.as_ref().filter(|_| boss_down).and_then(|f| f.main_target());
                 let moved_on = |f: &Fight| (boss_down && dead_boss != Some(*tgt)) || (boss_left && !f.targets.contains_key(tgt));
                 if (boss_down || boss_left) && extends && self.current.as_ref().map_or(false, |f| !f.finished && moved_on(f)) {
+                    if let Some(f) = self.finish() {
+                        finished = Some(f);
+                    }
+                }
+                // Outside a dungeon party, a boss other players are already
+                // on (a world boss) showing up in a fight on small mobs starts
+                // its own fight: the mobs before it stay a fight of their own
+                // (Tetrata, 2026-10-27: the soldiers you killed first went
+                // into the boss fight, whose card shows only boss damage).
+                // Also when you hit it first in a crowd (3+ players outside
+                // your party in the fight). A boss you or your party pull on
+                // your own keeps the trash before it; the boss clock leaves
+                // that out.
+                let crowd = |f: &Fight| {
+                    f.stats.keys().filter(|id| Some(**id) != f.self_id && self.actors.get(id).map_or(false, |a| a.kind == ActorKind::Player && a.name.as_ref().map_or(true, |n| !self.party.contains(n)))).count() >= 3
+                };
+                let boss_arrives = !dungeon_party
+                    && fl & flags::DOT == 0
+                    && self.current.as_ref().map_or(false, |f| {
+                        !f.finished && !f.targets.is_empty() && !f.targets.contains_key(tgt) && self.is_real_boss(*tgt) && !f.targets.keys().any(|t| self.is_real_boss(*t)) && (!group_hit || crowd(f))
+                    });
+                if boss_arrives {
                     if let Some(f) = self.finish() {
                         finished = Some(f);
                     }
@@ -963,6 +1072,8 @@ impl Engine {
                 // ticks on something you left don't pull it back.
                 if fight.self_id.is_some() && fight.self_id == Some(attacker) && fl & flags::DOT == 0 {
                     fight.focus = Some(*tgt);
+                }
+                if group_hit {
                     fight.own_last.insert(*tgt, *ts);
                 }
                 let bucket = ((*ts - fight.start).max(0.0)) as usize;
@@ -1004,6 +1115,12 @@ impl Engine {
                 s.target_skills.entry(*tgt).or_default().entry(key).or_default().add(*amount, *fl);
             }
             GameEvent::Heal { ts, src, tgt, skill, amount, flags: fl } => {
+                // 0x7fffffff is the game's "heal to full", not an amount
+                // (Elementalist 16170031 at Watcher Kaira, 2026-10-27: three
+                // of them showed as 6.4 billion healing).
+                if *amount >= HEAL_TO_FULL {
+                    return None;
+                }
                 let healer = self.resolve_owner(*src);
                 self.learn_class(healer, *skill);
                 let key = if fl & flags::DOT != 0 { *skill | DOT_KEY } else { *skill };
@@ -1026,16 +1143,64 @@ impl Engine {
                     }
                 }
                 if self.cfg.end_on_target_death && main == Some(*target) && !self.actors.get(target).map_or(false, |a| a.kind == ActorKind::Player) {
+                    // An Elite's death is just a kill: festivals and wave
+                    // dungeons kill them every few seconds, and each one
+                    // ended the fight 3 s later (Shugo, 2026-10-27). With
+                    // other players in the fight (an event, a crowd), a common
+                    // monster's death doesn't either: the next mob is often
+                    // 3 s away (spirit wave, 2026-10-27). On your own (or with
+                    // your party) it does, so farming gives a fight per mob.
+                    // A real boss's death always ends the fight.
+                    let real = self.is_real_boss(*target);
+                    let elite = self.is_boss_actor(*target) && !real;
+                    let others = self.current.as_ref().map_or(false, |f| {
+                        f.stats.keys().any(|id| Some(*id) != f.self_id && self.actors.get(id).map_or(false, |a| a.kind == ActorKind::Player && a.name.as_ref().map_or(true, |n| !self.party.contains(n))))
+                    });
                     if let Some(f) = self.current.as_mut() {
                         f.boss_killed = true;
                         f.end = f.end.max(*ts);
                     }
-                    self.pending_end = Some(*ts + self.cfg.death_grace);
+                    if real || (!elite && !others) {
+                        self.pending_end = Some(*ts + self.cfg.death_grace);
+                    }
                 }
             }
             GameEvent::Actor { id, name, class, kind, npc_id, owner, max_hp } => {
                 if npc_id.is_some() {
                     self.dead_at.remove(id); // a new spawn
+                }
+                // Another player back under a new id: same name, same class
+                // (when known) as a player already seen. Their hits count
+                // for the row they already have, not a second one.
+                // Likewise an object that carries only its owner's name, with
+                // that player out of sight: each aura or totem they place is a
+                // new id (Grandios, 2026-10-27: "Jiang" twice, Divine Aura).
+                let object = *kind == ActorKind::Summon && owner.is_none();
+                if let (ActorKind::Player | ActorKind::Summon, Some(n)) = (kind, name) {
+                    let unseen_owner = !self.actors.values().any(|a| a.kind == ActorKind::Player && a.name.as_deref() == Some(n.as_str()));
+                    if (*kind == ActorKind::Player || (object && unseen_owner)) && Some(*id) != self.self_id && self.self_name.as_deref() != Some(n.as_str()) && !self.player_alias.contains_key(id) {
+                        let old = self.actors.values().find(|a| {
+                            a.id != *id && a.kind == *kind && (!object || a.owner.is_none()) && a.name.as_deref() == Some(n.as_str()) && !self.player_alias.contains_key(&a.id) && Some(a.id) != self.self_id
+                                && match (&a.class, class) { (Some(x), Some(y)) => x == y, _ => true }
+                        }).map(|a| a.id);
+                        if let Some(old) = old {
+                            self.player_alias.insert(*id, old);
+                            // Hits made under the new id before its name came.
+                            if let Some(f) = self.current.as_mut().filter(|f| !f.finished) {
+                                if let Some(st) = f.stats.remove(id) {
+                                    match f.stats.get_mut(&old) {
+                                        Some(o) => o.absorb(st),
+                                        None => {
+                                            f.stats.insert(old, st);
+                                        }
+                                    }
+                                }
+                                if f.allies.remove(id) {
+                                    f.allies.insert(old);
+                                }
+                            }
+                        }
+                    }
                 }
                 let a = self.actor(*id);
                 if name.is_some() {
@@ -1064,8 +1229,8 @@ impl Engine {
                         a.kind = ActorKind::Summon;
                     }
                 }
-                if max_hp.is_some() {
-                    a.max_hp = *max_hp;
+                if let Some(m) = max_hp.filter(|m| *m <= MAX_PLAUSIBLE_HP) {
+                    a.max_hp = Some(m);
                     a.max_sure = true;
                 }
                 if let (Some(n), Some(m), true) = (a.npc_id, a.max_hp, a.max_sure) {
@@ -1114,8 +1279,27 @@ impl Engine {
                         // Zone change / relog: every entity id is reassigned.
                         finished = self.finish();
                         self.actors.clear();
+                        self.player_alias.clear();
                         self.zone_first_fight = self.next_id;
                         self.zone_at = self.last_ts;
+                        // You died and came back inside the same run: no Enter,
+                        // no leaving, already inside. That's not an entry, so
+                        // no Ready line until the next pull (Urugugu,
+                        // 2026-10-27: "Ready · 3/5 in dungeon" for 75 s).
+                        // Alone in the room's list (everyone else left), the
+                        // way out is no respawn: you left the dungeon, even
+                        // when the game sends no "left" message (Urugugu,
+                        // 2026-10-27: the next party showed "On the way").
+                        let respawn = self.party_info.as_ref().map_or(false, |p| p.inside && !p.entering && !self.exited_dungeon && p.members.len() > 1);
+                        if !respawn {
+                            self.entry_at = self.last_ts;
+                        }
+                        if !respawn && self.party_info.as_ref().map_or(false, |p| p.inside && !p.entering) {
+                            self.exited_dungeon = true;
+                            if let Some(p) = self.party_info.as_mut() {
+                                p.inside = false;
+                            }
+                        }
                         if let Some(p) = self.party_info.as_mut() {
                             // The teleport after Enter dungeon takes you inside
                             // (not one after leaving: that's the way home).
@@ -1144,6 +1328,7 @@ impl Engine {
                     a.name = keep;
                 }
             }
+            GameEvent::Hp { hp, max_hp, .. } if *hp > MAX_PLAUSIBLE_HP || max_hp.map_or(false, |m| m > MAX_PLAUSIBLE_HP) => {}
             GameEvent::Hp { id, hp, max_hp, .. } => {
                 let learned = {
                     let a = self.actors.get(id);
@@ -1274,6 +1459,8 @@ impl Engine {
                 } else if members.is_empty() {
                     self.party_info = None;
                     self.left_party = true;
+                    // Leaving the party takes you out of its Force too.
+                    self.force.clear();
                 } else {
                     // Just you counts too: the party you start by inviting, or
                     // the room you open, lists only you until the others join
@@ -1321,9 +1508,12 @@ impl Engine {
                     let marked = |m: &crate::events::PartyMember| m.status.map_or(false, |s| s & IN_DUNGEON != 0);
                     // Open-world lists carry no status: they keep what we knew,
                     // but never "inside" once you've left the dungeon.
+                    // A new party (nobody but you from the old one) never
+                    // takes over "inside".
+                    let same_party = self.party_info.as_ref().map_or(false, |p| p.members.iter().any(|o| Some(o.name.as_str()) != me && members.iter().any(|m| m.name == o.name)));
                     let inside = match members.iter().find(|m| Some(m.name.as_str()) == me) {
                         Some(m) if m.status.is_some() => marked(m),
-                        _ => (was_inside && !self.exited_dungeon) || members.iter().any(marked),
+                        _ => (was_inside && !self.exited_dungeon && same_party) || members.iter().any(marked),
                     };
                     let now = self.last_ts;
                     let old = self.party_info.as_ref();
@@ -1356,6 +1546,19 @@ impl Engine {
                 }
             }
             GameEvent::Party { .. } if std::mem::take(&mut self.skip_party_names) => {}
+            GameEvent::ForceInfo { members } => {
+                self.force = members.iter().filter(|m| m.key != 0).map(|m| (m.key, m.clone())).collect();
+                self.note_group();
+            }
+            GameEvent::ForceJoin { member } => {
+                if member.key != 0 {
+                    self.force.insert(member.key, member.clone());
+                }
+                self.note_group();
+            }
+            GameEvent::ForceLeave { key } => {
+                self.force.remove(key);
+            }
             GameEvent::PartyJoin { member } => {
                 self.recent_joins.retain(|(t, _)| self.last_ts - t < 5.0);
                 self.recent_joins.push((self.last_ts, member.name.clone()));
@@ -1454,6 +1657,7 @@ impl Engine {
                 self.party = names.iter().cloned().collect();
                 self.party_member_codes = names.iter().zip(codes.iter()).filter_map(|(n, c)| c.map(|c| (n.clone(), c))).collect();
                 self.bind_party_names();
+                self.note_group();
             }
             GameEvent::Fresh => {
                 self.fresh_view = true;
@@ -1477,6 +1681,14 @@ impl Engine {
             }
         }
         finished
+    }
+
+    /// The live fight remembers everyone in your party and Force.
+    fn note_group(&mut self) {
+        if let Some(f) = self.current.as_mut().filter(|f| !f.finished) {
+            f.group.extend(self.party.iter().cloned());
+            f.group.extend(self.force.values().map(|m| m.name.clone()));
+        }
     }
 
     fn ensure_fight(&mut self, ts: f64) -> &mut Fight {
@@ -1520,7 +1732,9 @@ impl Engine {
                 tscale: Default::default(),
                 own_last: Default::default(),
                 grouped: false,
+                group: Default::default(),
             });
+            self.note_group();
         }
         self.current.as_mut().unwrap()
     }
@@ -1623,7 +1837,7 @@ impl Engine {
         // Only bosses and elites: in the open world other players often hit
         // trash before you do, so a check there would only confuse.
         let npc = a.and_then(|a| a.npc_id).or(frozen.and_then(|x| x.2))?;
-        if !self.npc_is_boss(npc) {
+        if !self.fight_npc_boss(f, t, npc) {
             return None;
         }
         let hp = a.and_then(|a| a.hp).or(frozen.and_then(|x| x.0));
@@ -1703,8 +1917,23 @@ impl Engine {
         self.actors.get(&id).and_then(|a| a.npc_id).map_or(false, |n| real(n) || self.names.npc_ref(n, &self.actor_name(id)).map_or(false, real))
     }
 
+    /// Like `is_real_boss`, for a fight's target also after its actor is
+    /// gone (a fight in the history after a zone change).
+    fn fight_real_boss(&self, f: &Fight, id: u64) -> bool {
+        let real = |n: u32| self.names.bosses.contains(&n) || self.names.ranks.get(&n).map_or(false, |r| rank_is_boss_or_elite(r) && !r.to_ascii_lowercase().starts_with("elite"));
+        self.actors.get(&id).and_then(|a| a.npc_id).or(f.tinfo.get(&id).and_then(|x| x.2)).map_or(false, |n| real(n) || self.names.npc_ref(n, &self.fname(f, id)).map_or(false, real))
+    }
+
     pub fn npc_is_boss(&self, npc: u32) -> bool {
         self.names.bosses.contains(&npc) || self.names.ranks.get(&npc).map_or(false, |r| rank_is_boss_or_elite(r))
+    }
+
+    /// Like `npc_is_boss`, also borrowing the rank by name for a variant
+    /// with none of its own, as the card does (Grandios 2345107 at the
+    /// Dimensional Invasion, 2026-10-27: Heroic on the card, but no World
+    /// Boss view).
+    fn fight_npc_boss(&self, f: &Fight, t: u64, npc: u32) -> bool {
+        self.npc_is_boss(npc) || self.names.npc_ref(npc, &self.fname(f, t)).map_or(false, |r| self.npc_is_boss(r))
     }
 
     /// The boss or elite that took the most damage in this fight, if any.
@@ -1713,7 +1942,7 @@ impl Engine {
             .iter()
             .filter(|(t, _)| {
                 let npc = self.actors.get(t).and_then(|a| a.npc_id).or(f.tinfo.get(t).and_then(|x| x.2));
-                npc.map_or(false, |n| self.npc_is_boss(n))
+                npc.map_or(false, |n| self.fight_npc_boss(f, **t, n))
             })
             .max_by_key(|(_, d)| **d)
             .map(|(t, _)| *t)
@@ -1728,7 +1957,7 @@ impl Engine {
             .filter_map(|t| {
                 let a = self.actors.get(t);
                 let npc = a.and_then(|a| a.npc_id).or(f.tinfo.get(t).and_then(|x| x.2))?;
-                if !self.npc_is_boss(npc) {
+                if !self.fight_npc_boss(f, *t, npc) {
                     return None;
                 }
                 let max = a.and_then(|a| a.max_hp).or(f.tinfo.get(t).and_then(|x| x.1)).unwrap_or(0);
@@ -2105,7 +2334,10 @@ impl Engine {
     pub fn party_lobby(&self) -> bool {
         let Some(p) = &self.party_info else { return false };
         let fighting = self.current.as_ref().map_or(false, |f| !f.finished);
-        p.members.len() > 1 && !fighting && p.since > self.zone_at && self.display_fight().map_or(true, |f| f.end <= p.since)
+        // Outside a dungeon a party joined during the fight counts too:
+        // invited while you finished a mob, the panel used to wait for the
+        // next change. Inside, lists come mid-pull and the panel stays away.
+        p.members.len() > 1 && !fighting && p.since > self.zone_at && self.display_fight().map_or(true, |f| if p.inside { f.end <= p.since } else { f.start <= p.since })
     }
 
     /// Your party sits in a dungeon room outside the dungeon: queueing for
@@ -2114,21 +2346,21 @@ impl Engine {
         self.party_info.as_ref().map_or(false, |p| p.title.is_some() && !p.inside && !p.members.is_empty())
     }
 
-    /// You hit or healed in the live fight in the last 8 s (a fight nearby
-    /// that only your party is in doesn't count).
+    /// You hit or healed in the last 8 s (a fight nearby that only your
+    /// party is in doesn't count). Also in a fight that just ended, so the
+    /// panel doesn't flash between two pulls.
     pub fn self_active(&self) -> bool {
-        let (Some(id), Some(f)) = (self.self_id, self.current.as_ref()) else { return false };
-        !f.finished && f.stats.get(&id).map_or(false, |s| self.last_ts - s.last < 8.0)
+        let Some(id) = self.self_id else { return false };
+        self.current.iter().chain(self.history.back()).any(|f| f.stats.get(&id).map_or(false, |s| self.last_ts - s.last < 8.0))
     }
 
-    /// Queueing, and the room changed (someone joined or left) after your
-    /// own last hit or heal: show it, even with your party fighting nearby
-    /// (2026-10-26, room "mai" next to Addicted Haridrun). Your last result
-    /// stays up until then.
+    /// Queueing and no hit or heal of yours for 8 s: the Ready panel, even
+    /// with your party fighting nearby (2026-10-26, room "mai" next to
+    /// Addicted Haridrun). It used to wait for the room to change after
+    /// your last hit, so it came late or not at all (2026-10-27).
     pub fn party_queue_panel(&self) -> bool {
-        let Some(p) = self.party_info.as_ref().filter(|_| self.party_queueing() && !self.self_active()) else { return false };
-        let mine = self.history.iter().chain(self.current.iter()).filter_map(|f| f.self_id.and_then(|id| f.stats.get(&id)).map(|s| s.last)).fold(f64::NEG_INFINITY, f64::max);
-        p.since > mine
+        // Just you in the room (the others left): nothing to show.
+        self.party_queueing() && !self.self_active() && self.party_info.as_ref().map_or(false, |p| p.members.len() > 1)
     }
 
     /// This player is in your zone: seen there, or fought in one of its
@@ -2165,7 +2397,7 @@ impl Engine {
     pub fn party_ready(&self) -> bool {
         let Some(p) = &self.party_info else { return false };
         let fighting = self.current.as_ref().map_or(false, |f| !f.finished);
-        p.members.len() > 1 && p.inside && !fighting && !self.party_lobby() && self.display_fight().map_or(true, |f| f.end <= self.zone_at)
+        p.members.len() > 1 && p.inside && !fighting && !self.party_lobby() && self.display_fight().map_or(true, |f| f.end <= self.entry_at)
     }
 
     pub fn needs_zone(&self) -> bool {
@@ -2208,21 +2440,53 @@ impl Engine {
             _ => vec![],
         };
         let paused = live.iter().filter(|x| !**x).count() as f64;
+        // A crowd boss (field boss, world boss): only damage on the boss
+        // counts. Dozens of players fight the adds around it, and the game
+        // only sends a small part of other players' hits there, so their add
+        // damage put players who barely touched the boss near the top
+        // (Watcher Kaira, 2026-10-27). A crowd = 5+ players outside your
+        // party on the boss, more than a dungeon party holds: with the party
+        // list not in yet (the meter started inside), a dungeon group read as
+        // a crowd and Tiere showed only you. Dungeon parties, solo dungeons
+        // and a boss you fight alone keep the whole fight.
+        let crowd = |b: &u64| f.stats.iter().filter(|(id, st)| Some(**id) != f.self_id && st.by_target.contains_key(b) && !self.party.contains(&self.fname(f, **id))).count() >= 5;
+        let field_boss = if target.is_none() && !f.grouped { self.card_boss(f).filter(|b| self.fight_real_boss(f, *b) && crowd(b)) } else { None };
+        let field_window = field_boss.and_then(|b| f.tspan.get(&b).copied());
         let (clock, dur) = match (self.cfg.dps_clock, target, window) {
             (_, Some(t), _) => ("target", f.tspan.get(&t).map_or(f.duration(), |(a, z)| (z - a).max(1.0))),
+            (DpsClock::Boss, None, _) if field_window.is_some() => ("boss", field_window.map_or(1.0, |(a, z)| (z - a).max(1.0))),
             (DpsClock::Boss, None, Some((a, z))) => ("boss", (z - a - paused).max(1.0)),
             (DpsClock::Personal, None, _) => ("personal", f.duration()),
             _ => ("fight", f.duration()),
         };
         let personal = clock == "personal";
+        let clock_boss = field_boss.or(boss);
         let own_dur = |s: &ActorStat| if personal { (s.last - s.first).max(1.0) } else { dur };
         let dmg_of = |s: &ActorStat| match (target, span) {
             (Some(t), _) => *s.by_target.get(&t).unwrap_or(&0),
+            (None, _) if field_boss.is_some() => field_boss.and_then(|b| s.by_target.get(&b)).copied().unwrap_or(0),
             (None, Some((i, _))) if clock == "boss" => live.iter().enumerate().filter(|(_, l)| **l).map(|(k, _)| s.timeline.get(i + k).copied().unwrap_or(0)).sum(),
             _ => s.dmg,
         };
-        let total: u64 = f.stats.values().map(dmg_of).sum();
-        let mut rows: Vec<(&u64, &ActorStat)> = f.stats.iter().filter(|(_, s)| dmg_of(s) > 0).collect();
+        // At a world boss the game sends only part of other players' hits,
+        // so strangers can't be ranked fairly: the list is you, your party
+        // and your Force (user's choice, 2026-10-27).
+        let force_names: std::collections::HashSet<&str> = self.force.values().map(|m| m.name.as_str()).collect();
+        let keep = |id: &u64| {
+            field_boss.is_none() || Some(*id) == f.self_id || {
+                let n = self.fname(f, *id);
+                f.group.contains(&n) || self.party.contains(&n) || force_names.contains(n.as_str())
+            }
+        };
+        let total: u64 = f.stats.iter().filter(|(id, _)| keep(id)).map(|(_, s)| dmg_of(s)).sum();
+        // Your damage on the world boss against its full health: exact, as
+        // the game sends all of your own hits.
+        let world_share = field_boss.and_then(|b| {
+            let max = self.actors.get(&b).and_then(|a| a.max_hp).or(f.tinfo.get(&b).and_then(|x| x.1)).filter(|m| *m > 0)?;
+            let mine = f.self_id.and_then(|me| f.stats.get(&me)).and_then(|s| s.by_target.get(&b)).copied().unwrap_or(0);
+            Some(mine as f64 / max as f64)
+        });
+        let mut rows: Vec<(&u64, &ActorStat)> = f.stats.iter().filter(|(id, s)| dmg_of(s) > 0 && keep(id)).collect();
         // Highest first by the number shown: damage under a shared clock (the
         // same order as DPS); under "your time" each player has their own
         // divisor, so rank by DPS or a late joiner's higher DPS sits below.
@@ -2241,6 +2505,7 @@ impl Engine {
                     .set("class", self.fclass(f, **id))
                     .set("is_self", Some(**id) == f.self_id)
                     .set("in_party", Some(**id) == f.self_id || self.party.contains(&self.fname(f, **id)))
+                    .set("in_force", force_names.contains(self.fname(f, **id).as_str()))
                     .set("dmg", d)
                     .set("dps", d as f64 / own_dur(s))
                     .set("share", if total > 0 { d as f64 / total as f64 } else { 0.0 })
@@ -2318,14 +2583,17 @@ impl Engine {
             .set("duration", f.duration())
             .set("clock", clock)
             .set("clock_secs", dur)
-            .set("clock_paused", if clock == "boss" { paused } else { 0.0 })
-            .set("clock_target", if clock == "boss" { boss } else { None })
-            .set("clock_npc", if clock == "boss" { boss.and_then(|t| self.actors.get(&t).and_then(|a| a.npc_id).or(f.tinfo.get(&t).and_then(|x| x.2))) } else { None })
-            .set("clock_target_name", if clock == "boss" { boss.map(|t| self.fname(f, t)) } else { None })
+            .set("clock_paused", if clock == "boss" && field_boss.is_none() { paused } else { 0.0 })
+            .set("clock_target", if clock == "boss" { clock_boss } else { None })
+            .set("clock_npc", if clock == "boss" { clock_boss.and_then(|t| self.actors.get(&t).and_then(|a| a.npc_id).or(f.tinfo.get(&t).and_then(|x| x.2))) } else { None })
+            .set("clock_target_name", if clock == "boss" { clock_boss.map(|t| self.fname(f, t)) } else { None })
             // HP check for the boss itself: its damage against its max HP, once dead.
-            .set("clock_counted", if clock == "boss" { boss.and_then(|b| self.hp_counted(f, b)) } else { None })
+            .set("clock_counted", if clock == "boss" { clock_boss.and_then(|b| self.hp_counted(f, b)) } else { None })
             // ...and whether the meter watched it from (nearly) full health.
-            .set("clock_watched", if clock == "boss" { boss.and_then(|b| self.watched_whole(f, b)) } else { None })
+            .set("clock_watched", if clock == "boss" { clock_boss.and_then(|b| self.watched_whole(f, b)) } else { None })
+            // A world boss: the card says so, with your share of its health.
+            .set("world_boss", field_boss.is_some())
+            .set("boss_share", world_share)
             .set("started_unix", f.started_unix)
             .set("total", total)
             .set("dps", total as f64 / dur)
@@ -2626,6 +2894,56 @@ mod tests {
         assert!(e.tick(185.0).is_some());
     }
 
+    /// Drana Predator (2026-10-27): one garbled health value became the
+    /// monster type's maximum, "0 / 108728033.00B" on every one after it.
+    #[test]
+    fn impossible_health_is_ignored() {
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(7), owner: None, max_hp: Some(108_728_033_004_747_280) });
+        e.handle(&GameEvent::Hp { ts: 1.0, id: 50, hp: 108_728_033_004_747_280, max_hp: None });
+        assert_eq!(e.npc_max_hp.get(&7), None);
+        e.handle(&GameEvent::Actor { id: 51, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(7), owner: None, max_hp: Some(119_700) });
+        assert_eq!(e.actors[&51].max_hp, Some(119_700));
+    }
+
+    #[test]
+    fn heal_to_full_is_not_an_amount() {
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.handle(&GameEvent::SelfId { id: 1, name: None });
+        e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(1000) });
+        e.handle(&dmg(0.0, 1, 50, 18000000, 10, 0));
+        e.handle(&GameEvent::Heal { ts: 1.0, src: 1, tgt: 1, skill: 16170031, amount: 0x7fff_ffff, flags: 0x40 });
+        e.handle(&GameEvent::Heal { ts: 2.0, src: 1, tgt: 1, skill: 16170031, amount: 500, flags: 0 });
+        assert_eq!(e.current.as_ref().unwrap().stats[&1].heal, 500, "only the real heal counts");
+    }
+
+    #[test]
+    fn a_crowd_boss_counts_only_the_boss() {
+        let run = |strangers: u64| {
+            let mut e = Engine::new(EngineConfig::default(), Names::from_json(r#"{"bosses": ["777"]}"#).unwrap());
+            e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+            e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(100000) });
+            e.handle(&GameEvent::Actor { id: 60, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(888), owner: None, max_hp: Some(5000) });
+            e.handle(&dmg(0.0, 1, 50, 18000000, 1000, 0));
+            e.handle(&dmg(1.0, 1, 60, 18000000, 500, 0));
+            for k in 0..strangers {
+                let id = 2 + k;
+                e.handle(&GameEvent::Actor { id, name: Some(format!("P{id}")), class: None, kind: ActorKind::Player, npc_id: None, owner: None, max_hp: None });
+                e.handle(&dmg(2.0, id, 50, 11000000, 100, 0));
+                e.handle(&dmg(3.0, id, 60, 11000000, 4000, 0));
+            }
+            // P3 is in your Force; P2 and P4 are strangers.
+            e.handle(&GameEvent::ForceInfo { members: vec![crate::events::ForceMember { name: "P3".into(), key: 7, ..Default::default() }] });
+            let f = e.current.as_ref().unwrap();
+            let t = e.fight_table(f, None);
+            let dmg = |n: &str| t.get("players").unwrap().as_arr().unwrap().iter().find(|r| r.str_or("name", "") == n).map_or(0.0, |r| r.f64_or("dmg", 0.0));
+            (dmg("Me"), dmg("P2"), dmg("P3"), t.bool_or("world_boss", false), t.f64_or("boss_share", 0.0))
+        };
+        assert_eq!(run(5), (1000.0, 0.0, 100.0, true, 0.01), "a world boss: only boss damage, only you and your Force; your share of its HP");
+        assert!(!run(4).3, "4 others fit in a dungeon party (its list not in yet): no world boss");
+        assert_eq!(run(0), (1500.0, 0.0, 0.0, false, 0.0), "a boss you fight alone keeps its adds");
+    }
+
     #[test]
     fn a_wipe_ends_the_try() {
         let mut e = Engine::new(EngineConfig::default(), Names::from_json(r#"{"bosses": ["777"]}"#).unwrap());
@@ -2765,6 +3083,139 @@ mod tests {
         g.handle(&GameEvent::Actor { id: 60, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(6), owner: None, max_hp: Some(119_700) });
         g.handle(&dmg(1.0, 1, 50, 18000000, 9000, 0));
         assert!(g.handle(&dmg(4.0, 1, 60, 18010000, 4000, 0)).is_none());
+    }
+
+    /// Shugo festival (2026-10-27): another player on a Thieves Cannon (an
+    /// elite you never hit) made the card follow it, and each mob you hit
+    /// next read as "left the boss": three fights in a second.
+    #[test]
+    fn an_elite_only_others_hit_is_not_one_you_left() {
+        let setup = |rank: &str| {
+            let mut e = Engine::new(EngineConfig::default(), Names::from_json(&format!(r#"{{"ranks": {{"777": "{rank}"}}}}"#)).unwrap());
+            e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+            e.handle(&GameEvent::Actor { id: 2, name: Some("Ally".into()), class: None, kind: ActorKind::Player, npc_id: None, owner: None, max_hp: None });
+            e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(9_000_000) });
+            for id in [60, 70, 80] {
+                e.handle(&GameEvent::Actor { id, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(6), owner: None, max_hp: Some(1_300_000) });
+            }
+            e
+        };
+        // A stranger joins you on your mob, then hits the elite.
+        let mut e = setup("Elite");
+        e.handle(&dmg(1.0, 1, 60, 18000000, 100_000, 0));
+        e.handle(&dmg(1.2, 2, 60, 18000000, 100_000, 0));
+        e.handle(&dmg(1.4, 2, 50, 18000000, 2_000_000, 0));
+        assert!(e.handle(&dmg(1.6, 1, 70, 18000000, 100_000, 0)).is_none(), "your next mob stays in the fight");
+        assert!(e.handle(&dmg(7.0, 1, 80, 18000000, 100_000, 0)).is_none(), "also seconds later");
+        // Your open-world party on the elite: you're still on it while they are.
+        let mut p = setup("Elite");
+        p.handle(&GameEvent::Party { names: vec!["Me".into(), "Ally".into()], codes: vec![None, None] });
+        p.handle(&dmg(1.0, 1, 60, 18000000, 100_000, 0));
+        p.handle(&dmg(1.2, 2, 60, 18000000, 100_000, 0));
+        p.handle(&dmg(1.4, 2, 50, 18000000, 2_000_000, 0));
+        assert!(p.handle(&dmg(5.0, 1, 70, 18000000, 100_000, 0)).is_none(), "party on the elite 4 s ago");
+        assert!(p.handle(&dmg(12.0, 1, 80, 18000000, 100_000, 0)).is_none(), "an elite left 10 s ago: same fight");
+        // An elite on the card dying is just a kill: the fight goes on.
+        let mut k = setup("Elite");
+        k.handle(&dmg(1.0, 1, 50, 18000000, 9_000_000, 0));
+        k.handle(&GameEvent::Death { ts: 1.0, target: 50, killer: Some(1) });
+        assert!(k.tick(4.5).is_none(), "no end 3 s after an elite's death");
+        assert!(k.handle(&dmg(5.0, 1, 60, 18000000, 100_000, 0)).is_none(), "the next mob: same fight");
+        // A real boss only others hit: your next mob is its own fight, as before.
+        let mut b = setup("Legendary");
+        b.handle(&dmg(1.0, 1, 60, 18000000, 100_000, 0));
+        b.handle(&dmg(1.2, 2, 60, 18000000, 100_000, 0));
+        b.handle(&dmg(1.4, 2, 50, 18000000, 2_000_000, 0));
+        assert!(b.handle(&dmg(1.6, 1, 70, 18000000, 100_000, 0)).is_some(), "a world boss you never hit");
+    }
+
+    /// Divine Auldor (2026-10-27): a party member died and came back under a
+    /// new id and showed up twice; another one hit before the game named
+    /// their new id.
+    #[test]
+    fn a_player_under_a_new_id_keeps_one_row() {
+        let mut e = Engine::new(EngineConfig::default(), Names::from_json(r#"{"bosses": ["777"]}"#).unwrap());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        let player = |id: u64, name: Option<&str>| GameEvent::Actor { id, name: name.map(|n| n.into()), class: Some("Chanter".into()), kind: ActorKind::Player, npc_id: None, owner: None, max_hp: None };
+        e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(90_000_000) });
+        e.handle(&player(2, Some("Ally")));
+        e.handle(&dmg(1.0, 1, 50, 18000000, 1000, 0));
+        e.handle(&dmg(1.5, 2, 50, 18000000, 500, 0));
+        // Back under id 3: hits before the name arrives, then after.
+        e.handle(&player(3, None));
+        e.handle(&dmg(5.0, 3, 50, 18000000, 300, 0));
+        e.handle(&player(3, Some("Ally")));
+        e.handle(&dmg(6.0, 3, 50, 18000000, 200, 0));
+        let f = e.current.as_ref().unwrap();
+        assert_eq!(f.stats[&2].dmg, 1000, "one row for Ally");
+        assert!(!f.stats.contains_key(&3));
+        // Two auras a player out of sight placed, each carrying their name
+        // (Grandios, 2026-10-27: "Jiang" twice).
+        let aura = |id: u64| GameEvent::Actor { id, name: Some("Jiang".into()), class: None, kind: ActorKind::Summon, npc_id: None, owner: None, max_hp: None };
+        e.handle(&aura(40));
+        e.handle(&dmg(7.0, 40, 50, 17150352, 100, 0));
+        e.handle(&aura(41));
+        e.handle(&dmg(8.0, 41, 50, 17150352, 100, 0));
+        let f = e.current.as_ref().unwrap();
+        assert_eq!(f.stats.get(&40).map(|s| s.dmg), Some(200), "one row for Jiang's auras");
+        assert!(!f.stats.contains_key(&41));
+    }
+
+    /// A common monster dying ends the fight 3 s later on your own (a fight
+    /// per mob when farming), but not with other players in it: a spirit
+    /// wave split whenever the next mob was 3 s away (2026-10-27).
+    #[test]
+    fn a_kill_ends_the_fight_only_on_your_own() {
+        let setup = || {
+            let mut e = Engine::new(EngineConfig::default(), Names::default());
+            e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+            e.handle(&GameEvent::Actor { id: 2, name: Some("Stranger".into()), class: None, kind: ActorKind::Player, npc_id: None, owner: None, max_hp: None });
+            e.handle(&GameEvent::Actor { id: 60, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(6), owner: None, max_hp: Some(50_000) });
+            e
+        };
+        let mut solo = setup();
+        solo.handle(&dmg(1.0, 1, 60, 18000000, 50_000, 0));
+        solo.handle(&GameEvent::Death { ts: 1.0, target: 60, killer: Some(1) });
+        assert!(solo.tick(4.5).is_some(), "on your own: the kill ends it");
+        let mut crowd = setup();
+        crowd.handle(&dmg(1.0, 1, 60, 18000000, 25_000, 0));
+        crowd.handle(&dmg(1.2, 2, 60, 18000000, 25_000, 0));
+        crowd.handle(&GameEvent::Death { ts: 1.2, target: 60, killer: Some(2) });
+        assert!(crowd.tick(4.5).is_none(), "with others: wait for the 8 s pause");
+        assert!(crowd.tick(9.5).is_some(), "the pause ends it");
+    }
+
+    /// Tetrata (2026-10-27): the soldiers you kill before the boss stay a
+    /// fight of their own; the boss starts a new one.
+    #[test]
+    fn a_boss_showing_up_starts_its_own_fight() {
+        let mut e = Engine::new(EngineConfig::default(), Names::from_json(r#"{"ranks": {"777": "Legendary", "6": "Elite"}}"#).unwrap());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&GameEvent::Actor { id: 2, name: Some("Ally".into()), class: None, kind: ActorKind::Player, npc_id: None, owner: None, max_hp: None });
+        e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(90_000_000) });
+        for id in [60, 70] {
+            e.handle(&GameEvent::Actor { id, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(6), owner: None, max_hp: Some(1_300_000) });
+        }
+        e.handle(&dmg(1.0, 1, 60, 18000000, 100_000, 0));
+        e.handle(&dmg(1.2, 2, 60, 18000000, 100_000, 0));
+        assert!(e.handle(&dmg(3.0, 1, 70, 18000000, 100_000, 0)).is_none(), "soldiers stay one fight");
+        let done = e.handle(&dmg(4.0, 2, 50, 18000000, 2_000_000, 0)).expect("others on the boss: its own fight");
+        assert!(done.targets.contains_key(&60) && done.targets.contains_key(&70) && !done.targets.contains_key(&50));
+        // You join the boss; adds during the boss fight stay in it.
+        assert!(e.handle(&dmg(4.5, 1, 50, 18000000, 100_000, 0)).is_none());
+        assert!(e.handle(&dmg(5.0, 1, 60, 18000000, 100_000, 0)).is_none());
+        assert!(e.current.as_ref().unwrap().targets.contains_key(&50));
+        // In a crowd, also when your hit on the boss comes first.
+        let mut c = Engine::new(EngineConfig::default(), Names::from_json(r#"{"ranks": {"777": "Legendary", "6": "Elite"}}"#).unwrap());
+        c.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        c.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(90_000_000) });
+        c.handle(&GameEvent::Actor { id: 60, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(6), owner: None, max_hp: Some(1_300_000) });
+        c.handle(&dmg(1.0, 1, 60, 18000000, 100_000, 0));
+        for (i, id) in [2u64, 3, 4].into_iter().enumerate() {
+            c.handle(&GameEvent::Actor { id, name: Some(format!("P{id}")), class: None, kind: ActorKind::Player, npc_id: None, owner: None, max_hp: None });
+            c.handle(&dmg(1.2 + i as f64 * 0.1, id, 60, 18000000, 100_000, 0));
+        }
+        assert!(c.handle(&dmg(3.0, 1, 50, 18000000, 100_000, 0)).is_some(), "you first on a world boss in a crowd");
     }
 
     /// Air Raiders Captain Tetrata (2026-10-26): an add that was the main
@@ -3017,7 +3468,7 @@ mod naming_tests {
         assert!(n.skill_named(17010230 | DOT_KEY));
         assert_eq!(n.skill(17020000), "Skill 17020000");
         let mut e = Engine::new(EngineConfig::default(), n);
-        let mut f = Fight { id: 1, start: 0.0, end: 1.0, started_unix: 0.0, stats: Default::default(), targets: Default::default(), deaths: vec![], loot: vec![], zone: None, boss_killed: false, finished: true, self_id: None, names: Default::default(), allies: Default::default(), focus: None, tspan: Default::default(), tsec: Default::default(), tinfo: Default::default(), twatch: Default::default(), tscale: Default::default(), own_last: Default::default(), grouped: false };
+        let mut f = Fight { id: 1, start: 0.0, end: 1.0, started_unix: 0.0, stats: Default::default(), targets: Default::default(), deaths: vec![], loot: vec![], zone: None, boss_killed: false, finished: true, self_id: None, names: Default::default(), allies: Default::default(), focus: None, tspan: Default::default(), tsec: Default::default(), tinfo: Default::default(), twatch: Default::default(), tscale: Default::default(), own_last: Default::default(), grouped: false, group: Default::default() };
         f.names.insert(9, ("NPC 2400002".into(), None));
         e.history.push_back(f);
         e.rename_npc(2400002, "Black Claw Manduri Fighter");
@@ -3511,8 +3962,8 @@ mod zone_notice_tests {
     }
 
     /// Queueing for a dungeon in town (room "mai", 2026-10-26): the panel
-    /// shows when the room changes after your last hit; while you're
-    /// hitting something it's the slim bar's turn instead.
+    /// shows once you stop hitting for 8 s; while you're hitting something
+    /// it's the slim bar's turn instead.
     #[test]
     fn queueing_shows_the_room_unless_you_fight() {
         let m = |n: &str| crate::events::PartyMember { name: n.into(), status: Some(0x0c), ..Default::default() };
@@ -3528,12 +3979,41 @@ mod zone_notice_tests {
         assert!(e.self_active() && !e.party_queue_panel(), "you're fighting: the bar");
         e.see_time(25.0);
         assert!(!e.self_active());
-        assert!(!e.party_queue_panel(), "your result stays until the room changes");
+        assert!(e.party_queue_panel(), "you stopped: the room shows (2026-10-27: came late)");
         e.handle(&room(&["Me", "A", "B"]));
-        assert!(e.party_queue_panel(), "someone joined: the room shows");
+        assert!(e.party_queue_panel(), "someone joined: still the room");
         // Inside the dungeon it's not a queue any more.
         e.handle(&GameEvent::PartyInfo { title: Some("mai".into()), leader: None, members: vec![crate::events::PartyMember { name: "Me".into(), status: Some(0x1c), ..Default::default() }, m("A")] });
         assert!(!e.party_queueing());
+    }
+
+    /// Urugugu, 2026-10-27: you left the party, the others left the room
+    /// one by one, and the game sent no "left the dungeon". The way out read
+    /// as a respawn, and a friend's new party showed "On the way".
+    #[test]
+    fn alone_in_the_room_the_way_out_leaves_the_dungeon() {
+        let m = |n: &str, st: u8| crate::events::PartyMember { name: n.into(), status: Some(st), ..Default::default() };
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.see_time(1.0);
+        e.handle(&GameEvent::PartyInfo { title: Some("DPS".into()), leader: None, members: vec![m("Me", 0x1c), m("A", 0x1c)] });
+        assert!(e.party_info.as_ref().unwrap().inside);
+        e.handle(&GameEvent::PartyInfo { title: Some("DPS".into()), leader: None, members: vec![m("Me", 0x1c)] });
+        e.see_time(20.0);
+        e.handle(&GameEvent::SelfId { id: 2, name: None });
+        assert!(!e.party_info.as_ref().map_or(false, |p| p.inside), "alone: you went out");
+        // A friend's party in the open world: no status, not inside.
+        e.see_time(80.0);
+        e.handle(&GameEvent::PartyInfo { title: None, leader: None, members: vec![crate::events::PartyMember { name: "Me".into(), ..Default::default() }, crate::events::PartyMember { name: "F".into(), ..Default::default() }] });
+        assert!(!e.party_info.as_ref().unwrap().inside, "a new party isn't inside");
+        // Still a respawn with others in the room.
+        let mut r = Engine::new(EngineConfig::default(), Names::default());
+        r.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        r.see_time(1.0);
+        r.handle(&GameEvent::PartyInfo { title: Some("DPS".into()), leader: None, members: vec![m("Me", 0x1c), m("A", 0x1c)] });
+        r.see_time(20.0);
+        r.handle(&GameEvent::SelfId { id: 2, name: None });
+        assert!(r.party_info.as_ref().unwrap().inside, "died and came back: still inside");
     }
 
     /// Urugugu, 2026-10-25: the leader clicked Enter inside for the next
@@ -3683,6 +4163,9 @@ mod zone_notice_tests {
         assert!(!e.party_ready() && !e.party_lobby(), "first hit: the fight");
         e.finish();
         assert!(!e.party_ready(), "after it: that fight stays on screen");
+        // You die and come back inside the same run: a new id, but no Enter.
+        e.handle(&GameEvent::SelfId { id: 3, name: Some("Me".into()) });
+        assert!(!e.party_ready(), "a respawn isn't an entry: no Ready line");
         e.handle(&GameEvent::PartyInfo { title: None, leader: None, members: vec![] });
         assert!(e.party_info.is_none() && !e.party_lobby() && !e.party_ready(), "left the party");
     }

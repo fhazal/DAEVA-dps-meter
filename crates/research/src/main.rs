@@ -519,7 +519,8 @@ fn cmd_decode(pkts: &[Packet], a: &Args) -> Result<(), String> {
             let line = match &e.party_info {
                 None => "none".to_string(),
                 Some(pi) => {
-                    let view = if e.party_lobby() { "lobby" } else if e.party_ready() { "ready" } else { "hidden" };
+                    // As the meter: the lobby or the queue panel, the slim queue bar while you fight.
+                    let view = if e.party_lobby() || e.party_queue_panel() { "lobby" } else if e.party_queueing() && e.self_active() { "queue-bar" } else if e.party_ready() { "ready" } else { "hidden" };
                     let ready = pi.members.iter().filter(|m| m.status.map_or(false, |s| s & 0x02 != 0)).count();
                     let t0 = pkts[0].ts;
                     let end = e.display_fight().map_or("-".to_string(), |f| format!("{:.0}", f.end - t0));
