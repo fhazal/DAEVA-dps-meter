@@ -638,10 +638,12 @@ impl DpsClock {
     }
 }
 
-/// Boss and elite ranks (same rule as the Daeva bot); Common/Normal aren't.
+/// Boss and elite ranks (same list as the Daeva bot). Anything else, such as
+/// Common, townspeople ("normalcitizen"), crafting tables ("object"), portals
+/// and platforms ("vessel"), isn't.
 pub fn rank_is_boss_or_elite(rank: &str) -> bool {
     let r: String = rank.to_ascii_lowercase().trim_end_matches("monster").chars().filter(|c| c.is_ascii_lowercase()).collect();
-    !(r.is_empty() || r == "common" || r == "normal")
+    matches!(r.as_str(), "elite" | "heroic" | "boss" | "legendary" | "legend")
 }
 
 impl Default for EngineConfig {
@@ -3393,6 +3395,9 @@ mod tests {
         assert!(!rank_is_boss_or_elite("Common"));
         assert!(!rank_is_boss_or_elite("NormalMonster"));
         assert!(!rank_is_boss_or_elite(""));
+        for other in ["normalcitizen", "object", "Abyss Portal", "vessel"] {
+            assert!(!rank_is_boss_or_elite(other), "{other}");
+        }
     }
 
     #[test]
