@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.5 (unreleased)
+## 0.5.5 (2026-10-29)
 
 - **World boss view:** at a crowd boss in the open world (Watcher Kaira, Tetrata), dozens of players fight the adds, and the game only sends the meter a small part of other players' hits. Their add damage put players who barely touched the boss near the top. Now only damage **on the boss** counts, and the list shows you, your party and your Force. The card says *🌐 World Boss · 0.7% HP*: your share of the boss's health. Dungeons, solo bosses and festivals are unchanged.
 - **Event and dungeon variants count as bosses:** some bosses have a version without a rank of its own (Grandios at the Dimensional Invasion, Thamon on Vakron Sky Island, Transcendent Bakarma). The card already borrowed *Heroic* by name, but the rest of the meter didn't. Grandios now gets the World Boss view, and these bosses use the boss clock, so phases where nobody can hurt them no longer lower everyone's DPS. A crowd for the World Boss view is now 5 or more players outside your party, so a dungeon group never counts as one, even right after you start the meter inside.
