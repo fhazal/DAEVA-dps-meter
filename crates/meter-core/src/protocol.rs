@@ -1200,6 +1200,7 @@ fn emit(e: &Emit, header: &Scope, scope: &Scope, ts: f64, out: &mut Vec<GameEven
             "room_left" => GameEvent::RoomLeft,
             "room_exit" => GameEvent::RoomExit,
             "dungeon_left" => GameEvent::DungeonLeft,
+            "party_gone" => GameEvent::PartyGone,
             "keys" => match num("cur") {
                 Some(cur) if cur < 10_000 => GameEvent::Keys { cur },
                 _ => continue,

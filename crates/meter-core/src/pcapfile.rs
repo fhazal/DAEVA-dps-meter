@@ -72,8 +72,9 @@ fn read_pcapng(b: &[u8]) -> io::Result<Vec<Packet>> {
         }
         let body = &b[p + 8..p + blen - 4];
         match btype {
-            1 => {
-                // Interface Description Block
+            // Interface Description Block (a damaged one too short for its
+            // link type is skipped instead of crashing the reader)
+            1 if body.len() >= 2 => {
                 let lt = if be { u16::from_be_bytes([body[0], body[1]]) } else { u16::from_le_bytes([body[0], body[1]]) } as u32;
                 let mut res = 1e6;
                 // parse options for if_tsresol (code 9)
@@ -171,5 +172,20 @@ mod tests {
         assert_eq!(p.len(), 2);
         assert_eq!(p[1].data, b"defg");
         assert!((p[0].ts - 100.25).abs() < 1e-5);
+    }
+
+    #[test]
+    fn damaged_pcapng_does_not_crash() {
+        // Section header, then an interface block with an empty body.
+        let mut b = Vec::new();
+        for w in [0x0a0d0d0au32, 28, 0x1a2b3c4d] {
+            b.extend_from_slice(&w.to_le_bytes());
+        }
+        b.extend_from_slice(&[1, 0, 0, 0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]);
+        b.extend_from_slice(&28u32.to_le_bytes());
+        for w in [1u32, 12, 12] {
+            b.extend_from_slice(&w.to_le_bytes());
+        }
+        assert_eq!(read_capture(&b).unwrap().len(), 0);
     }
 }

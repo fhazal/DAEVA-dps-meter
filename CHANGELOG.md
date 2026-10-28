@@ -15,6 +15,10 @@
 - **No false "Game messages arrive but none decode":** in a busy Abyss crowd, other players' movement could trigger this warning while the meter was working fine.
 - **No billion-HP heals:** some skills heal "to full", which the game reports as 2,147,483,647. That showed as 6.4 billion healing on an Elementalist. These are no longer counted.
 - **Dying in a dungeon:** coming back after a death no longer brings up the Ready panel as if you had just entered.
+- **Your party stays while you gather:** in an open-world party, the game every minute or two sends the same "party gone" message a dungeon sends when you leave, and the party panel emptied while your whole party was still there. That message now only ends a dungeon party.
+- **No more slowdowns in busy events:** with many players and monsters around, the meter could fall seconds behind the game, which split a Shugo wave in two and left most players out of the second part. Monster look-ups are now instant.
+- **DPS keeps counting in event waves:** at the Shugo Festival, the DPS clock followed the first Elite (a Thieves Cannon) and stopped when it died, so the numbers froze for a minute while the wave went on. Only real bosses (Heroic and up) use the boss clock now; Elite fights count the whole fight.
+- **Townspeople aren't bosses:** guards, crafting tables, portals and moving platforms counted as boss or elite targets. Now only Elite, Heroic, Boss and Legendary monsters do, the same rule as the DPS boards.
 - **One licence for the whole meter:** taengu, the author of A2Tools, allowed us to use their monster and skill names under MIT terms. Daeva Meter is now MIT throughout; the separate GPL-3.0 licence for `definitions\a2tools` is gone. Thank you, taengu!
 
 ## 0.5.4 (2026-10-26)

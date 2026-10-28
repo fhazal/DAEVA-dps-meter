@@ -6,7 +6,7 @@
 // updates after a game patch never need a new build.
 {
   "name": "AION 2 (global)",
-  "version": "0.6.25",
+  "version": "0.6.26",
   "process_names": ["aion2"],
   // Server ports, if they turn out to be fixed. Auto-detection by process
   // already finds the server, so this can stay empty.
@@ -267,11 +267,14 @@
     {"opcode": "0x9622", "name": "S_FORCE_LEFT", "dir": "server",
      "fields": ["key:u32le"],
      "emit": {"event": "force_leave", "when": "1", "key": "key"}},
-    // You left the party (no body; seen 2.5 s after "leave party" in two
-    // captures, never otherwise). An empty party list.
+    // The dungeon party is gone (no body): seen 2.5 s after "leave party",
+    // about a minute after a run's last boss, and at a rerun. Also every
+    // minute or two in an open-world party while gathering, with the party
+    // still there (2026-10-28), so the engine only acts on it for a dungeon
+    // party (party_gone).
     {"opcode": "0x8d3f", "name": "S_PARTY_LEFT", "dir": "server",
      "fields": [],
-     "emit": {"event": "party", "when": "1"}},
+     "emit": {"event": "party_gone", "when": "1"}},
     // You were removed from a dungeon room (kicked while queueing; no body,
     // the room browser list 0x9701 follows). Seen twice in one capture, no
     // party list after it, so the old room stayed up. Not "party": that

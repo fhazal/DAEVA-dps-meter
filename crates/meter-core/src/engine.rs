@@ -48,6 +48,10 @@ pub struct Names {
     /// Class -> its block of party-list numbers (Gladiator 5..=8): each class
     /// has a block of four. Only classes confirmed by real party lists.
     pub party_code_ranges: Vec<(u32, u32, String)>,
+    /// NPC ids by lowercase name, for `npc_ref`. Built on first use: going
+    /// through every name for each hit made a busy Shugo wave fall seconds
+    /// behind the game (2026-10-28). Reset whenever `npcs` changes.
+    by_name: std::sync::OnceLock<HashMap<String, Vec<u32>>>,
 }
 
 impl Names {
@@ -195,10 +199,17 @@ impl Names {
         if name.is_empty() {
             return None;
         }
+        let index = self.by_name.get_or_init(|| {
+            let mut m: HashMap<String, Vec<u32>> = HashMap::new();
+            for (id, n) in &self.npcs {
+                m.entry(n.trim().to_ascii_lowercase()).or_default().push(*id);
+            }
+            m
+        });
         let mut found: Option<u32> = None;
-        for (id, n) in &self.npcs {
+        for id in index.get(&name.to_ascii_lowercase()).into_iter().flatten() {
             let described = self.ranks.contains_key(id) || self.families.contains_key(id);
-            if *id == npc || !described || !n.trim().eq_ignore_ascii_case(name) {
+            if *id == npc || !described {
                 continue;
             }
             found = match found {
@@ -269,8 +280,14 @@ impl Names {
         Ok(n)
     }
 
+    /// Call after changing `npcs` directly, so `npc_ref` sees the change.
+    pub fn forget_name_index(&mut self) {
+        self.by_name = Default::default();
+    }
+
     /// Adds (and overrides with) every name in `other`.
     pub fn merge(&mut self, other: Names) {
+        self.by_name = Default::default();
         self.skills.extend(other.skills);
         self.npcs.extend(other.npcs);
         self.zones.extend(other.zones);
@@ -1632,6 +1649,17 @@ impl Engine {
                     }
                 }
             }
+            // The dungeon's "party gone": you left the party, the run is over
+            // (about a minute after the last boss) or a rerun starts. An
+            // open-world party has its own leave message (0x9213) and gets
+            // this one every minute or two while gathering, with the whole
+            // party still there (2026-10-28: the panel emptied for good).
+            GameEvent::PartyGone => {
+                if self.party_info.as_ref().map_or(false, |p| p.title.is_some() || p.inside) {
+                    self.handle(&GameEvent::PartyInfo { title: None, leader: None, members: Vec::new() });
+                    self.handle(&GameEvent::Party { names: Vec::new(), codes: Vec::new() });
+                }
+            }
             GameEvent::PartyEntering => {
                 self.exited_dungeon = false;
                 // Enter while inside after a fight there: maybe a rerun (the
@@ -2287,6 +2315,7 @@ impl Engine {
     pub fn rename_npc(&mut self, template: u32, name: &str) {
         let old = format!("NPC {template}");
         self.names.npcs.insert(template, name.to_string());
+        self.names.forget_name_index();
         for f in self.history.iter_mut().chain(self.current.iter_mut()) {
             for (n, _) in f.names.values_mut() {
                 if *n == old {
@@ -2425,7 +2454,13 @@ impl Engine {
         // encounter: when over a quarter of the damage from the pull on went
         // into other monsters, the whole fight is the clock (else the mobs
         // you turn to drop out of the DPS). Trash before the pull is fine.
+        // Only a real boss (Heroic and up) gets the boss clock: in an event
+        // wave the Elites die every few seconds, and the clock stopped with
+        // the first one, so the table froze for a minute while the wave went
+        // on (Shugo, 2026-10-28; your dungeon room still counted as inside,
+        // so the party can't tell an event from a dungeon).
         let boss = if self.cfg.dps_clock == DpsClock::Boss && target.is_none() { self.boss_target(f) } else { None };
+        let boss = boss.filter(|b| self.fight_real_boss(f, *b));
         let boss = boss.filter(|b| {
             let pull = f.tspan.get(b).map_or(f.start, |s| s.0);
             let others: u64 = f.targets.iter().filter(|(t, _)| *t != b && f.tspan.get(t).map_or(false, |s| s.1 >= pull)).map(|(_, d)| *d).sum();
@@ -3006,6 +3041,39 @@ mod tests {
         // HP check: 2000 of 2000 counted on the dead boss.
         let tg = b.get("target").unwrap();
         assert_eq!(tg.f64_or("counted", 0.0), 1.0, "{}", b.to_string());
+    }
+
+    /// Shugo, 2026-10-28: the boss clock followed an Elite (a Thieves Cannon)
+    /// that died early in the wave, and the table froze for a minute. An
+    /// Elite fight runs on the fight clock, also with a dungeon party (the
+    /// room still read as inside at the festival).
+    #[test]
+    fn an_elite_wave_uses_the_fight_clock() {
+        let names = Names::from_json(r#"{"ranks": {"777": "Elite"}}"#).unwrap();
+        let run = |dungeon: bool| {
+            let mut e = Engine::new(EngineConfig::default(), names.clone());
+            e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+            if dungeon {
+                let m = |n: &str| crate::events::PartyMember { name: n.into(), ..Default::default() };
+                e.handle(&GameEvent::PartyInfo { title: Some("DPS".into()), leader: None, members: vec![m("Me"), m("Ally")] });
+                e.handle(&GameEvent::Party { names: vec!["Me".into(), "Ally".into()], codes: vec![None, None] });
+            }
+            e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(3000) });
+            e.handle(&GameEvent::Actor { id: 40, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(5), owner: None, max_hp: Some(500) });
+            e.handle(&dmg(0.0, 1, 50, 18000000, 1500, 0));
+            e.handle(&dmg(4.0, 1, 50, 18000000, 1500, 0));
+            e.handle(&GameEvent::Death { ts: 4.0, target: 50, killer: Some(1) });
+            for ts in [5.0, 10.0, 15.0, 19.0] {
+                e.handle(&dmg(ts, 1, 40, 18000000, 50, 0)); // the wave goes on
+            }
+            let f = e.current.as_ref().unwrap();
+            e.fight_table(f, None)
+        };
+        let open = run(false);
+        assert_eq!(open.str_or("clock", ""), "fight", "{}", open.to_string());
+        assert_eq!(open.f64_or("clock_secs", 0.0), 19.0);
+        let dungeon = run(true);
+        assert_eq!(dungeon.str_or("clock", ""), "fight", "{}", dungeon.to_string());
     }
 
     #[test]
@@ -3898,8 +3966,7 @@ mod zone_notice_tests {
         e.handle(&room(0x1c));
         e.handle(&GameEvent::PartyEntering);
         e.see_time(165.0);
-        e.handle(&GameEvent::PartyInfo { title: None, leader: None, members: vec![] });
-        e.handle(&GameEvent::Party { names: vec![], codes: vec![] });
+        e.handle(&GameEvent::PartyGone);
         let p = e.party_info.as_ref().expect("party kept");
         assert!(p.rerun && p.inside);
         assert!(e.party_lobby(), "shown until the first pull");
@@ -3912,7 +3979,7 @@ mod zone_notice_tests {
         assert!(!e.party_lobby(), "no pop-up mid-run");
         // Without the Enter click first, "party gone" still clears the party.
         e.see_time(600.0);
-        e.handle(&GameEvent::PartyInfo { title: None, leader: None, members: vec![] });
+        e.handle(&GameEvent::PartyGone);
         assert!(e.party_info.is_none());
     }
 
@@ -4183,6 +4250,24 @@ mod zone_notice_tests {
         // "You left the party" comes as an empty list.
         e.handle(&GameEvent::Party { names: vec![], codes: vec![] });
         assert!(e.party.is_empty() && e.party_member_codes.is_empty());
+    }
+
+    /// 2026-10-28 (test.7, gathering): the dungeon's "party gone" came every
+    /// minute or two in an open-world party and emptied the panel while the
+    /// whole party stayed. A dungeon room still ends with it.
+    #[test]
+    fn party_gone_ends_only_a_dungeon_party() {
+        let m = |n: &str| crate::events::PartyMember { name: n.into(), ..Default::default() };
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&GameEvent::PartyInfo { title: None, leader: None, members: vec![m("Aretgal"), m("Me")] });
+        e.handle(&GameEvent::Party { names: vec!["Aretgal".into(), "Me".into()], codes: vec![None, None] });
+        e.handle(&GameEvent::PartyGone);
+        assert!(e.party.contains("Aretgal") && e.party_info.is_some(), "open-world party kept");
+        e.handle(&GameEvent::PartyInfo { title: Some("DPS".into()), leader: None, members: vec![m("Lead"), m("Me")] });
+        e.handle(&GameEvent::Party { names: vec!["Lead".into(), "Me".into()], codes: vec![None, None] });
+        e.handle(&GameEvent::PartyGone);
+        assert!(e.party.is_empty() && e.party_info.is_none(), "dungeon room ends");
     }
 
     #[test]

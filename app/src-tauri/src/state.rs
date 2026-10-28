@@ -1132,7 +1132,7 @@ impl Core {
                 let body = Obj::new()
                     .set("type", "fight")
                     .set("meter", "daeva-meter")
-                    .set("meter_version", env!("CARGO_PKG_VERSION"))
+                    .set("meter_version", self.app_version.as_str())
                     .set("demo", self.sim.is_some())
                     .set("record", filtered)
                     .build();
@@ -1163,7 +1163,7 @@ impl Core {
             .collect();
         let demo = self.sim.is_some();
         for it in items {
-            let body = Obj::new().set("type", "loot").set("meter", "daeva-meter").set("meter_version", env!("CARGO_PKG_VERSION")).set("demo", demo).set("record", it).build();
+            let body = Obj::new().set("type", "loot").set("meter", "daeva-meter").set("meter_version", self.app_version.as_str()).set("demo", demo).set("record", it).build();
             self.push_upload(body.to_string());
         }
     }
@@ -1906,11 +1906,16 @@ fn processor(shared: Arc<Shared>, rx: Receiver<Pkt>) {
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(_) => return,
         }
+        // A full batch means packets are still queued: catch up before the
+        // clock-based checks run, or the idle check ends a fight whose hits
+        // are only waiting in the queue (Shugo, 2026-10-28: a wave split in
+        // two after the meter fell 10 s behind).
+        let behind = batch.len() >= 4096;
         let mut core = shared.lock();
         for p in batch {
             core.ingest(p);
         }
-        if last_tick.elapsed() >= Duration::from_millis(250) {
+        if !behind && last_tick.elapsed() >= Duration::from_millis(250) {
             last_tick = Instant::now();
             core.periodic(now_unix());
         }

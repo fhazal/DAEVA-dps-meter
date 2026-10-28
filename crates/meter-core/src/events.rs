@@ -137,6 +137,9 @@ pub enum GameEvent {
     RoomExit,
     /// You left the dungeon (its room closes for you).
     DungeonLeft,
+    /// "Party gone" (0x8d3f): ends a dungeon party; an open-world party
+    /// ignores it.
+    PartyGone,
     /// The game just sent a full picture (login or zone change).
     Fresh,
 }
@@ -170,6 +173,7 @@ impl GameEvent {
             GameEvent::RoomLeft => "room_left",
             GameEvent::RoomExit => "room_exit",
             GameEvent::DungeonLeft => "dungeon_left",
+            GameEvent::PartyGone => "party_gone",
             GameEvent::Fresh => "fresh",
         }
     }
