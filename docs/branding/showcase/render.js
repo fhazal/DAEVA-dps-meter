@@ -12,7 +12,8 @@ const ui = path.join(root, "app/ui/").replace(/\\/g, "/");
 const outDir = path.join(root, "docs/branding");
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "daeva-showcase-"));
 const version = JSON.parse(fs.readFileSync(path.join(root, "app/src-tauri/tauri.conf.json"), "utf8")).version;
-const edge = ["C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe", "C:/Program Files/Microsoft/Edge/Application/msedge.exe"].find((p) => fs.existsSync(p));
+// BROWSER=<path to chrome.exe> if Edge's headless screenshots stop working.
+const edge = process.env.BROWSER || ["C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe", "C:/Program Files/Microsoft/Edge/Application/msedge.exe"].find((p) => fs.existsSync(p));
 if (!edge) throw new Error("Microsoft Edge not found");
 
 // Made-up party, so no real player names end up in the README.
