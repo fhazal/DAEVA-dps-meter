@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.6 (2026-10-29)
+
+- **New: PvP card.** When you fight another player outside your party and Force, the card turns crimson. It shows that player's name, class and faction emblem (Elyos or Asmodian), what you dealt them and took from them as a green/red bar, and *Dealt 5.67K · Took 4.47K*. Below it, the **Enemy · Dealt · Taken** table lists everyone you fought. *✝ Down* marks an enemy who died in the fight, and *☠ You died* shows when you did. Solo shows the same on one line, with your PvP DPS and your crit, double, perfect, front and back rates. A PvP fight ends 10 seconds after the last hit between you, and is saved in *History* with a **PvP** tag.
+- **PvP and monster fights stay apart:** turn from a monster to a player and the monster fight ends as it was. The player fight is its own, so the card stays on the player after the kill. A player who attacks while you keep hitting the mob shows live, and the card goes back to the mob afterwards. Your damage on players never goes into a monster fight, so boss DPS still matches the game's Combat Analysis.
+- **PvP details:** click an enemy row on the card (or your card in Solo) to open the details window for that PvP fight. It lists every enemy with what you dealt them and took from them, skill by skill.
+- **Faction from the game:** the meter now reads each player's faction. Your own faction is never counted as an enemy. Dungeon parties that mix Elyos and Asmodians work as before: everyone in your party, Force or room is on your side.
+- **Faction emblems in mixed parties:** when your list or party panel has both Elyos and Asmodians (dungeon queue parties), each player shows their faction emblem, in *History* too. A party all on one side looks as before.
+- **Damage counted as 1 (fixed, in all earlier versions):** for some players, the game writes one value before the damage a byte longer, and the meter then read the damage as *1*. It happened mostly with Gladiators, sometimes with Rangers, Chanters and Assassins. Their damage could show up to 40% too low, everyone else's share a little too high, and dungeon bosses read *⚠ 93–97% of HP counted*. Now those hits count in full, and bosses read *✓ 100%*. Checked against 130 recordings: 43 bosses now add up to their full health, and none got worse.
+- **Hits between players aren't healing:** PvP damage you dealt, and fights between other players, used to show up as healing. They no longer do.
+- **Enemies aren't on your list:** an enemy player who hits the same monster as you no longer appears in your fight's damage list. Neither do players of the other faction who aren't in your party, Force or room.
+- **No false enemies after a late start:** if you started the meter while already in a zone, your Chanter or Cleric group effects on players of your own faction could make them show up as PvP enemies (32 at once in Gartua). Now your own hits only count as PvP once the meter knows both factions and they differ.
+- **"Leaving now." after a dungeon:** when a party ended, the game sends the room list one last time with only you in it. The meter showed that as a new room for a moment. It now skips it. A room you open yourself still shows.
+- **History opens the details where you can see them:** clicking a fight in *History* now scrolls down to its details. Before, they opened below the list, and it looked like nothing happened.
+- **Event banner:** the time-left line no longer runs into the banner's rounded corners.
+
 ## 0.5.5 (2026-10-29)
 
 - **World boss view:** at a crowd boss in the open world (Watcher Kaira, Tetrata), dozens of players fight the adds, and the game only sends the meter a small part of other players' hits. Their add damage put players who barely touched the boss near the top. Now only damage **on the boss** counts, and the list shows you, your party and your Force. The card says *🌐 World Boss · 0.7% HP*: your share of the boss's health. Dungeons, solo bosses and festivals are unchanged.

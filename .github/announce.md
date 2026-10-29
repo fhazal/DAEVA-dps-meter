@@ -1,16 +1,19 @@
 <!-- Short release notes the Daeva Discord bot posts when a release is published.
      Update "version" and the lists with each release. -->
-version: 0.5.5
-tagline: A fair list at world bosses, event waves that stay one fight, and no more players listed twice.
+version: 0.5.6
+tagline: A PvP card for the Abyss, and every hit counted in full again.
 
 ## New
-- 🌐 **World boss view:** at Kaira or Tetrata, only damage on the boss counts, with you, your party and your Force, and your share of the boss's HP
-- 🛡️ **Force members** read from the game and kept in *History*
+- ⚔️ **PvP card:** the player you're fighting with their class and faction, Dealt and Took, everyone you fought in a table, ✝ Down and ☠ You died
+- 🔍 **PvP details:** click an enemy to see the whole PvP fight skill by skill
+- 🛡️ **Factions** read from the game: your own side never counts as an enemy, and mixed dungeon parties work as before
+- 🛡️ Faction emblems on your list and party panel when a party mixes Elyos and Asmodians
 
 ## Fixed
-- 🎪 Shugo and other event waves no longer split into 1-second fights
-- ⚔️ A world boss gets its own fight; the soldiers before it keep your damage
-- 👥 Players who die and come back are no longer listed twice
-- 🔔 Event cards stay on top of the game in long sessions
-- 🧭 Party panel shows on time while you queue, and no more *On the way* outside the dungeon
-- 🩹 No more billion-HP heals, and no false "none decode" warning in Abyss crowds
+- 🎯 Some players' hits (mostly Gladiators) counted as 1 damage; bosses now read 100% of HP counted
+- 🩹 PvP damage no longer shows up as healing
+- 👥 Enemy players and the other faction's strangers stay off your monster fight list
+- 🧭 No false enemies when the meter starts mid-zone
+- 🚪 No "Leaving now." room flash after a dungeon party ends
+- 📜 History details now scroll into view
+- 🔔 Event banner's time-left line clear of the rounded corners

@@ -551,9 +551,13 @@ fn cmd_decode(pkts: &[Packet], a: &Args) -> Result<(), String> {
         fights.push(f);
     }
     println!("{} packets, {} game packets, {} frames, {} resyncs, {} events, {} fights\n", p.packets, p.game_packets, p.decoder.frames_total, p.decoder.resyncs(), p.engine.events_seen, fights.len());
-    println!("you: {}\n", p.engine.self_name.as_deref().unwrap_or("unknown"));
+    println!("you: {} (id {:?})\n", p.engine.self_name.as_deref().unwrap_or("unknown"), p.engine.self_id);
     for f in &fights {
         println!("{}", p.engine.summary_text(f, 12));
+        if let Some(pv) = p.engine.fight_table(f, None).get("pvp").filter(|v| v.get("enemies").is_some()) {
+            let en: Vec<String> = pv.get("enemies").and_then(|e| e.as_arr()).map(|e| e.iter().map(|x| format!("{}[{}] {}/{}", x.str_or("name", "?"), x.f64_or("id", 0.0), x.f64_or("dealt", 0.0), x.f64_or("taken", 0.0))).collect()).unwrap_or_default();
+            println!("  PvP{} {:.0}s dealt {} took {}: {}\n", if pv.bool_or("show", false) { " (card)" } else { "" }, pv.f64_or("secs", 0.0), pv.f64_or("dealt", 0.0), pv.f64_or("taken", 0.0), en.join(", "));
+        }
     }
     if let Some(out) = a.get("out") {
         let arr: Vec<Value> = fights.iter().map(|f| p.engine.fight_record(f)).collect();

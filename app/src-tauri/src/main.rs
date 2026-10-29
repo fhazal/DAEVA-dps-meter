@@ -22,7 +22,7 @@ fn get_snapshot(st: St<'_>, target: Option<u64>) -> String {
 }
 
 #[tauri::command]
-fn get_detail(st: St<'_>, fight_id: Option<u64>, actor_id: u64, target: Option<u64>) -> Result<String, String> {
+fn get_detail(st: St<'_>, fight_id: Option<u64>, actor_id: u64, target: Option<u64>, pvp: Option<bool>) -> Result<String, String> {
     let c = st.lock();
     let e = &c.pipeline.engine;
     let f = match fight_id {
@@ -30,7 +30,8 @@ fn get_detail(st: St<'_>, fight_id: Option<u64>, actor_id: u64, target: Option<u
         None => e.display_fight(),
     }
     .ok_or("fight not found")?;
-    let d = e.actor_detail_for(f, actor_id, target).ok_or("player not in this fight")?;
+    // PvP: your hits on the players you fought.
+    let d = if pvp == Some(true) { e.pvp_detail(f, target).ok_or("no PvP in this fight")? } else { e.actor_detail_for(f, actor_id, target).ok_or("player not in this fight")? };
     Ok(d.to_string())
 }
 

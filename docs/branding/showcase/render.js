@@ -60,7 +60,10 @@ function shot(name, html, w, h, scale = 2, clear = false) {
     fs.writeFileSync(path.join(tmp, f), Buffer.from(await r.arrayBuffer()));
   }
   // Window sizes: Classic 520x330, Solo 372x135 at its 1.28 zoom, the alert takes the meter's width.
-  const shots = { classic: shot("classic", meter("classic"), 520, 330), solo: shot("solo", meter("solo", 476), 477, 177, 2, true), alert: shot("alert", alert(), 520, 118) };
+  // Always transparent (the last argument): only the meter's own rounded edge
+  // may show. A dark backdrop or a frame around the shot gave every picture a
+  // second edge at the corners (0.5.5). Zoom into the corners before committing.
+  const shots = { classic: shot("classic", meter("classic"), 520, 330, 2, true), solo: shot("solo", meter("solo", 476), 477, 177, 2, true), alert: shot("alert", alert(), 520, 118, 2, true) };
   for (const [k, p] of Object.entries(shots)) fs.copyFileSync(p, path.join(outDir, `shot-${k}.png`));
 
   const page = fs.readFileSync(path.join(__dirname, "showcase.html"), "utf8").replace(/\{\{version\}\}/g, version);

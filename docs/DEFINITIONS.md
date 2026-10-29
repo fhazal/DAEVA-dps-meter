@@ -75,7 +75,7 @@ This maps decoded fields to meter events. `each` runs the emit once for every it
 
 | event | keys |
 |---|---|
-| `damage` | `src` `tgt` `skill` `amount` + flags `crit` `back` `perfect` `parry` `block` `evade` `dot` `resist` (each truthy → flag), or raw `flags` |
+| `damage` | `src` `tgt` `skill` `amount` + flags `crit` `back` `perfect` `parry` `block` `evade` `dot` `resist` `aimed` (each truthy → flag; `aimed` = an attack, tells PvP hits from heals between players), or raw `flags` |
 | `heal` | `src` `tgt` `skill` `amount` `crit` |
 | `death` | `target` `killer` |
 | `actor` | `id` `name` `class` `kind` (`'player'`/`'npc'`/`'summon'` or 1/2/3) `npc_id` `owner` `max_hp` |

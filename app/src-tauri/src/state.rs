@@ -1095,7 +1095,7 @@ impl Core {
         {
             let e = &self.pipeline.engine;
             let main = e.boss_target(&f).or(f.focus).or_else(|| f.main_target());
-            let name = main.map(|t| e.fname(&f, t)).unwrap_or_else(|| "?".into());
+            let name = main.map(|t| e.fname(&f, t)).unwrap_or_else(|| if f.pvp.is_empty() { "?".into() } else { format!("PvP, {} players", f.pvp.len()) });
             let note = format!("fight #{} ended: {name}, {:.0} s{}", f.id, f.duration(), if f.boss_killed { ", killed" } else { "" });
             self.auto_note(now_unix(), note);
         }
@@ -1126,8 +1126,14 @@ impl Core {
                 self.status.last_save_error = Some(e.to_string());
             }
         }
+        // PvP stays on this PC: a PvP fight isn't shared, and a fight on
+        // monsters goes without the players you fought.
+        let pvp_fight = rec.get("pvp").map_or(false, |p| p.bool_or("show", false));
+        if let Value::Obj(m) = &mut rec {
+            m.remove("pvp");
+        }
         let sh = &self.settings.share;
-        if sh.enabled && !sh.endpoint.is_empty() && sh.scope != "none" && f.duration() >= sh.min_duration {
+        if sh.enabled && !sh.endpoint.is_empty() && sh.scope != "none" && f.duration() >= sh.min_duration && !pvp_fight {
             if let Some(filtered) = scope_filter(rec, &sh.scope) {
                 let body = Obj::new()
                     .set("type", "fight")
@@ -1534,6 +1540,7 @@ impl Core {
                     .set("in_dungeon", m.status.map(|s| s & meter_core::engine::IN_DUNGEON != 0 || (p.inside && e.fought_here(&m.name))))
                     .set("new", e.party_is_new(&m.name))
                     .set("is_self", e.self_name.as_deref() == Some(m.name.as_str()))
+                    .set("faction", e.faction_by_name(&m.name))
                     .build()
             })
             .collect();

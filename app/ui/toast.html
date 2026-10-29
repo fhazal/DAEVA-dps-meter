@@ -33,7 +33,8 @@
   .alert .keys .val { display: inline-flex; align-items: center; gap: 8px; color: #fff; font-weight: 700; font-size: 14.5px; }
   .alert .keys .val.none { color: #c9cad0; }
   .alert .keys svg { width: 18px; height: 18px; }
-  .alert .life { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: rgba(255,255,255,0.04); }
+  /* Time left: kept clear of the rounded corners, which cut its ends off. */
+  .alert .life { position: absolute; left: 14px; right: 14px; bottom: 3px; height: 2px; border-radius: 2px; overflow: hidden; background: rgba(255,255,255,0.06); }
   .alert .life i { display: block; height: 100%; width: 100%; background: var(--k); opacity: .6; transform-origin: left; animation: drain linear forwards; }
   /* Unlocked meter: a banner can be grabbed and dragged anywhere. */
   .alert.hover { outline: 2px solid rgba(232,176,75,0.85); outline-offset: 2px; cursor: grab; }

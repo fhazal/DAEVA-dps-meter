@@ -47,9 +47,15 @@ pub mod flags {
     /// that heals the boss whenever it's hit): counts as damage taken when a
     /// monster deals it, never as a player's damage.
     pub const NPC_ONLY: u32 = 1 << 15;
-    /// Bits 16..31 carry the cast id (+1, 0 = unknown) so hits can be
+    /// Bits 16..30 carry the cast id (+1, 0 = unknown) so hits can be
     /// grouped into casts without widening the event.
     pub const CAST_SHIFT: u32 = 16;
+    pub const CAST_MASK: u32 = 0x7fff;
+    /// The result has the game's hit block (direction, parry, block): an
+    /// attack. A party heal or buff reported as a skill result never has
+    /// it (Urugugu 2026-10-26: 0 of 487; PvP hits: 134 of 148), so a hit
+    /// between two players is PvP only with it.
+    pub const AIMED: u32 = 1 << 31;
 }
 
 /// One member of a party list.
@@ -103,6 +109,8 @@ pub enum GameEvent {
     SelfStats { cp: Option<u64> },
     /// The game server (world) an actor belongs to.
     ActorServer { id: u64, server: u32 },
+    /// A player's faction (the game's race id: 1 = Elyos, 2 = Asmodian).
+    ActorRace { id: u64, race: u8 },
     /// Your Odyle: base amount and the extra (+N) shown in brackets.
     Odyle { cur: Option<u64>, bonus: Option<u64> },
     /// Shugo Festival Reward Keys you hold.
@@ -158,6 +166,7 @@ impl GameEvent {
             GameEvent::Buff { .. } => "buff",
             GameEvent::SelfStats { .. } => "self_stats",
             GameEvent::ActorServer { .. } => "actor_server",
+            GameEvent::ActorRace { .. } => "actor_race",
             GameEvent::Odyle { .. } => "odyle",
             GameEvent::Keys { .. } => "keys",
             GameEvent::Party { .. } => "party",

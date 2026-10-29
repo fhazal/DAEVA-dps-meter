@@ -19,6 +19,8 @@
   tr.sel td { background: var(--accent-soft); }
   .pb { font-size: 12px; }
   .bestline { margin: 4px 0 10px; font-size: 12px; color: var(--muted); } .bestline b { color: #ffd166; }
+  .pvtag { display: inline-block; padding: 0 5px; margin-right: 5px; border-radius: 4px; font-size: 10.5px; font-weight: 700; color: #ff9d92; background: rgba(229,92,92,.13); border: 1px solid rgba(229,92,92,.45); }
+  .dl { color: var(--good); } .tk { color: #f08a7e; }
 </style>
 </head>
 <body>
@@ -73,7 +75,7 @@
     }
     document.getElementById("list").innerHTML = `<table class="grid"><thead><tr><th>When</th><th>Target</th><th>Time</th><th>Party DPS</th><th>Total</th><th>You</th><th>Top</th><th></th></tr></thead><tbody>${rows.map((f) => `
       <tr class="click${String(key(f)) === String(selected) ? " sel" : ""}" data-k="${D.esc(key(f))}">
-        <td>${D.when(f.started_unix)}</td><td style="text-align:left">${D.esc(f.target || "—")}</td><td>${D.dur(f.duration)}</td>
+        <td>${D.when(f.started_unix)}</td><td style="text-align:left">${f.pvp ? `<span class="pvtag" title="PvP: ${f.pvp} ${f.pvp === 1 ? "enemy" : "enemies"}">PvP</span>` : ""}${D.esc(f.target || "—")}${f.pvp > 1 ? ` <span class="muted">+${f.pvp - 1}</span>` : ""}</td><td>${D.dur(f.duration)}</td>
         <td>${D.fmt(f.dps)}</td><td>${D.fmt(f.total)}</td><td>${f.mine ? D.fmt(f.mine) + (f.pb ? ' <span class="pb" title="Your personal best on this boss">🏆</span>' : "") : "–"}</td><td>${D.esc(f.top || "")}</td><td>${f.boss_killed ? '<span class="ok">✓</span>' : ""}</td></tr>`).join("")}</tbody></table>`;
     document.querySelectorAll("#list tr.click").forEach((tr) => (tr.onclick = () => { selected = tr.dataset.k; renderList(); openFight(selected); }));
   }
@@ -83,11 +85,32 @@
     try {
       const rec = JSON.parse(await D.call("get_fight_record", args));
       const el = document.getElementById("fight");
+      const pv = rec.pvp && rec.pvp.show ? rec.pvp : null;
+      // The detail sits under the list: bring it into view.
+      requestAnimationFrame(() => el.scrollIntoView({ block: "start" }));
+      if (pv) {
+        // PvP: the players you fought, what you dealt each and took from each.
+        const en = pv.enemies || [];
+        el.innerHTML = `<div class="fight">
+          <div class="hd"><span class="t"><span class="pvtag">PvP</span>${D.esc(pv.foe ? pv.foe.name : "PvP")}</span><span class="muted">${D.dur(pv.secs)} · dealt <span class="dl">${D.fmt(pv.dealt)}</span> · took <span class="tk">${D.fmt(pv.taken)}</span> · ${D.fmt(pv.dps)}/s</span><span class="sp"></span><button class="btn" id="bCopyF">Copy summary</button></div>
+          <table class="grid"><thead><tr><th>Enemy</th><th>Dealt</th><th>Taken</th></tr></thead><tbody>
+          ${en.map((x) => `<tr><td>${D.classIcon(x.class, 13) || `<span class="dotc" style="background:${D.classColor(x.class, x.name)}"></span>`} ${D.esc(x.name)} <span class="muted">${D.esc(x.class || "")}</span>${x.faction ? ` <img src="img/factions/${x.faction.toLowerCase()}.png" title="${D.esc(x.faction)}" alt="${D.esc(x.faction)}" style="height:12px;vertical-align:-2px;filter:brightness(1.7)">` : ""}${x.died ? ` <span title="Died in this fight">✝</span>` : ""}</td><td class="dl">${D.fmt(x.dealt)}</td><td class="tk">${x.taken ? D.fmt(x.taken) : "–"}</td></tr>`).join("")}
+          </tbody></table></div>`;
+        document.getElementById("bCopyF").onclick = async () => {
+          const lines = [`**PvP** — ${D.dur(pv.secs)} — dealt ${D.fmt(pv.dealt)}, took ${D.fmt(pv.taken)}`];
+          en.slice(0, 12).forEach((x, i) => lines.push(`\`${String(i + 1).padStart(2)}.\` ${x.name}${x.class ? " (" + x.class + ")" : ""} — dealt ${D.fmt(x.dealt)}, took ${D.fmt(x.taken)}`));
+          await D.call("copy_text", { text: lines.join("\n") });
+          D.toast("Copied");
+        };
+        return;
+      }
+      // Faction emblems only when both factions are in the list (see the overlay).
+      const mix = new Set(rec.players.map((p) => p.faction).filter(Boolean)).size > 1;
       el.innerHTML = `<div class="fight">
         <div class="hd"><span class="t">${D.esc(rec.target ? rec.target.name : "Fight")}</span><span class="muted">${D.dur(rec.duration)} · ${D.fmt(rec.total)} dmg · ${D.fmt(rec.dps)}/s</span><span class="sp"></span><button class="btn" id="bCopyF">Copy summary</button></div>
         ${rec.best ? `<div class="bestline">🏆 Your best on this boss: <b>${D.fmt(rec.best.dps)}/s</b> · ${D.when(rec.best.started_unix)}${rec.best.this ? " · <b>this fight</b>" : ""} · ${rec.best.count} ${rec.best.count === 1 ? "fight" : "fights"} recorded</div>` : ""}
         <table class="grid"><thead><tr><th>Player</th><th>DPS</th><th>Damage</th><th>Share</th><th>Crit</th><th>Max hit</th></tr></thead><tbody>
-        ${rec.players.map((p) => `<tr class="click" data-id="${p.id}"><td>${D.classIcon(p.class, 13) || `<span class="dotc" style="background:${D.classColor(p.class, p.name)}"></span>`} ${D.esc(p.name)} <span class="muted">${D.esc(p.class || "")}</span></td><td>${D.fmt(p.dps)}</td><td>${D.fmt(p.dmg)}</td><td>${D.pct(p.share, 1)}</td><td>${D.pct(p.crit_rate)}</td><td>${D.fmt(p.max_hit)}</td></tr>`).join("")}
+        ${rec.players.map((p) => `<tr class="click" data-id="${p.id}"><td>${D.classIcon(p.class, 13) || `<span class="dotc" style="background:${D.classColor(p.class, p.name)}"></span>`} ${D.esc(p.name)} <span class="muted">${D.esc(p.class || "")}</span>${mix && p.faction ? ` <img src="img/factions/${p.faction.toLowerCase()}.png" title="${D.esc(p.faction)}" alt="${D.esc(p.faction)}" style="height:12px;vertical-align:-2px;filter:brightness(1.7)">` : ""}</td><td>${D.fmt(p.dps)}</td><td>${D.fmt(p.dmg)}</td><td>${D.pct(p.share, 1)}</td><td>${D.pct(p.crit_rate)}</td><td>${D.fmt(p.max_hit)}</td></tr>`).join("")}
         </tbody></table>
         ${rec.loot && rec.loot.length ? `<h2>Loot</h2><table class="grid"><tbody>${rec.loot.map((l) => `<tr><td>${D.esc(l.item)}${l.count > 1 ? " ×" + l.count : ""}</td><td>${D.esc(l.grade_name || (l.grade != null ? "grade " + l.grade : ""))}</td><td>${D.esc(l.who)}</td></tr>`).join("")}</tbody></table>` : ""}
       </div>`;

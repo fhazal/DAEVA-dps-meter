@@ -1104,6 +1104,7 @@ fn emit(e: &Emit, header: &Scope, scope: &Scope, ts: f64, out: &mut Vec<GameEven
             ("double", flags::DOUBLE),
             ("front", flags::FRONT),
             ("npc_only", flags::NPC_ONLY),
+            ("aimed", flags::AIMED),
         ] {
             if num(k).unwrap_or(0) != 0 {
                 fl |= bit;
@@ -1113,7 +1114,7 @@ fn emit(e: &Emit, header: &Scope, scope: &Scope, ts: f64, out: &mut Vec<GameEven
             fl |= (m as u32).min(flags::MULTI_MASK) << flags::MULTI_SHIFT;
         }
         if let Some(c) = num("cast") {
-            fl |= ((c as u32 & 0xffff) + 1) << flags::CAST_SHIFT;
+            fl |= ((c as u32 & (flags::CAST_MASK >> 1)) + 1) << flags::CAST_SHIFT;
         }
         let ev = match e.event.as_str() {
             "damage" => GameEvent::Damage {
@@ -1146,6 +1147,10 @@ fn emit(e: &Emit, header: &Scope, scope: &Scope, ts: f64, out: &mut Vec<GameEven
             "self_stats" => GameEvent::SelfStats { cp: num("cp") },
             "actor_server" => match (num("id"), num("server")) {
                 (Some(id), Some(server)) if id != 0 && server != 0 => GameEvent::ActorServer { id, server: server as u32 },
+                _ => continue,
+            },
+            "actor_race" => match (num("id"), num("race")) {
+                (Some(id), Some(race @ 1..=2)) if id != 0 => GameEvent::ActorRace { id, race: race as u8 },
                 _ => continue,
             },
             "fresh" => GameEvent::Fresh,
@@ -1511,6 +1516,24 @@ mod party_tests {
         let mut out = Vec::new();
         d.push(flow, true, &[0x09, 0x15, 0x97, 0x00, 0x00, 0x01], false, 1.0, &mut out);
         assert!(out.iter().any(|e| matches!(e, GameEvent::SelfReady { ready: true })), "{out:?}");
+    }
+
+    /// Real hits from Urugugu (2026-10-29): the value before the damage is a
+    /// varint. As a u16 the 3-byte one (86 82 01) left "01" to be read as the
+    /// damage: a Gladiator's 2,004 counted as 1 and bosses came out at 93-97%
+    /// of their HP.
+    #[test]
+    fn skill_result_damage_after_a_long_varint() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
+        let mut d = Decoder::new(Arc::new(Definitions::from_json(&src).unwrap()), None);
+        let flow = FlowKey { src: Endpoint { ip: Ipv4Addr::new(9, 9, 9, 9), port: 13328 }, dst: Endpoint { ip: Ipv4Addr::new(10, 0, 0, 2), port: 5000 } };
+        let mut out = Vec::new();
+        let long = [0x25, 0x04, 0x38, 0xa7, 0xe5, 0x02, 0x16, 0x00, 0xd5, 0x2a, 0xec, 0x41, 0xae, 0x00, 0xd0, 0x02, 0x80, 0x00, 0x02, 0x3b, 0xc0, 0x11, 0x44, 0x01, 0x00, 0x00, 0x00, 0x86, 0x82, 0x01, 0xd4, 0x0f, 0x01, 0x00];
+        let short = [0x27, 0x04, 0x38, 0xa7, 0xe5, 0x02, 0x36, 0x00, 0xd5, 0x2a, 0x72, 0xbf, 0xaa, 0x00, 0xa2, 0x03, 0x80, 0x00, 0x01, 0x93, 0xc8, 0xb2, 0x42, 0x02, 0x00, 0x00, 0x00, 0xe6, 0x62, 0xd1, 0x13, 0x01, 0xfb, 0x01, 0x02, 0x00];
+        d.push(flow, true, &long, false, 1.0, &mut out);
+        d.push(flow, true, &short, false, 1.0, &mut out);
+        let dmg: Vec<u64> = out.iter().filter_map(|e| if let GameEvent::Damage { amount, .. } = e { Some(*amount) } else { None }).collect();
+        assert_eq!(dmg, vec![2004, 2513], "{out:?}");
     }
 
     /// A real 0x9200 from an open-world party of two (another player's name

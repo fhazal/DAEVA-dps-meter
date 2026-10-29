@@ -62,7 +62,7 @@
         data = (record.details || []).find((d) => d.id === p.actor_id) || null;
         if (data) data.fight_duration = record.duration;
       } else {
-        data = await D.callJSON("get_detail", { fightId: p.fight_id ?? null, actorId: p.actor_id, target });
+        data = await D.callJSON("get_detail", { fightId: p.fight_id ?? null, actorId: p.actor_id, target, pvp: p.pvp ?? null });
         const snap = await D.callJSON("get_snapshot", {});
         D.applyTheme(snap.ui);
         // While the name lists download, skill names are on the way.
@@ -92,10 +92,10 @@
   function render() {
     const c = document.getElementById("c");
     if (!data) { c.innerHTML = '<span class="muted">No data for this player.</span>'; return; }
-    document.getElementById("title").innerHTML = `${D.esc(data.name)} <small>${D.dur(data.fight_duration || data.active_time)}</small>`;
+    document.getElementById("title").innerHTML = `${D.esc(data.name)}${data.pvp ? ` <span style="color:#ff9d92;font-size:11px;font-weight:700">PvP</span>` : ""} <small>${D.dur(data.fight_duration || data.active_time)}</small>`;
     const color = D.classColor(data.class, data.name);
     const targets = data.targets || [];
-    const opts = [`<option value="">All targets · ${D.fmt(data.fight_dmg ?? data.dmg)}</option>`]
+    const opts = [`<option value="">${data.pvp ? "All enemies (PvP)" : "All targets"} · ${D.fmt(data.fight_dmg ?? data.dmg)}</option>`]
       .concat((() => {
         // Several targets can share a name (e.g. "Unknown monster"): number them.
         const seen = {}, total = {};

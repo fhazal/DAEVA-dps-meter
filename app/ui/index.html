@@ -49,6 +49,24 @@
   .tcard.r-heroic { --rk: 232,168,75; }
   .tcard.r-legendary, .tcard.r-boss { --rk: 232,103,126; }
   .tcard.dead .hp i { opacity: 0; }
+  /* PvP: the player you're fighting, on a crimson card. Green = what you
+     dealt them, red = what you took from them. */
+  .tcard.pvp { --rk: 229,92,92; background: linear-gradient(180deg, rgba(160,34,44,.30), rgba(96,22,30,.16)); border-color: rgba(229,92,92,.45); }
+  .target .pv-ic { width: 24px; height: 24px; flex: none; display: grid; place-items: center; border-radius: 50%; background: rgba(0,0,0,.35); border: 1px solid rgba(229,92,92,.35); }
+  .target .name .cls { color: var(--muted); font-weight: 500; font-size: 11.5px; margin-left: 6px; }
+  .pv-chip { display: inline-flex; align-items: center; gap: 4px; flex: none; padding: 0 6px; border-radius: 5px; font-size: 10.5px; font-weight: 700; line-height: 16px; color: #ff9d92; background: rgba(229,92,92,.13); border: 1px solid rgba(229,92,92,.45); white-space: nowrap; }
+  .pv-chip svg { width: 11px; height: 11px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
+  .pv-bar { display: flex; height: 7px; border-radius: 4px; overflow: hidden; background: rgba(10,12,16,.75); margin: 7px 0 6px; }
+  .pv-bar .d { background: linear-gradient(90deg, #3f9a5c, #5cc97f); transition: width .25s; }
+  .pv-bar .t { flex: 1; background: linear-gradient(90deg, #c9534a, #ec7a64); }
+  .tc-bot b.dl, .so-bn b.dl { color: var(--good); }
+  .tc-bot b.tk, .so-bn b.tk, .rows .val .sub.tk { color: #f08a7e; }
+  img.fac { width: auto; flex: none; margin-left: 6px; vertical-align: -3px; filter: brightness(1.7) saturate(1.2) drop-shadow(0 0 4px rgba(255,226,160,.35)); }
+  .pv-down { margin-left: 8px; padding: 0 5px; border-radius: 4px; font-size: 10px; font-weight: 700; line-height: 15px; color: #9ff0b6; background: rgba(92,201,127,.14); border: 1px solid rgba(92,201,127,.4); white-space: nowrap; vertical-align: 1px; }
+  .pv-down.sm { margin-left: 6px; padding: 0 4px; }
+  .so-bn b .pv-down { display: inline; font-size: 9px; line-height: 13px; margin-left: 4px; }
+  .pv-dead { flex: none; margin-right: 6px; padding: 0 6px; border-radius: 5px; font-size: 10.5px; font-weight: 700; line-height: 16px; color: #fff; background: rgba(200,50,50,.55); border: 1px solid rgba(255,110,110,.6); white-space: nowrap; }
+  .so-bn img.fac { margin-left: 2px; vertical-align: -2px; }
   .tc-bot > span { display: inline-flex; align-items: center; gap: 5px; }
   .tc-bot .fam { color: var(--text); font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
   .tc-bot .famic svg { width: 13px; height: 13px; display: block; }
@@ -277,6 +295,12 @@
   .so-bn .wb-share b { display: inline; font-size: inherit; line-height: inherit; }
   .so-bn .chk.ow svg { vertical-align: -2px; }
   .so-rt { display: flex; align-items: center; gap: 6px; flex: none; }
+  .so-pv { width: 22px; height: 22px; flex: none; display: grid; place-items: center; border-radius: 6px; background: rgba(0,0,0,.35); border: 1px solid rgba(229,92,92,.4); }
+  .so-bn span b.dl, .so-bn span b.tk { display: inline; font-size: inherit; line-height: inherit; font-weight: 700; }
+  .so-hp.pv { display: flex; }
+  .so-hp.pv i { box-shadow: none; }
+  .so-hp.pv i.d { background: linear-gradient(90deg, #3f9a5c, #5cc97f); }
+  .so-hp.pv i.t { flex: 1; }
   .so-clock { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 11px; color: #bfe3ff; background: rgba(79,184,232,.12); border: 1px solid rgba(79,184,232,.25); padding: 1px 7px; border-radius: 5px; }
   .so-enr { font-size: 10px; color: var(--muted); background: rgba(255,255,255,.05); padding: 1px 6px; border-radius: 5px; font-weight: 600; font-variant-numeric: tabular-nums; }
   .so-enr.soon { color: var(--warn); background: rgba(231,180,76,.12); } .so-enr.on { color: var(--bad); background: rgba(229,103,95,.14); }
@@ -525,6 +549,8 @@
       // party in the usual rows, dashes for figures, so the meter reads ready.
       setProp($("target"), "hidden", true);
       setHTML($("rows"), readyRoster(snap.party, m));
+    } else if (pvpOn(f)) {
+      renderPvp(f);
     } else if (!f || !f.players.length) {
       setProp($("target"), "hidden", true);
       if (setHTML($("rows"), emptyState(s, state, text))) wireEmpty();
@@ -910,6 +936,7 @@ Your damage: ${D.fmt(me ? me.dmg : 0)}, ${D.pct(share, 1)} of ${t.name}'s ${D.fm
       : mode === "party" ? f.players.filter((p) => p.in_party || p.is_self)
       : f.players;
     const rows = list.slice(0, Math.max(1, ui.rows || 8));
+    const mix = facMix(list);
     const top = Math.max(1, ...rows.map((p) => (m === "dps" ? p.dps : p.dmg)));
     const fk = f.fight_id + "_";
     for (const k of Object.keys(odoShown)) if (!k.startsWith(fk)) { delete odoShown[k]; delete trend[k]; delete anims[k]; }
@@ -943,7 +970,7 @@ Your damage: ${D.fmt(me ? me.dmg : 0)}, ${D.pct(share, 1)} of ${t.name}'s ${D.fm
       return `<div class="row${p.is_self ? " self" : ""}" data-id="${p.id}" title="${D.esc(tip)}">
         <i class="fill" style="width:${((v / top) * 100).toFixed(1)}%;background:${color}"></i>
         <i class="edge" style="background:${color}"></i>
-        <span class="who">${D.classIcon(p.class, 18)}<span class="nm">${D.esc(displayName(p, i))}</span></span>
+        <span class="who">${D.classIcon(p.class, 18)}<span class="nm">${D.esc(displayName(p, i))}</span>${mix ? facIc(p, 13) : ""}</span>
         ${xc(p, cc)}<span class="val">${main}${heal}${sub}</span>
       </div>`;
     }).join("");
@@ -959,6 +986,54 @@ Your damage: ${D.fmt(me ? me.dmg : 0)}, ${D.pct(share, 1)} of ${t.name}'s ${D.fm
     });
   }
 
+  // ---- PvP: you against players outside your party and Force ----
+  // Shown while PvP is on (and after a fight that was mostly PvP). Only the
+  // hits between you and them count; monster damage stays out.
+  const pvpOn = (f) => !!(f && f.pvp && f.pvp.show);
+  // Faction emblems on your list and in the party panel only when both
+  // factions are in it (dungeon queue parties): an all-one-side list stays clean.
+  const facMix = (xs) => new Set(xs.map((x) => x.faction).filter(Boolean)).size > 1;
+  const facIc = (x, px) => x.faction ? `<img class="fac" src="img/factions/${x.faction.toLowerCase()}.png" title="${D.esc(x.faction)}" alt="${D.esc(x.faction)}" style="height:${px}px">` : "";
+  const pvpTip = (p, e) => `PvP: hits between you and players outside your party and Force.\n${e.name}: you dealt ${D.fmt(e.dealt || 0)}, took ${D.fmt(e.taken || 0)}.\nAll ${(p.enemies || []).length} enemies: dealt ${D.fmt(p.dealt)}, took ${D.fmt(p.taken)} in ${D.dur(p.secs)}.`;
+  // Green share of the bar: what you dealt this enemy against what you took.
+  const pvpSplit = (e) => { const sum = (e.dealt || 0) + (e.taken || 0); return sum ? ((e.dealt || 0) / sum) * 100 : 50; };
+  function renderPvp(f) {
+    const p = f.pvp, e = p.foe || {}, en = p.enemies || [];
+    if (editing) return;
+    if (!ui.show_target) setProp($("target"), "hidden", true);
+    else {
+      setProp($("target"), "hidden", false);
+      const name = displayName(e, en.findIndex((x) => x.id === e.id));
+      const html = `<div class="tcard pvp" title="${D.esc(pvpTip(p, e))}"><div class="row1"><span class="pv-ic">${D.classIcon(e.class, 18)}</span><div class="name">${D.esc(name)}${e.class ? `<span class="cls">${D.esc(e.class)}</span>` : ""}${facIc(e, 16)}${e.died ? `<span class="pv-down" title="Died in this fight">✝ Down</span>` : ""}</div>${p.self_died ? `<span class="pv-dead" title="You died in this fight">☠ You died</span>` : ""}<span class="pv-chip">${D.icon("swords")} PvP</span></div>`
+        + `<div class="pv-bar"><i class="d" style="width:${pvpSplit(e).toFixed(1)}%"></i><i class="t"></i></div>`
+        + `<div class="tc-bot"><span>Dealt <b class="dl">${D.fmt(e.dealt || 0)}</b> · Took <b class="tk">${D.fmt(e.taken || 0)}</b></span><span>${D.dur(p.secs)} · <b>${en.length}</b> ${en.length === 1 ? "enemy" : "enemies"}</span></div></div>`;
+      if (html !== lastTargetHtml) { $("target").innerHTML = html; lastTargetHtml = html; }
+    }
+    // Enemies: what you dealt each (gold title, the order) and took from each.
+    const fk = f.fight_id + "_";
+    const rowsEl = $("rows");
+    rowsEl.classList.add("cols", "nox");
+    rowsEl.style.setProperty("--xc", "0px");
+    rowsEl.style.setProperty("--vc", "66px 54px");
+    rowsEl.style.setProperty("--vw", "120px");
+    const top = Math.max(1, ...en.map((x) => (x.dealt || 0) + (x.taken || 0)));
+    const head = `<div class="colhead"><span>Enemy</span><span class="vh"><span>Dealt</span><span>Taken</span></span></div>`;
+    const html = head + en.slice(0, Math.max(1, ui.rows || 8)).map((x, i) => {
+      const color = D.classColor(x.class, x.name);
+      return `<div class="row pv" data-id="${x.id}" title="${D.esc(`${x.name}${x.class ? " (" + x.class + ")" : ""}\nYou dealt ${D.fmt(x.dealt || 0)} · took ${D.fmt(x.taken || 0)}`)}">
+        <i class="fill" style="width:${((((x.dealt || 0) + (x.taken || 0)) / top) * 100).toFixed(1)}%;background:${color}"></i>
+        <i class="edge" style="background:${color}"></i>
+        <span class="who">${D.classIcon(x.class, 18)}<span class="nm">${D.esc(displayName(x, i))}</span>${facIc(x, 13)}${x.died ? `<span class="pv-down sm" title="Died in this fight">✝</span>` : ""}</span>
+        <span class="val">${odo(fk + "pvd" + x.id, x.dealt || 0, "num", "main")}<span class="sub tk">${x.taken ? odo(fk + "pvt" + x.id, x.taken, "num") : "–"}</span></span>
+      </div>`;
+    }).join("");
+    if (setHTML(rowsEl, html)) runOdos();
+    // An enemy opens your PvP breakdown on them (skills, rates, what they hit you for).
+    rowsEl.querySelectorAll(".row.pv").forEach((r) => {
+      r.onclick = () => D.call("open_window", { kind: "detail", params: JSON.stringify({ fight_id: f.fight_id, actor_id: 0, target: Number(r.dataset.id), pvp: true }) });
+    });
+  }
+
   // ---- Party panel (the lobby, the queue filling up) ----
   // The stripe shows Ready: green ready, red not yet, gold the leader (who
   // doesn't click Ready); grey in an open-world party (no ready check there).
@@ -970,10 +1045,11 @@ Your damage: ${D.fmt(me ? me.dmg : 0)}, ${D.pct(share, 1)} of ${t.name}'s ${D.fm
     const all = p.room && voters.length > 0 && readyN === voters.length;
     const head = `<div class="pty-h"><b>Party</b>${p.title ? `<span class="ttl" title="${D.esc(p.title)}">“${D.esc(p.title)}”</span>` : `<span class="ttl"></span>`}${p.room ? `<span class="pty-rd${all ? " all" : ""}">${all ? "✓ " : ""}${readyN}/${voters.length} ready</span>` : `<span class="pty-rd all" style="color:var(--muted);background:none;border-color:var(--line)">${ms.length} in party</span>`}</div>`
       + (p.room ? `<div class="pty-bar"><i class="${all ? "all" : ""}" style="width:${voters.length ? Math.round((readyN / voters.length) * 100) : 0}%"></i></div>` : "");
+    const mix = facMix(ms);
     const rows = ms.map((m) => {
       const st = m.leader && p.entering ? ["ok", "✓ Entering"] : m.leader ? ["ld", "Leader"] : m.ready === true ? ["ok", "✓ Ready"] : m.ready === false ? ["no", "● Not ready"] : ["", ""];
       return `<div class="pty-m${st[0] ? " s-" + st[0] : ""}${m.is_self ? " me" : ""}">
-        <span class="nm">${D.classIcon(m.class, 16)}${m.leader ? `<span title="Party leader">👑</span>` : ""}<span class="n">${D.esc(m.name)}</span>${m.is_self ? `<span class="metag">ME</span>` : ""}</span>
+        <span class="nm">${D.classIcon(m.class, 16)}${m.leader ? `<span title="Party leader">👑</span>` : ""}<span class="n">${D.esc(m.name)}</span>${mix ? facIc(m, 12) : ""}${m.is_self ? `<span class="metag">ME</span>` : ""}</span>
         <span class="sv" title="${D.esc(m.server || "")}">${D.esc(m.server_tag || "")}</span>
         <span class="num" title="Gear score">${m.gs ? m.gs.toLocaleString() : "–"}</span>
         <span class="num" title="Combat power">${m.cp ? D.fmt(m.cp) : "–"}</span>
@@ -1006,10 +1082,11 @@ Your damage: ${D.fmt(me ? me.dmg : 0)}, ${D.pct(share, 1)} of ${t.name}'s ${D.fm
     const all = ms.length > 0 && inN === ms.length;
     const head = `<div class="pty-h"><b>Party</b>${p.title ? `<span class="ttl" title="${D.esc(p.title)}">“${D.esc(p.title)}”</span>` : `<span class="ttl"></span>`}${p.rerun ? `<span class="pty-rd all" title="The leader started the dungeon again">✓ Entering · Rerun</span>` : `<span class="pty-rd ${all ? "all" : "in"}">${all ? "✓ " : ""}${inN}/${ms.length} in dungeon</span>`}</div>`
       + `<div class="pty-bar"><i class="${all ? "all" : "in"}" style="width:${ms.length ? Math.round((inN / ms.length) * 100) : 0}%"></i></div>`;
+    const mix = facMix(ms);
     const rows = ms.map((m) => {
       const st = m.in_dungeon ? ["ok", "● In dungeon"] : ["way", "→ On the way"];
       return `<div class="pty-m s-${st[0]}${m.is_self ? " me" : ""}">
-        <span class="nm">${D.classIcon(m.class, 16)}${m.leader ? `<span title="Party leader">👑</span>` : ""}<span class="n">${D.esc(m.name)}</span>${m.is_self ? `<span class="metag">ME</span>` : ""}${m.new ? `<span class="newtag" title="Joined during this run">NEW</span>` : ""}</span>
+        <span class="nm">${D.classIcon(m.class, 16)}${m.leader ? `<span title="Party leader">👑</span>` : ""}<span class="n">${D.esc(m.name)}</span>${mix ? facIc(m, 12) : ""}${m.is_self ? `<span class="metag">ME</span>` : ""}${m.new ? `<span class="newtag" title="Joined during this run">NEW</span>` : ""}</span>
         <span class="sv" title="${D.esc(m.server || "")}">${D.esc(m.server_tag || "")}</span>
         <span class="num" title="Gear score">${m.gs ? m.gs.toLocaleString() : "–"}</span>
         <span class="num" title="Combat power">${m.cp ? D.fmt(m.cp) : "–"}</span>
@@ -1035,11 +1112,20 @@ Your damage: ${D.fmt(me ? me.dmg : 0)}, ${D.pct(share, 1)} of ${t.name}'s ${D.fm
   }
   function renderSolo(f, s, state, text, ping) {
     const so = ui.solo || {};
-    const me = f && f.players ? f.players.find((p) => p.is_self) : null;
+    const pv = pvpOn(f) ? f.pvp : null;
+    // PvP: your card shows what you dealt the players you fought.
+    const me = pv ? { name: s.self_name, dps: pv.dps, dmg: pv.dealt, share: 1, hits: pv.hits, crit_rate: pv.crit_rate, double_rate: pv.double_rate, perfect_rate: pv.perfect_rate, front_rate: pv.front_rate, back_rate: pv.back_rate }
+      : f && f.players ? f.players.find((p) => p.is_self) : null;
     const t = f && f.target && ui.show_target !== false ? f.target : null;
     // Boss line: portrait, name, HP left / max; enrage, fight clock, HP %.
     let hd;
-    if (t) {
+    if (pv && ui.show_target !== false) {
+      // PvP line: the enemy's class and name, what you dealt and took, the
+      // enemy count and the PvP clock; the bar is green dealt / red taken.
+      const e = pv.foe || {}, en = pv.enemies || [];
+      hd = `<div class="so-hd" data-drag title="${D.esc(pvpTip(pv, e))}"><span class="so-pv">${D.classIcon(e.class, 16)}</span><div class="so-bn" data-drag><b>${D.esc(displayName(e, en.findIndex((x) => x.id === e.id)))}${e.died ? ` <span class="pv-down">✝ Down</span>` : ""}</b><span>${e.class ? D.esc(e.class) + " " : ""}${facIc(e, 11)}${e.class || e.faction ? " · " : ""}Dealt <b class="dl">${D.fmt(e.dealt || 0)}</b> · Took <b class="tk">${D.fmt(e.taken || 0)}</b></span></div><div class="so-rt">${pv.self_died ? `<span class="pv-dead">☠</span>` : ""}<span class="pv-chip">${D.icon("swords")} PvP · ${en.length}</span><span class="so-clock">${clock(pv.secs)}</span></div></div>`
+        + `<div class="so-hp pv"><i class="d" style="width:${pvpSplit(e).toFixed(1)}%"></i><i class="t"></i></div>`;
+    } else if (t) {
       const dead = t.hp_pct != null ? t.hp_pct <= 0.0005 : !!f.boss_killed;
       const pctv = dead ? 0 : t.hp_pct == null ? null : Math.min(1, Math.max(0, t.hp_pct));
       const secs = t.secs || f.duration || 0;
@@ -1070,7 +1156,7 @@ Your damage: ${D.fmt(me ? me.dmg : 0)}, ${D.pct(share, 1)} of ${t.name}'s ${D.fm
     const fk = f ? f.fight_id + "_" : "x_";
     // Rank and share both count everyone on the fight's damage list (you and
     // whoever fought with you), as Details and ACT do, so they always agree.
-    const pool = f ? f.players : [];
+    const pool = f && !pv ? f.players : [];
     const grouped = pool.some((p) => p.in_party && !p.is_self);
     const rank = me ? pool.indexOf(me) + 1 : 0;
     const name = (me && me.name) || s.self_name || "You";
@@ -1080,7 +1166,8 @@ Your damage: ${D.fmt(me ? me.dmg : 0)}, ${D.pct(share, 1)} of ${t.name}'s ${D.fm
     const cp = cpv ? `<span class="cp" title="Combat power">◆ ${D.fmt(cpv)}</span> · ` : "";
     const line = [cls ? D.esc(cls) : "", so.rank !== false && me && pool.length > 1 ? `<span class="rk">#${rank} of ${pool.length}</span>` : "", so.rank !== false && me && pool.length > 1 ? D.pct(me.share) : ""].filter(Boolean).join(" · ");
     const dps = me ? odo(fk + "solo", me.dps, "int") : `<span class="odo">0</span>`;
-    const tip = me ? `Damage ${D.fmt(me.dmg)} · ${D.fmt(me.dps)}/s\n${clockRule(f)}\nClick for your full breakdown` : "";
+    const tip = pv ? `PvP damage ${D.fmt(pv.dealt)} · ${D.fmt(pv.dps)}/s\nDPS clock: what you dealt players ÷ ${D.dur(pv.secs)} of PvP (first to last hit between you)`
+      : me ? `Damage ${D.fmt(me.dmg)} · ${D.fmt(me.dps)}/s\n${clockRule(f)}\nClick for your full breakdown` : "";
     const chip = (k, v) => `<div><small>${k}</small><b>${me ? D.pct(v || 0) : "–"}</b></div>`;
     const chips = so.chips !== false ? `<div class="so-chips">${chip("CRIT", me && me.crit_rate)}${chip("DBL", me && me.double_rate)}${chip("PERF", me && me.perfect_rate)}${chip("FRONT", me && me.front_rate)}${chip("BACK", me && me.back_rate)}</div>` : "";
     const shareLine = so.rank !== false ? `<div class="so-share" title="Your share of the damage"><i style="width:${me ? (Math.min(1, me.share || 0) * 100).toFixed(1) : 0}%"></i></div>` : "";
@@ -1120,7 +1207,9 @@ Your damage: ${D.fmt(me ? me.dmg : 0)}, ${D.pct(share, 1)} of ${t.name}'s ${D.fm
     const act = a.dataset.act;
     if (act === "settings") D.call("open_window", { kind: "settings" });
     else if (act === "lock") D.call("toggle_click_through").then((on) => D.toast(on ? "Click-through on — Ctrl+Shift+L to unlock" : "Click-through off"));
-    else if (act === "detail" && lastFight) {
+    else if (act === "detail" && lastFight && pvpOn(lastFight)) {
+      D.call("open_window", { kind: "detail", params: JSON.stringify({ fight_id: lastFight.fight_id, actor_id: 0, pvp: true }) });
+    } else if (act === "detail" && lastFight) {
       const me = lastFight.players.find((p) => p.is_self);
       if (me) D.call("open_window", { kind: "detail", params: JSON.stringify({ fight_id: lastFight.fight_id, actor_id: me.id }) });
     }

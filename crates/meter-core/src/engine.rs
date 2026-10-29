@@ -371,7 +371,7 @@ impl SkillStat {
         }
         self.max = self.max.max(amount);
         self.min = if self.min == 0 { amount } else { self.min.min(amount) };
-        let cast = fl >> flags::CAST_SHIFT;
+        let cast = (fl >> flags::CAST_SHIFT) & flags::CAST_MASK;
         if cast == 0 || cast != self.last_cast {
             self.casts += 1;
             self.last_cast = cast;
@@ -501,6 +501,8 @@ pub struct ActorInfo {
     /// of seen hits removed per point of damage (see `hp_scale`).
     pub taken_at_hp: u64,
     pub hp_ratios: Vec<f32>,
+    /// A player's faction: 1 = Elyos, 2 = Asmodian (the game's race id).
+    pub race: Option<u8>,
 }
 
 #[derive(Debug, Clone)]
@@ -559,6 +561,15 @@ pub struct Fight {
     /// Names in your party or Force while this fight ran (a world boss
     /// lists only them, also later in the history).
     pub group: std::collections::HashSet<String>,
+    /// Players you fought (PvP): enemy -> first and last hit between you.
+    pub pvp: HashMap<u64, (f64, f64)>,
+    /// Your hits on them, kept out of the damage list so a monster fight's
+    /// figures stay the game's own; what they did to you is in your stats
+    /// (taken_from).
+    pub pvp_me: ActorStat,
+    /// Players' factions (enemies and your list), frozen when the fight
+    /// ends (see `names`).
+    pub races: HashMap<u64, u8>,
 }
 
 impl Fight {
@@ -760,6 +771,17 @@ pub struct Engine {
     /// Monsters that died, and when: later hits (a damage-over-time tick
     /// after the kill) don't count, as in the game's own Combat Analysis.
     dead_at: HashMap<u64, f64>,
+    /// Players you fought this session (PvP), by name: still enemies when
+    /// they hit the same monster as you.
+    foes: std::collections::HashSet<String>,
+    /// Your faction (from your character info).
+    pub self_race: Option<u8>,
+    /// When the game last said your party is gone (an empty list).
+    left_at: f64,
+    /// The room is down to just you after the others left: not a queue.
+    leftover_room: bool,
+    /// The title of the last room you were in.
+    last_room_title: Option<String>,
 }
 
 impl Engine {
@@ -808,6 +830,11 @@ impl Engine {
             room_exit_at: f64::NEG_INFINITY,
             npc_max_hp: HashMap::new(),
             dead_at: HashMap::new(),
+            foes: Default::default(),
+            self_race: None,
+            left_at: f64::NEG_INFINITY,
+            leftover_room: false,
+            last_room_title: None,
         }
     }
 
@@ -827,6 +854,7 @@ impl Engine {
             first_hp: None,
             taken_at_hp: 0,
             hp_ratios: Vec::new(),
+            race: None,
         })
     }
 
@@ -925,9 +953,63 @@ impl Engine {
                     t.taken = t.taken.saturating_add(*amount);
                 }
                 let key = if fl & flags::DOT != 0 { *skill | DOT_KEY } else { *skill };
+                // PvP: you and a player outside your party and Force hit each
+                // other. Starts or joins the fight; it ends 10 s after the
+                // last hit between you. Used to count as your healing.
+                if let Some(foe) = self.pvp_foe(attacker, *tgt, *fl) {
+                    if *amount == 0 && fl & (flags::EVADE | flags::PARRY | flags::BLOCK) == 0 {
+                        return finished;
+                    }
+                    if let Some(n) = self.actors.get(&foe).and_then(|a| a.name.clone()) {
+                        self.foes.insert(n);
+                    }
+                    self.pending_end = None;
+                    let me = self.self_id.unwrap_or_default();
+                    // You (and your party) stopped hitting monsters, and now
+                    // a player fight starts: that's a PvP fight of its own.
+                    // The monster fight ends as it was (its figures stay the
+                    // game's), and the card stays on the player after the
+                    // kill (Akairi, 2026-10-29). A player attacking while you
+                    // keep at the mob stays in that fight.
+                    let turned = self.current.as_ref().map_or(false, |f| {
+                        !f.finished && !f.targets.is_empty() && f.pvp.is_empty() && *ts - f.own_last.values().fold(f.start, |a, b| a.max(*b)) >= PVP_SPLIT_GAP
+                    });
+                    if turned {
+                        if let Some(f) = self.finish() {
+                            finished = Some(f);
+                        }
+                    }
+                    let fight = self.ensure_fight(*ts);
+                    // A fight on monsters keeps its own clock (its DPS stays
+                    // the game's); PvP after it is a fight of its own.
+                    if fight.targets.is_empty() {
+                        fight.end = fight.end.max(*ts);
+                    }
+                    let span = fight.pvp.entry(foe).or_insert((*ts, *ts));
+                    span.1 = span.1.max(*ts);
+                    if attacker == me {
+                        let start = fight.start;
+                        Self::add_hit_to(&mut fight.pvp_me, start, foe, *ts, *amount, *fl, key);
+                    } else {
+                        Self::add_taken(fight, me, foe, *ts, *amount, *fl);
+                    }
+                    return finished;
+                }
                 // Friendly on friendly: the game reports heals in the same
                 // message as damage.
                 if self.is_friendly(attacker) && self.is_friendly(self.resolve_owner(*tgt)) {
+                    // A real attack is other players' PvP, not a heal (it
+                    // showed as their healing at the Abyss).
+                    // Only strangers of different, known factions: anything
+                    // else is a heal or buff, as before. Dungeon parties mix
+                    // Elyos and Asmodians (Urugugu 2026-10-29: an Elyos
+                    // healer's heals on the party went missing).
+                    let race = |id: u64| self.actors.get(&id).and_then(|a| a.race).or(if Some(id) == self.self_id { self.my_race() } else { None });
+                    let t = self.resolve_owner(*tgt);
+                    let (ra, rt) = (race(attacker), race(t));
+                    if fl & flags::AIMED != 0 && ra.is_some() && rt.is_some() && ra != rt && !self.in_group(attacker) && !self.in_group(t) {
+                        return finished;
+                    }
                     // (class already learned above)
                     self.record_heal(*ts, attacker, *tgt, key, *amount, *fl);
                     return finished;
@@ -941,27 +1023,26 @@ impl Engine {
                 if attacker_is_npc || target_is_friendly {
                     let t = self.resolve_owner(*tgt);
                     if let Some(f) = self.current.as_mut() {
-                        let s = f.stats.entry(t).or_insert_with(|| ActorStat { first: *ts, last: *ts, ..Default::default() });
-                        s.taken += amount;
-                        *s.taken_from.entry(attacker).or_default() += amount;
-                        if fl & flags::DOT == 0 {
-                            s.taken_hits += 1;
-                            if fl & flags::PARRY != 0 {
-                                s.taken_parry += 1;
-                            }
-                            if fl & flags::BLOCK != 0 {
-                                s.taken_block += 1;
-                            }
-                            if fl & flags::PERFECT_BLOCK != 0 {
-                                s.taken_perfect_block += 1;
-                            }
-                        }
+                        Self::add_taken(f, t, attacker, *ts, *amount, *fl);
                     }
                     return finished;
                 }
                 // A boss mechanic reported like a damage-over-time tick (it
                 // heals the boss), or a tick that lands after the kill.
                 if fl & flags::NPC_ONLY != 0 || self.dead_at.get(tgt).map_or(false, |d| *ts > *d) {
+                    return finished;
+                }
+                // An enemy player hitting your monster isn't on your side: not
+                // in your list (Abyss, 2026-10-26).
+                if self.is_foe(attacker) {
+                    return finished;
+                }
+                // Nor is a player of the other faction outside your party,
+                // Force and room, before any hit between you (Null on your
+                // Drakan, Abyss 2026-10-29). Only parties mix the factions
+                // (Urugugu, Vakron); Shugo and invasions never did in 45
+                // recordings.
+                if self.actors.get(&attacker).map_or(false, |a| a.kind == ActorKind::Player && a.race.is_some() && self.my_race().is_some() && a.race != self.my_race()) && !self.in_group(attacker) {
                     return finished;
                 }
                 // Scope: your damage, damage on targets you've hit, and all
@@ -1063,6 +1144,13 @@ impl Engine {
                         finished = Some(f);
                     }
                 }
+                // A PvP fight, and now a monster: the PvP stays a fight of its
+                // own, and the monster fight's clock starts here.
+                if extends && self.current.as_ref().map_or(false, |f| !f.finished && f.targets.is_empty() && !f.pvp.is_empty()) {
+                    if let Some(f) = self.finish() {
+                        finished = Some(f);
+                    }
+                }
                 let grouped = dungeon_party;
                 let fight = self.ensure_fight(*ts);
                 fight.grouped |= grouped;
@@ -1095,43 +1183,7 @@ impl Engine {
                 if group_hit {
                     fight.own_last.insert(*tgt, *ts);
                 }
-                let bucket = ((*ts - fight.start).max(0.0)) as usize;
-                let s = fight.stats.entry(attacker).or_insert_with(|| ActorStat { first: *ts, ..Default::default() });
-                s.last = *ts;
-                s.dmg += amount;
-                // Periodic ticks don't count as hits for the rate columns
-                // (same as Abyss, which shows "-" for DoT casts).
-                if fl & flags::DOT == 0 {
-                    s.hits += 1;
-                    if fl & flags::CRIT != 0 {
-                        s.crits += 1;
-                    }
-                    if fl & flags::BACK != 0 {
-                        s.back += 1;
-                    }
-                    if fl & flags::FRONT != 0 {
-                        s.front += 1;
-                    }
-                    if fl & flags::PERFECT != 0 {
-                        s.perfect += 1;
-                    }
-                }
-                if *amount > s.max_hit {
-                    s.max_hit = *amount;
-                    s.max_hit_skill = key;
-                }
-                *s.by_target.entry(*tgt).or_default() += amount;
-                if bucket < 3600 {
-                    if s.timeline.len() <= bucket {
-                        s.timeline.resize(bucket + 1, 0);
-                    }
-                    s.timeline[bucket] += amount;
-                }
-                if fl & flags::DOUBLE != 0 {
-                    s.doubles += 1;
-                }
-                s.skills.entry(key).or_default().add(*amount, *fl);
-                s.target_skills.entry(*tgt).or_default().entry(key).or_default().add(*amount, *fl);
+                Self::add_hit(fight, attacker, *tgt, *ts, *amount, *fl, key);
             }
             GameEvent::Heal { ts, src, tgt, skill, amount, flags: fl } => {
                 // 0x7fffffff is the game's "heal to full", not an amount
@@ -1450,6 +1502,12 @@ impl Engine {
                 }
             }
             GameEvent::Buff { .. } => {}
+            GameEvent::ActorRace { id, race } => {
+                if Some(*id) == self.self_id {
+                    self.self_race = Some(*race);
+                }
+                self.actor(*id).race = Some(*race);
+            }
             GameEvent::ActorServer { id, server } => {
                 if Some(*id) == self.self_id {
                     self.self_server = Some(*server);
@@ -1478,13 +1536,32 @@ impl Engine {
                 } else if members.is_empty() {
                     self.party_info = None;
                     self.left_party = true;
+                    self.left_at = self.last_ts;
                     // Leaving the party takes you out of its Force too.
                     self.force.clear();
+                } else if self.self_name.as_deref().map_or(false, |me| members.len() == 1 && members[0].name == me)
+                    // the same room as before (a room you open is a new one)
+                    && (title.is_none() || *title == self.last_room_title)
+                    // right after "party gone" (at the leader's Enter click a
+                    // list of just you comes too, then the full one)
+                    && (self.leftover_room || self.last_ts - self.left_at < 10.0)
+                {
+                    // Everyone else left, and the game keeps the room with just
+                    // you in it: that's not a queue (Urugugu 2026-10-29: the
+                    // "Leaving now." room showed as a queue for an hour, in the
+                    // Abyss and at Shugo). Until someone joins or you enter a
+                    // room again.
+                    self.leftover_room = true;
+                    self.party_info = None;
                 } else {
                     // Just you counts too: the party you start by inviting, or
                     // the room you open, lists only you until the others join
                     // (they come one by one, the full list up to 40 s later).
                     self.left_party = false;
+                    self.leftover_room = false;
+                    if title.is_some() {
+                        self.last_room_title = title.clone();
+                    }
                     let mut names: Vec<&str> = members.iter().map(|m| m.name.as_str()).collect();
                     names.sort();
                     let key = names.join("
@@ -1601,6 +1678,7 @@ impl Engine {
                 }
             }
             GameEvent::RoomEntered => {
+                self.leftover_room = false;
                 self.exited_dungeon = false;
                 self.room_entered_at = self.last_ts;
                 self.named_from_join = None;
@@ -1763,6 +1841,9 @@ impl Engine {
                 own_last: Default::default(),
                 grouped: false,
                 group: Default::default(),
+                pvp: Default::default(),
+                pvp_me: Default::default(),
+                races: Default::default(),
             });
             self.note_group();
         }
@@ -1816,7 +1897,14 @@ impl Engine {
                 // your own only while the boss is what you last hit: a mob
                 // you killed next to a big monster ends the fight as usual.
                 let on_boss = f.grouped || self.card_boss(f).map_or(false, |b| f.focus == Some(b)) || f.main_target().map_or(false, |t| f.focus == Some(t) && self.is_real_boss(t));
-                let limit = if on_boss && self.boss_alive(f) { self.cfg.boss_idle_timeout } else { self.cfg.idle_timeout };
+                let limit = if on_boss && self.boss_alive(f) {
+                    self.cfg.boss_idle_timeout
+                } else if f.targets.is_empty() && !f.pvp.is_empty() {
+                    // PvP only: players break off and come back.
+                    self.cfg.idle_timeout.max(PVP_IDLE)
+                } else {
+                    self.cfg.idle_timeout
+                };
                 now - f.end > limit
             }
             _ => false,
@@ -1846,6 +1934,157 @@ impl Engine {
 
     fn is_friendly(&self, id: u64) -> bool {
         Some(id) == self.self_id || self.actors.get(&id).map_or(false, |a| matches!(a.kind, ActorKind::Player | ActorKind::Summon))
+    }
+
+    /// One hit by `attacker` on `tgt` in the fight's damage figures.
+    fn add_hit(fight: &mut Fight, attacker: u64, tgt: u64, ts: f64, amount: u64, fl: u32, key: u32) {
+        let start = fight.start;
+        let s = fight.stats.entry(attacker).or_insert_with(|| ActorStat { first: ts, ..Default::default() });
+        Self::add_hit_to(s, start, tgt, ts, amount, fl, key);
+    }
+
+    fn add_hit_to(s: &mut ActorStat, start: f64, tgt: u64, ts: f64, amount: u64, fl: u32, key: u32) {
+        let bucket = ((ts - start).max(0.0)) as usize;
+        if s.hits == 0 && s.dmg == 0 && s.first == 0.0 {
+            s.first = ts;
+        }
+        s.last = ts;
+        s.dmg += amount;
+        // Periodic ticks don't count as hits for the rate columns
+        // (same as Abyss, which shows "-" for DoT casts).
+        if fl & flags::DOT == 0 {
+            s.hits += 1;
+            if fl & flags::CRIT != 0 {
+                s.crits += 1;
+            }
+            if fl & flags::BACK != 0 {
+                s.back += 1;
+            }
+            if fl & flags::FRONT != 0 {
+                s.front += 1;
+            }
+            if fl & flags::PERFECT != 0 {
+                s.perfect += 1;
+            }
+        }
+        if amount > s.max_hit {
+            s.max_hit = amount;
+            s.max_hit_skill = key;
+        }
+        *s.by_target.entry(tgt).or_default() += amount;
+        if bucket < 3600 {
+            if s.timeline.len() <= bucket {
+                s.timeline.resize(bucket + 1, 0);
+            }
+            s.timeline[bucket] += amount;
+        }
+        if fl & flags::DOUBLE != 0 {
+            s.doubles += 1;
+        }
+        s.skills.entry(key).or_default().add(amount, fl);
+        s.target_skills.entry(tgt).or_default().entry(key).or_default().add(amount, fl);
+    }
+
+    /// Damage `t` took from `attacker`.
+    fn add_taken(fight: &mut Fight, t: u64, attacker: u64, ts: f64, amount: u64, fl: u32) {
+        let s = fight.stats.entry(t).or_insert_with(|| ActorStat { first: ts, last: ts, ..Default::default() });
+        s.taken += amount;
+        *s.taken_from.entry(attacker).or_default() += amount;
+        if fl & flags::DOT == 0 {
+            s.taken_hits += 1;
+            if fl & flags::PARRY != 0 {
+                s.taken_parry += 1;
+            }
+            if fl & flags::BLOCK != 0 {
+                s.taken_block += 1;
+            }
+            if fl & flags::PERFECT_BLOCK != 0 {
+                s.taken_perfect_block += 1;
+            }
+        }
+    }
+
+    /// The enemy player if this hit is PvP: between you and a player outside
+    /// your party and Force. The first one must be a real attack (a
+    /// stranger's heal on you comes as a skill result too); after that
+    /// damage-over-time ticks between you count as well.
+    fn pvp_foe(&self, attacker: u64, tgt: u64, fl: u32) -> Option<u64> {
+        let me = self.self_id?;
+        let tgt = self.resolve_owner(tgt);
+        let foe = if attacker == me { tgt } else if tgt == me { attacker } else { return None };
+        if foe == me {
+            return None;
+        }
+        // A named player (the game's player info), not a monster: some
+        // monsters use player-style skill ids and read as "Player #id"
+        // (dungeon bosses, 2026-10-22 recordings).
+        let a = self.actors.get(&foe).filter(|a| a.kind == ActorKind::Player && a.npc_id.is_none())?;
+        let n = a.name.as_ref()?;
+        if self.party.contains(n) || self.force.values().any(|m| &m.name == n) || self.party_info.as_ref().map_or(false, |p| p.members.iter().any(|m| &m.name == n)) {
+            return None;
+        }
+        // Your own faction is never the enemy (Abyss 2026-10-29: two
+        // Asmodian Elementalists counted as enemies in a crowd).
+        if a.race.is_some() && a.race == self.my_race() {
+            return None;
+        }
+        if self.foes.contains(n) {
+            return Some(foe);
+        }
+        // Fighting the same monsters as you before any hit between you: an
+        // ally. Players in a dungeon party hit each other at some bosses
+        // (Vakron's Tiere and Thamon, 2026-10-22), and with the meter
+        // started inside, the party list wasn't in yet. An enemy who also
+        // hits your monster stays an enemy (Abyss: つへ, Nosewo).
+        let live = self.current.as_ref().filter(|f| !f.finished);
+        if live.map_or(false, |f| f.stats.get(&foe).map_or(false, |s| s.by_target.keys().any(|t| f.targets.contains_key(t)))) {
+            return None;
+        }
+        if fl & flags::AIMED == 0 {
+            return None;
+        }
+        // Your own hit on someone only starts PvP when both factions are
+        // known and differ: a Chanter's group effects hit the crowd around
+        // you like attacks (Gartua 2026-10-29, meter started mid-zone so
+        // your faction wasn't known: 32 Asmodians as "enemies"). Their real
+        // attack on you always counts.
+        if attacker == me && !(a.race.is_some() && self.my_race().is_some() && a.race != self.my_race()) {
+            return None;
+        }
+        Some(foe)
+    }
+
+    /// You, or a player in your party, Force or dungeon room (by name).
+    fn in_group(&self, id: u64) -> bool {
+        Some(id) == self.self_id
+            || self.actors.get(&id).and_then(|a| a.name.as_ref()).map_or(false, |n| {
+                self.party.contains(n) || self.force.values().any(|m| &m.name == n) || self.party_info.as_ref().map_or(false, |p| p.members.iter().any(|m| &m.name == n))
+            })
+    }
+
+    /// A player's faction in a fight: frozen at its end, else live.
+    fn ffaction(&self, f: &Fight, id: u64) -> Option<&'static str> {
+        race_name(f.races.get(&id).copied().or_else(|| self.actors.get(&id).and_then(|a| a.race)))
+    }
+
+    /// A party member's faction by name (the party list has no faction):
+    /// yours from your character info, others from a player seen nearby.
+    pub fn faction_by_name(&self, name: &str) -> Option<&'static str> {
+        if self.self_name.as_deref() == Some(name) {
+            return race_name(self.my_race());
+        }
+        race_name(self.actors.values().find(|a| a.kind == ActorKind::Player && a.race.is_some() && a.name.as_deref() == Some(name)).and_then(|a| a.race))
+    }
+
+    /// Your faction, from your character info (sent at every zone load).
+    /// Not guessed from your party: dungeon parties mix both factions.
+    fn my_race(&self) -> Option<u8> {
+        self.self_race
+    }
+
+    /// A player you fought this session (by name), other than you.
+    fn is_foe(&self, id: u64) -> bool {
+        Some(id) != self.self_id && !self.foes.is_empty() && self.actors.get(&id).and_then(|a| a.name.as_ref()).map_or(false, |n| self.foes.contains(n))
     }
 
     fn record_heal(&mut self, ts: f64, healer: u64, tgt: u64, key: u32, amount: u64, fl: u32) {
@@ -2028,10 +2267,16 @@ impl Engine {
             .iter()
             .flat_map(|(id, st)| std::iter::once(*id).chain(st.by_target.keys().copied()).chain(st.taken_from.keys().copied()))
             .chain(f.targets.keys().copied())
+            .chain(f.pvp.keys().copied())
             .collect();
         for id in ids {
             let n = (self.actor_name(id), self.actor_class(id));
             f.names.entry(id).or_insert(n);
+        }
+        for e in f.stats.keys().chain(f.pvp.keys()) {
+            if let Some(r) = self.actors.get(e).and_then(|a| a.race) {
+                f.races.insert(*e, r);
+            }
         }
         for t in f.targets.keys() {
             if let Some(a) = self.actors.get(t) {
@@ -2044,7 +2289,8 @@ impl Engine {
         }
         // remove pure "taken" entries with no activity to keep history tidy
         f.stats.retain(|_, s| s.dmg > 0 || s.heal > 0 || s.taken > 0);
-        if f.total() < self.cfg.min_fight_damage {
+        // Attacked by a player and never hit back is still a PvP fight.
+        if f.total() < self.cfg.min_fight_damage && f.pvp.is_empty() {
             return None;
         }
         self.history.push_back(f.clone());
@@ -2543,6 +2789,7 @@ impl Engine {
                     .set("is_self", Some(**id) == f.self_id)
                     .set("in_party", Some(**id) == f.self_id || self.party.contains(&self.fname(f, **id)))
                     .set("in_force", force_names.contains(self.fname(f, **id).as_str()))
+                    .set("faction", self.ffaction(f, **id))
                     .set("dmg", d)
                     .set("dps", d as f64 / own_dur(s))
                     .set("share", if total > 0 { d as f64 / total as f64 } else { 0.0 })
@@ -2618,6 +2865,7 @@ impl Engine {
             .set("fight_id", f.id)
             .set("live", !f.finished)
             .set("duration", f.duration())
+            .set("pvp", self.pvp_json(f))
             .set("clock", clock)
             .set("clock_secs", dur)
             .set("clock_paused", if clock == "boss" && field_boss.is_none() { paused } else { 0.0 })
@@ -2641,6 +2889,58 @@ impl Engine {
             .build()
     }
 
+    /// The PvP card: the players you fought, what you dealt each and took
+    /// from each. `show`: the card is PvP (a PvP-only fight, or PvP in the
+    /// last 10 s of a live one; afterwards, when the PvP outweighed your
+    /// damage on monsters). Monster damage stays out of these figures.
+    fn pvp_json(&self, f: &Fight) -> Option<Value> {
+        if f.pvp.is_empty() {
+            return None;
+        }
+        let mine = f.self_id.and_then(|me| f.stats.get(&me));
+        let s = &f.pvp_me;
+        let dealt = |e: &u64| s.by_target.get(e).copied().unwrap_or(0);
+        let took = |e: &u64| mine.and_then(|s| s.taken_from.get(e)).copied().unwrap_or(0);
+        let mut foes: Vec<(&u64, &(f64, f64))> = f.pvp.iter().collect();
+        foes.sort_by(|a, b| dealt(b.0).cmp(&dealt(a.0)).then(took(b.0).cmp(&took(a.0))));
+        let first = foes.iter().map(|(_, s)| s.0).fold(f64::INFINITY, f64::min);
+        let last = foes.iter().map(|(_, s)| s.1).fold(f64::NEG_INFINITY, f64::max);
+        let secs = (last - first).max(1.0);
+        let dealt_all: u64 = foes.iter().map(|(e, _)| dealt(e)).sum();
+        let took_all: u64 = foes.iter().map(|(e, _)| took(e)).sum();
+        let on_monsters = mine.map_or(0, |s| s.dmg);
+        let show = if f.finished { f.targets.is_empty() || dealt_all + took_all >= on_monsters } else { f.targets.is_empty() || self.last_ts - last <= PVP_IDLE };
+        let rate = |n: u64| if s.hits > 0 { n as f64 / s.hits as f64 } else { 0.0 };
+        // The card: the enemy you fought last.
+        let card = foes.iter().max_by(|a, b| a.1 .1.total_cmp(&b.1 .1)).map(|(e, _)| **e);
+        let faction = |e: u64| self.ffaction(f, e);
+        // Died in this fight (the game doesn't say who made the kill).
+        let died = |e: u64| f.deaths.iter().any(|(_, t, _)| *t == e);
+        let foe = |e: u64| Obj::new().set("id", e).set("name", self.fname(f, e)).set("class", self.fclass(f, e)).set("faction", faction(e)).set("died", died(e)).set("dealt", dealt(&e)).set("taken", took(&e)).build();
+        Some(
+            Obj::new()
+                .set("show", show)
+                // By name: coming back after a death gives you a new id.
+                .set("self_died", f.self_id.map_or(false, |me| {
+                    let my = self.fname(f, me);
+                    f.deaths.iter().any(|(_, t, _)| *t == me || self.fname(f, *t) == my)
+                }))
+                .set("secs", secs)
+                .set("dealt", dealt_all)
+                .set("taken", took_all)
+                .set("dps", dealt_all as f64 / secs)
+                .set("hits", s.hits)
+                .set("crit_rate", rate(s.crits))
+                .set("double_rate", rate(s.doubles))
+                .set("perfect_rate", rate(s.perfect))
+                .set("front_rate", rate(s.front))
+                .set("back_rate", rate(s.back))
+                .set("foe", card.map(foe))
+                .set("enemies", Value::Arr(foes.iter().map(|(e, _)| foe(**e)).collect()))
+                .build(),
+        )
+    }
+
     /// Per-skill breakdown and timeline for one actor in one fight.
     pub fn actor_detail(&self, f: &Fight, actor: u64) -> Option<Value> {
         self.actor_detail_for(f, actor, None)
@@ -2649,7 +2949,30 @@ impl Engine {
     /// Per-skill breakdown, rates, targets, damage taken and timeline for one
     /// actor. `target` restricts the skill table to hits on that target.
     pub fn actor_detail_for(&self, f: &Fight, actor: u64, target: Option<u64>) -> Option<Value> {
-        let s = f.stats.get(&actor)?;
+        self.detail_of(f, actor, f.stats.get(&actor)?, target)
+    }
+
+    /// Your hits on the players you fought (PvP), per skill, in the same
+    /// shape as `actor_detail_for`; `target` narrows it to one enemy. What
+    /// they did to you is your damage taken from them.
+    pub fn pvp_detail(&self, f: &Fight, target: Option<u64>) -> Option<Value> {
+        let me = f.self_id?;
+        if f.pvp.is_empty() {
+            return None;
+        }
+        let mut s = f.pvp_me.clone();
+        if let Some(mine) = f.stats.get(&me) {
+            s.taken_from = mine.taken_from.iter().filter(|(k, _)| f.pvp.contains_key(k)).map(|(k, v)| (*k, *v)).collect();
+            s.taken = s.taken_from.values().sum();
+        }
+        let mut v = self.detail_of(f, me, &s, target)?;
+        if let Value::Obj(m) = &mut v {
+            m.insert("pvp".into(), Value::from(true));
+        }
+        Some(v)
+    }
+
+    fn detail_of(&self, f: &Fight, actor: u64, s: &ActorStat, target: Option<u64>) -> Option<Value> {
         // Same clock as the overlay (which opens this with its boss selected).
         let clock_dur = match (self.cfg.dps_clock, target) {
             (DpsClock::Boss, Some(t)) => f.tspan.get(&t).map_or(f.duration(), |(a, z)| (z - a).max(1.0)),
@@ -2851,6 +3174,14 @@ impl Engine {
 /// Seconds stops counting after this long without damage on the boss.
 pub const BOSS_PAUSE_SECS: usize = 10;
 
+/// A PvP fight ends this long after the last hit between you and an enemy;
+/// the PvP card shows this long after it in a fight on monsters.
+pub const PVP_IDLE: f64 = 10.0;
+
+/// Seconds without a hit on a monster (yours or your party's) after which a
+/// player fight starting is a PvP fight of its own.
+pub const PVP_SPLIT_GAP: f64 = 2.0;
+
 /// For each second from `i` to `j` of the fight: false inside a stretch of
 /// [`BOSS_PAUSE_SECS`] or more with no damage on the boss.
 pub fn boss_live_seconds(tsec: &[u64], i: usize, j: usize) -> Vec<bool> {
@@ -2879,22 +3210,35 @@ pub fn history_row(t: &Value) -> Value {
     let players = t.get("players").and_then(|a| a.as_arr()).cloned().unwrap_or_default();
     let me = players.iter().find(|p| p.bool_or("is_self", false));
     let target = t.get("clock_target_name").and_then(|x| x.as_str()).map(String::from).or_else(|| t.get("target").and_then(|x| x.get("name")).and_then(|x| x.as_str()).map(String::from));
+    // A PvP fight is named after the enemy you fought last.
+    let pvp = t.get("pvp").filter(|p| p.bool_or("show", false));
+    let foe = pvp.and_then(|p| p.get("foe")).map(|x| x.str_or("name", "?").to_string());
     Obj::new()
         .set("fight_id", t.get("fight_id").and_then(|x| x.as_u64()))
         .set("started_unix", t.f64_or("started_unix", 0.0))
         .set("duration", t.f64_or("duration", 0.0))
-        .set("target", target)
-        .set("total", t.f64_or("total", 0.0))
-        .set("dps", t.f64_or("dps", 0.0))
+        .set("target", foe.or(target))
+        .set("pvp", pvp.and_then(|p| p.get("enemies")).and_then(|e| e.as_arr()).map(|e| e.len()))
+        .set("total", pvp.map_or(t.f64_or("total", 0.0), |p| p.f64_or("dealt", 0.0)))
+        .set("dps", pvp.map_or(t.f64_or("dps", 0.0), |p| p.f64_or("dps", 0.0)))
         .set("players", players.len())
         .set("top", players.first().map(|r| r.str_or("name", "?").to_string()))
-        .set("mine", me.map(|r| r.f64_or("dps", 0.0)))
+        .set("mine", pvp.map(|p| p.f64_or("dps", 0.0)).or(me.map(|r| r.f64_or("dps", 0.0))))
         .set("self_name", me.map(|r| r.str_or("name", "").to_string()))
         .set("clock", t.get("clock").and_then(|x| x.as_str()).map(String::from))
         .set("clock_npc", t.get("clock_npc").and_then(|x| x.as_u64()))
         .set("clock_secs", t.f64_or("clock_secs", t.f64_or("duration", 0.0)))
         .set("boss_killed", t.bool_or("boss_killed", false))
         .build()
+}
+
+/// The game's race id as a faction name (1 = Elyos, 2 = Asmodian).
+fn race_name(r: Option<u8>) -> Option<&'static str> {
+    match r {
+        Some(1) => Some("Elyos"),
+        Some(2) => Some("Asmodian"),
+        _ => None,
+    }
 }
 
 pub fn fmt_num(n: f64) -> String {
@@ -3231,6 +3575,216 @@ mod tests {
         assert!(!f.stats.contains_key(&41));
     }
 
+    /// PvP (Abyss, 2026-10-26): hits between you and a player outside your
+    /// party are a PvP fight, not your healing; a party member's heal or a
+    /// stranger's heal on you (no hit block) isn't PvP, and other players
+    /// fighting each other isn't anybody's healing.
+    #[test]
+    fn pvp_hits_make_a_pvp_fight() {
+        use flags::AIMED;
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        let player = |id: u64, name: &str| GameEvent::Actor { id, name: Some(name.into()), class: Some("18".into()), kind: ActorKind::Player, npc_id: None, owner: None, max_hp: None };
+        for (id, n) in [(2, "Mate"), (3, "Taniwha"), (4, "Healer"), (5, "Other"), (6, "Xers")] {
+            e.handle(&player(id, n));
+        }
+        e.handle(&GameEvent::Party { names: vec!["Me".into(), "Mate".into()], codes: vec![None, None] });
+        // A party heal and a stranger's heal on you: not PvP, no fight.
+        e.handle(&dmg(1.0, 2, 1, 17800001, 900, 0));
+        e.handle(&dmg(1.1, 4, 1, 17800001, 900, 0));
+        assert!(e.current.as_ref().map_or(true, |f| f.pvp.is_empty()));
+        // Taniwha attacks you, you hit back; a tick from them counts once known.
+        e.handle(&dmg(10.0, 3, 1, 12010000, 500, AIMED));
+        e.handle(&dmg(11.0, 1, 3, 18010000, 2000, AIMED | flags::CRIT));
+        e.handle(&dmg(12.0, 3, 1, 12020000, 100, flags::DOT));
+        // Two others of different factions fighting each other: not their healing.
+        e.handle(&GameEvent::ActorRace { id: 5, race: 2 });
+        e.handle(&GameEvent::ActorRace { id: 6, race: 1 });
+        e.handle(&dmg(12.5, 5, 6, 18010000, 3000, AIMED));
+        // Xers hits you, you never hit back.
+        e.handle(&dmg(14.0, 6, 1, 18010000, 700, AIMED));
+        let f = e.current.as_ref().unwrap();
+        assert_eq!(f.pvp.len(), 2);
+        assert!(!f.stats.contains_key(&5) && f.stats[&1].heal == 0);
+        let t = e.fight_table(f, None);
+        let p = t.get("pvp").unwrap();
+        assert!(p.bool_or("show", false));
+        assert_eq!((p.f64_or("dealt", 0.0), p.f64_or("taken", 0.0)), (2000.0, 1300.0));
+        assert_eq!(p.get("foe").unwrap().str_or("name", ""), "Xers", "the card follows the last enemy");
+        let en = p.get("enemies").and_then(|x| x.as_arr()).unwrap();
+        assert_eq!(en[0].str_or("name", ""), "Taniwha");
+        assert_eq!(en[0].f64_or("taken", 0.0), 600.0);
+        // Clicking Taniwha: your skills on them, and what they hit you for.
+        let d = e.pvp_detail(f, Some(3)).unwrap();
+        assert!(d.bool_or("pvp", false));
+        assert_eq!(d.f64_or("dmg", 0.0), 2000.0);
+        assert_eq!(d.get("skills").and_then(|x| x.as_arr()).map(|a| a.len()), Some(1));
+        assert_eq!(d.f64_or("taken", 0.0), 1300.0);
+        // Still on at 9 s after the last hit; over after 10.
+        assert!(e.tick(23.0).is_none());
+        let done = e.tick(24.5).expect("PvP fight ends after 10 s");
+        let row = history_row(&e.fight_table(&done, None));
+        assert_eq!(row.str_or("target", ""), "Xers");
+        assert_eq!(row.f64_or("pvp", 0.0), 2.0);
+        // Only attacked, never hit back: still kept.
+        e.handle(&dmg(100.0, 6, 1, 18010000, 700, AIMED));
+        assert!(e.tick(120.0).is_some());
+    }
+
+    /// Akairi (2026-10-29): you left the Priest and fought a player 3 s
+    /// later. The Priest fight ends as it was; the player fight is its own,
+    /// so the card stays on them after they die. A player hitting you while
+    /// you keep at the mob stays in the mob's fight.
+    #[test]
+    fn a_player_fight_after_the_mob_is_its_own() {
+        use flags::AIMED;
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(100_000) });
+        for (id, n) in [(8, "Akairi"), (9, "Other")] {
+            e.handle(&GameEvent::Actor { id, name: Some(n.into()), class: None, kind: ActorKind::Player, npc_id: None, owner: None, max_hp: None });
+        }
+        e.handle(&dmg(1.0, 1, 50, 18010000, 5000, 0));
+        // Hit while still on the mob: same fight.
+        e.handle(&dmg(1.5, 9, 1, 18010000, 100, AIMED));
+        e.handle(&dmg(2.0, 1, 50, 18010000, 5000, 0));
+        assert_eq!(e.current.as_ref().unwrap().pvp.len(), 1);
+        let mut e2 = Engine::new(EngineConfig::default(), Names::default());
+        std::mem::swap(&mut e, &mut e2);
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(100_000) });
+        e.handle(&GameEvent::Actor { id: 8, name: Some("Akairi".into()), class: None, kind: ActorKind::Player, npc_id: None, owner: None, max_hp: None });
+        e.handle(&GameEvent::ActorRace { id: 1, race: 2 });
+        e.handle(&GameEvent::ActorRace { id: 8, race: 1 });
+        e.handle(&dmg(1.0, 1, 50, 18010000, 5000, 0));
+        // 3 s later, on a player.
+        let done = e.handle(&dmg(4.0, 1, 8, 18010000, 900, AIMED)).expect("the mob fight ends");
+        assert!(done.pvp.is_empty() && done.end == 1.0);
+        e.handle(&GameEvent::Death { ts: 5.0, target: 8, killer: None });
+        let f = e.current.as_ref().unwrap();
+        assert!(f.targets.is_empty() && f.pvp.contains_key(&8));
+        let p = e.fight_table(f, None).get("pvp").cloned().unwrap();
+        assert!(p.get("foe").unwrap().bool_or("died", false) && !p.bool_or("self_died", true));
+    }
+
+    /// Urugugu (2026-10-29): after the run everyone left the room, the party
+    /// was gone, and the game sent the room once more with only you in it.
+    /// That showed as a queue for an hour. A new room you open still shows.
+    #[test]
+    fn a_room_down_to_just_you_is_not_a_queue() {
+        let m = |n: &str, id: u64| crate::events::PartyMember { name: n.into(), id: Some(id), status: Some(0x0c), ..Default::default() };
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        let room = |e: &mut Engine, ms: Vec<crate::events::PartyMember>| e.handle(&GameEvent::PartyInfo { title: Some("Leaving now.".into()), leader: Some(11), members: ms });
+        room(&mut e, vec![m("Me", 11), m("A", 20), m("B", 30)]);
+        room(&mut e, vec![m("Me", 11), m("A", 20)]);
+        e.handle(&GameEvent::PartyInfo { title: None, leader: None, members: vec![] });
+        room(&mut e, vec![m("Me", 11)]);
+        assert!(e.party_info.is_none(), "leftover room");
+        room(&mut e, vec![m("Me", 11)]);
+        assert!(e.party_info.is_none(), "still leftover");
+        // Someone joins: a room again.
+        room(&mut e, vec![m("Me", 11), m("C", 40)]);
+        assert_eq!(e.party_info.as_ref().map(|p| p.members.len()), Some(2));
+        // A different room you open alone counts as before.
+        let mut f = Engine::new(EngineConfig::default(), Names::default());
+        f.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        f.handle(&GameEvent::PartyInfo { title: Some("Leaving now.".into()), leader: Some(11), members: vec![m("Me", 11), m("A", 20)] });
+        f.handle(&GameEvent::PartyInfo { title: None, leader: None, members: vec![] });
+        f.handle(&GameEvent::PartyInfo { title: Some("Daily run".into()), leader: Some(11), members: vec![m("Me", 11)] });
+        assert!(f.party_info.is_some(), "your new room");
+    }
+
+    /// Null (Abyss 2026-10-29): an Elyos on your Drakan topped your list
+    /// before any hit between you. The other faction outside your group
+    /// isn't on your list; an Elyos in your dungeon party is.
+    #[test]
+    fn the_other_faction_is_not_on_your_list() {
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&GameEvent::ActorRace { id: 1, race: 2 });
+        e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(100_000) });
+        for (id, n) in [(7, "Null"), (8, "Mate")] {
+            e.handle(&GameEvent::Actor { id, name: Some(n.into()), class: None, kind: ActorKind::Player, npc_id: None, owner: None, max_hp: None });
+            e.handle(&GameEvent::ActorRace { id, race: 1 });
+        }
+        e.handle(&GameEvent::Party { names: vec!["Me".into(), "Mate".into()], codes: vec![None, None] });
+        e.handle(&dmg(1.0, 1, 50, 18010000, 1000, 0));
+        e.handle(&dmg(1.5, 7, 50, 18010000, 9000, 0));
+        e.handle(&dmg(2.0, 8, 50, 18010000, 3000, 0));
+        let f = e.current.as_ref().unwrap();
+        assert!(!f.stats.contains_key(&7), "Null isn't on your list");
+        assert_eq!(f.stats.get(&8).map(|s| s.dmg), Some(3000), "your Elyos party member is");
+    }
+
+    /// Mixed dungeon parties: each row carries its faction (for the emblem),
+    /// kept with the fight after the players are gone; the party panel looks
+    /// it up by name.
+    #[test]
+    fn rows_carry_the_faction() {
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&GameEvent::ActorRace { id: 1, race: 2 });
+        e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(100_000) });
+        e.handle(&GameEvent::Actor { id: 8, name: Some("Mate".into()), class: None, kind: ActorKind::Player, npc_id: None, owner: None, max_hp: None });
+        e.handle(&GameEvent::ActorRace { id: 8, race: 1 });
+        e.handle(&GameEvent::Party { names: vec!["Me".into(), "Mate".into()], codes: vec![None, None] });
+        e.handle(&dmg(1.0, 1, 50, 18010000, 1000, 0));
+        e.handle(&dmg(2.0, 8, 50, 18010000, 3000, 0));
+        assert_eq!(e.faction_by_name("Me"), Some("Asmodian"));
+        assert_eq!(e.faction_by_name("Mate"), Some("Elyos"));
+        assert_eq!(e.faction_by_name("Nobody"), None);
+        let f = e.tick(30.0).expect("the fight ends");
+        e.actors.clear();
+        let t = e.fight_table(&f, None);
+        let fac = |n: &str| t.get("players").and_then(|p| p.as_arr()).unwrap().iter().find(|p| p.str_or("name", "") == n).map(|p| p.str_or("faction", "").to_string());
+        assert_eq!(fac("Me").as_deref(), Some("Asmodian"));
+        assert_eq!(fac("Mate").as_deref(), Some("Elyos"));
+    }
+
+    /// Gartua (2026-10-29): the meter started mid-zone, so your faction
+    /// wasn't known, and a Chanter's group effects on 32 Asmodians around
+    /// you looked like attacks. Your hit only starts PvP when both factions
+    /// are known and differ; their attack on you always does.
+    #[test]
+    fn your_hit_on_an_unknown_faction_is_not_pvp() {
+        use flags::AIMED;
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        for (id, n) in [(7, "Crowd"), (8, "Foe")] {
+            e.handle(&GameEvent::Actor { id, name: Some(n.into()), class: None, kind: ActorKind::Player, npc_id: None, owner: None, max_hp: None });
+        }
+        e.handle(&dmg(1.0, 1, 7, 18050000, 12000, AIMED));
+        assert!(e.current.as_ref().map_or(true, |f| f.pvp.is_empty()), "a group effect on the crowd");
+        e.handle(&dmg(2.0, 8, 1, 12010000, 500, AIMED));
+        e.handle(&dmg(2.5, 1, 8, 18010000, 900, AIMED));
+        let f = e.current.as_ref().unwrap();
+        assert_eq!(f.pvp.keys().copied().collect::<Vec<_>>(), vec![8], "they attacked you: PvP, and your hit back counts");
+        assert_eq!(f.pvp_me.dmg, 900);
+    }
+
+    /// Your own faction is never the enemy, even with the hit block (Abyss
+    /// 2026-10-29: two Asmodian Elementalists): it's a heal as before. The
+    /// other faction is, and the card names it.
+    #[test]
+    fn your_own_faction_is_not_the_enemy() {
+        use flags::AIMED;
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&GameEvent::ActorRace { id: 1, race: 2 });
+        for (id, n, race) in [(7, "Ally", 2), (8, "Foe", 1)] {
+            e.handle(&GameEvent::Actor { id, name: Some(n.into()), class: None, kind: ActorKind::Player, npc_id: None, owner: None, max_hp: None });
+            e.handle(&GameEvent::ActorRace { id, race });
+        }
+        e.handle(&dmg(1.0, 8, 1, 18010000, 300, AIMED));
+        e.handle(&dmg(1.5, 1, 7, 18010000, 900, AIMED));
+        let f = e.current.as_ref().unwrap();
+        assert_eq!(f.pvp.keys().copied().collect::<Vec<_>>(), vec![8]);
+        assert_eq!(f.stats[&1].heal, 900);
+        let t = e.fight_table(f, None);
+        assert_eq!(t.get("pvp").and_then(|p| p.get("foe")).unwrap().str_or("faction", ""), "Elyos");
+    }
+
     /// A common monster dying ends the fight 3 s later on your own (a fight
     /// per mob when farming), but not with other players in it: a spirit
     /// wave split whenever the next mob was 3 s away (2026-10-27).
@@ -3541,7 +4095,7 @@ mod naming_tests {
         assert!(n.skill_named(17010230 | DOT_KEY));
         assert_eq!(n.skill(17020000), "Skill 17020000");
         let mut e = Engine::new(EngineConfig::default(), n);
-        let mut f = Fight { id: 1, start: 0.0, end: 1.0, started_unix: 0.0, stats: Default::default(), targets: Default::default(), deaths: vec![], loot: vec![], zone: None, boss_killed: false, finished: true, self_id: None, names: Default::default(), allies: Default::default(), focus: None, tspan: Default::default(), tsec: Default::default(), tinfo: Default::default(), twatch: Default::default(), tscale: Default::default(), own_last: Default::default(), grouped: false, group: Default::default() };
+        let mut f = Fight { id: 1, start: 0.0, end: 1.0, started_unix: 0.0, stats: Default::default(), targets: Default::default(), deaths: vec![], loot: vec![], zone: None, boss_killed: false, finished: true, self_id: None, names: Default::default(), allies: Default::default(), focus: None, tspan: Default::default(), tsec: Default::default(), tinfo: Default::default(), twatch: Default::default(), tscale: Default::default(), own_last: Default::default(), grouped: false, group: Default::default(), pvp: Default::default(), pvp_me: Default::default(), races: Default::default() };
         f.names.insert(9, ("NPC 2400002".into(), None));
         e.history.push_back(f);
         e.rename_npc(2400002, "Black Claw Manduri Fighter");
