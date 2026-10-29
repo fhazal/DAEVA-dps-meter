@@ -144,6 +144,9 @@ pub struct Settings {
     /// everyone otherwise), "all" (everyone fighting your targets), "party"
     /// (you and your group, from the game's party list) or "me".
     pub show_players: String,
+    /// After a world boss kill: your rank among everyone the meter saw on
+    /// it ("#4 of 23"), with "See all". Display only.
+    pub wb_rank: bool,
     /// Settings file revision, for one-time upgrades (0 = before 0.5.0).
     #[serde(default)]
     pub settings_rev: u32,
@@ -233,6 +236,7 @@ impl Default for Settings {
             show_heal: false,
             show_target: true,
             show_players: "auto".into(),
+            wb_rank: true,
             settings_rev: 2,
             primary_metric: "dps".into(),
             anonymize_others: false,

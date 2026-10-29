@@ -565,23 +565,12 @@ fn read_fields(r: &mut Reader<'_>, defs: &[FieldDef], parents: &[&Scope], out: &
                                 let u32at = |k: usize| b.get(k..k + 4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]));
                                 let id = u32at(i + h).unwrap_or(0);
                                 let server = u16::from_le_bytes([b[i + h + 6], b[i + h + 7]]);
-                                // Open-world lists have two varints (2 or 3 bytes
-                                // each, e.g. `ab 7f ab 7f` or `f0 95 01 f0 95 01`)
-                                // after the class where dungeon lists have the
-                                // level; skip them by their real length.
-                                let gs_at = if *marker == 0 {
-                                    let mut k = at + 4;
-                                    for _ in 0..2 {
-                                        while b.get(k).map_or(false, |x| x & 0x80 != 0) {
-                                            k += 1;
-                                        }
-                                        k += 1;
-                                    }
-                                    k
-                                } else {
-                                    at + 8
-                                };
-                                let gs = u32at(gs_at).filter(|g| (1..=20_000).contains(g)).unwrap_or(0);
+                                // Open-world lists have no gear score: after the
+                                // class come current/max HP (two varints) and
+                                // another current/max pool (two u32s, ~3.6k),
+                                // which the panel showed as gear score at the
+                                // end of a run (2026-10-29: 3656 for a 1796).
+                                let gs = if *marker == 0 { 0 } else { u32at(at + 8).filter(|g| (1..=20_000).contains(g)).unwrap_or(0) };
                                 let cp = (at + 12..(at + 22).min(b.len().saturating_sub(4)))
                                     .find(|j| b[*j] == 0x04 && u32at(j + 1).map_or(false, |c| (1_000..=5_000_000).contains(&c)))
                                     .and_then(|j| u32at(j + 1))
@@ -823,22 +812,39 @@ impl Framer {
 /// chain lands exactly on the buffer end) and the first opcode is known.
 fn find_sync(fr: &Framing, known: &dyn Fn(u64) -> bool, buf: &[u8]) -> Option<usize> {
     let limit = buf.len().min(1 << 16);
+    // Frames that merely parse aren't proof: the leftover bytes of a
+    // half-captured connection chain just as well (Transcendence, 2026-10-29:
+    // 175 made-up frames ran over the zone's spawns and the boss stayed
+    // unnamed). Real opcodes come in a few families (0x36xx, 0x38xx, 0x92xx...),
+    // so every frame of the chain must be in a family a known opcode is in,
+    // and one of them must be known.
+    let mut family = [false; 256];
+    for op in 0..=0xffffu64 {
+        if !family[(op >> 8) as usize] && known(op) {
+            family[(op >> 8) as usize] = true;
+        }
+    }
+    let in_family = |op: u64| op <= 0xffff && family[(op >> 8) as usize];
     'outer: for start in 0..limit {
         let mut p = start;
         let mut n = 0;
         let mut first_known = false;
+        let mut any_known = false;
+        let mut plausible = true;
         loop {
             match try_frame(fr, &buf[p..]) {
                 Try::Frame(f) => {
                     if n == 0 {
                         first_known = known(f.opcode);
                     }
+                    any_known |= known(f.opcode);
+                    plausible &= in_family(f.opcode);
                     p += f.raw.len();
                     n += 1;
                     if n >= 3 || p == buf.len() {
                         // A packet that is exactly one whole message (a new connection's
                         // first, unknown login message) starts at a boundary.
-                        if first_known || n >= 3 || (start == 0 && p == buf.len()) {
+                        if (plausible && (first_known || any_known)) || (start == 0 && p == buf.len()) {
                             return Some(start);
                         }
                         continue 'outer;
@@ -851,7 +857,7 @@ fn find_sync(fr: &Framing, known: &dyn Fn(u64) -> bool, buf: &[u8]) -> Option<us
                 // (Vakron, 2026-10-25: skipping it lost every name in the zone).
                 Try::Waiting(_, op) if start == 0 && n == 0 && known(op) => return Some(0),
                 Try::NeedMore | Try::Waiting(..) => {
-                    if n >= 1 && first_known {
+                    if n >= 1 && first_known && plausible {
                         return Some(start);
                     }
                     if n == 0 && p == start && start + 64 > buf.len() {
@@ -1491,11 +1497,11 @@ mod party_tests {
         assert!(members[4].cp.map_or(false, |c| (1_000..=5_000_000).contains(&c)), "{:?}", members[4]);
     }
 
-    /// A real 0x9200 (names of the other two replaced): your own entry has
-    /// 3-byte varints after the class, the others 2-byte ones, so the gear
-    /// score sits at a different offset (report 1792657582: you showed none).
+    /// A real 0x9200 (names of the other two replaced). After the class come
+    /// current/max HP (varints) and a current/max pool (`76 0d 00 00` twice):
+    /// no gear score. Read as one, a 1796 showed 3656 (2026-10-29).
     #[test]
-    fn open_world_party_gear_score_with_varints() {
+    fn open_world_party_list_has_no_gear_score() {
         let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
         let mut d = Decoder::new(Arc::new(Definitions::from_json(&src).unwrap()), None);
         let flow = FlowKey { src: Endpoint { ip: Ipv4Addr::new(9, 9, 9, 9), port: 13328 }, dst: Endpoint { ip: Ipv4Addr::new(10, 0, 0, 2), port: 5000 } };
@@ -1504,7 +1510,7 @@ mod party_tests {
         let mut out = Vec::new();
         d.push(flow, true, &bytes, false, 1.0, &mut out);
         let members = out.iter().find_map(|e| match e { GameEvent::PartyInfo { members, .. } => Some(members.clone()), _ => None }).expect("party info");
-        assert_eq!(members.iter().map(|m| (m.name.as_str(), m.gs)).collect::<Vec<_>>(), vec![("BajuBesi", Some(3446)), ("Member009", Some(4332)), ("Member000012", Some(4658))]);
+        assert_eq!(members.iter().map(|m| (m.name.as_str(), m.gs)).collect::<Vec<_>>(), vec![("BajuBesi", None), ("Member009", None), ("Member000012", None)], "the pair after HP is no gear score");
     }
 
     /// The real 0x9715 sent when you clicked Ready (report 1792800005).
@@ -1610,7 +1616,8 @@ mod party_tests {
         assert!(out.iter().any(|e| matches!(e, GameEvent::ForceLeave { key: 153_222 })), "{out:?}");
     }
 
-    /// A real 0x920d: Palabuto (Templar, GS 3158) accepted your invite.
+    /// A real 0x920d: Palabuto (Templar) accepted your invite. The 3158 in it
+    /// (twice) is a current/max pool, not his gear score.
     #[test]
     fn invite_accepted_message() {
         let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
@@ -1621,7 +1628,7 @@ mod party_tests {
         let mut out = Vec::new();
         d.push(flow, true, &bytes, false, 1.0, &mut out);
         assert!(
-            out.iter().any(|e| matches!(e, GameEvent::PartyJoin { member } if member.name == "Palabuto" && member.code == Some(11) && member.id == Some(199_654) && member.gs == Some(3158))),
+            out.iter().any(|e| matches!(e, GameEvent::PartyJoin { member } if member.name == "Palabuto" && member.code == Some(11) && member.id == Some(199_654) && member.gs.is_none())),
             "{out:?}"
         );
     }

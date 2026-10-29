@@ -285,6 +285,7 @@
     <h2>General</h2><div class="f">
       ${F("Server", `<div class="srv"><span class="ok" id="srvDot">●</span><b id="srvName">…</b> <span class="muted" id="srvNote"></span></div>`, "Read when you log in. Wrong? Set it under Advanced → Capture.")}
       ${F("Players listed", sel("show_players", [["auto", "Auto: my party when I'm in one, else everyone"], ["all", "Everyone fighting your target"], ["party", "Me and my party"], ["me", "Only me"]]), "Auto follows the game's party list: dungeons, rooms and parties at world bosses show your group; solo you see everyone. Others' damage is still counted (share %, fight totals); this only hides their rows.")}
+      ${F("World bosses", chk("wb_rank", "Compare with other players"), "After a world boss kill: your rank among everyone the meter saw hit it (#4 of 23), and See all. Only when the meter saw most of the boss's health go.")}
       ${F("Privacy", chk("anonymize_others", "Hide other players' names"), "For screenshots and streams. Your own name stays visible.")}
       ${F("Window", `<div class="row-btns">${chk("always_on_top", "Always on top")}${chk("click_through", "Click-through")}</div>`)}
     </div>

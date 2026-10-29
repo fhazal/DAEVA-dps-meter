@@ -1131,6 +1131,8 @@ impl Core {
         let pvp_fight = rec.get("pvp").map_or(false, |p| p.bool_or("show", false));
         if let Value::Obj(m) = &mut rec {
             m.remove("pvp");
+            // The world boss rank lists strangers: it stays here too.
+            m.remove("wb_rank");
         }
         let sh = &self.settings.share;
         if sh.enabled && !sh.endpoint.is_empty() && sh.scope != "none" && f.duration() >= sh.min_duration && !pvp_fight {
@@ -1500,6 +1502,7 @@ impl Core {
             .set("show_heal", s.show_heal)
             .set("show_target", s.show_target)
             .set("show_players", s.show_players.as_str())
+            .set("wb_rank", s.wb_rank)
             .set("primary_metric", s.primary_metric.as_str())
             .set("anonymize_others", s.anonymize_others)
             .set("click_through", s.click_through)
@@ -1557,6 +1560,8 @@ impl Core {
             .set("rerun", p.rerun)
             .set("ready", e.party_ready())
             .set("inside", p.inside)
+            .set("waiting", p.waiting)
+            .set("size", p.size)
             .set("members", Value::Arr(members))
             .set("left", Value::Arr(left))
             .build()

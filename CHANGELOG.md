@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.7 (2026-10-29)
+
+- **Unknown bosses and players:** sometimes, right after entering a dungeon or zone, a boss showed as "Unknown monster" and players as "Player #…" for the whole visit. This now happens far less. (Older versions had this too.)
+- **World bosses:** after a kill, see your rank among everyone the meter saw on the boss (#4 of 23), and *See all* to list them. Settings → General → World bosses.
+- **Waiting for a rerun:** when too few players accept a rerun and the game moves you out, the party panel now shows *Waiting · Rerun 4/5*: who stayed, who just joined (NEW) and the open seats, until the leader takes you back in. Before, it could still say "In dungeon" for those who stayed and "On the way" for the new players.
+- **Out of the dungeon, still in the party:** when you leave a dungeon but stay in your party, the game doesn't say you left. The meter now notices from the other players around you (an event like Shugo), so those fights count as open-world fights again and the old room panel stays away.
+- **Gear score at the end of a run:** when members left after a dungeon, the party panel briefly showed a wrong gear score (around 3.6k, about double). It now always shows the real one from the room list. Open-world parties show none, since the game doesn't send it there.
+
 ## 0.5.6 (2026-10-29)
 
 - **New: PvP card.** When you fight another player outside your party and Force, the card turns crimson. It shows that player's name, class and faction emblem (Elyos or Asmodian), what you dealt them and took from them as a green/red bar, and *Dealt 5.67K · Took 4.47K*. Below it, the **Enemy · Dealt · Taken** table lists everyone you fought. *✝ Down* marks an enemy who died in the fight, and *☠ You died* shows when you did. Solo shows the same on one line, with your PvP DPS and your crit, double, perfect, front and back rates. A PvP fight ends 10 seconds after the last hit between you, and is saved in *History* with a **PvP** tag.

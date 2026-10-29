@@ -9,10 +9,12 @@
   .titlebar { gap: 2px; }
   /* The status dot follows the name; the buttons stay on the right. */
   .titlebar .title { flex: 0 1 auto; }
-  /* "DAEVA METER" (Classic 10px, Solo 10.5px) and the footer status in Oxanium (SIL OFL 1.1;
+  /* "DAEVA METER": Classic in Visitor TT1 12px (Brian Kent, freeware;
+     fonts/visitor-README.txt), Solo in Oxanium 10.5px (SIL OFL 1.1;
      fonts/oxanium-OFL.txt). Classic's version tag stays in the normal font, smaller (9px). */
   @font-face { font-family: "Oxanium"; src: url("fonts/oxanium.ttf") format("truetype"); font-weight: 200 800; }
-  .titlebar .title { font-family: "Oxanium", var(--font); font-size: 10px; font-weight: 600; letter-spacing: normal; text-transform: uppercase; }
+  @font-face { font-family: "Visitor TT1"; src: url("fonts/visitor1.ttf") format("truetype"); }
+  .titlebar .title { font-family: "Visitor TT1", var(--font); font-size: 12px; font-weight: normal; letter-spacing: normal; text-transform: uppercase; }
   .titlebar .title .ver { font-family: var(--font); text-transform: none; }
   .state-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); flex: none; margin: 0 auto 0 8px; box-shadow: 0 0 0 3px rgba(255,255,255,0.03); }
   .state-dot.live { background: var(--good); box-shadow: 0 0 8px rgba(111,207,142,0.7); }
@@ -195,8 +197,6 @@
   .titlebar .state-dot { visibility: hidden; width: 0; }
   .foot .fl { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
   .foot .fl .st { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
-  /* Status text in Oxanium like the title, same 10.5px as before. */
-  .foot .fl .st { font-family: "Oxanium", var(--font); font-weight: 500; position: relative; top: 1px; }
   .zonetip { flex: none; display: flex; align-items: center; gap: 8px; padding: 5px 10px; font-size: 11px; line-height: 1.35; color: #e8d3a6;
     background: rgba(232,176,75,0.10); border-top: 1px solid rgba(232,176,75,0.30); }
   .zonetip b { color: #f3c46b; font-weight: 650; }
@@ -263,6 +263,10 @@
   /* Inside a dungeon: blue = on the way (or new), a member who left fades out. */
   .pty-m.s-way::before { background: #8fd0ff; } .pty-m .st.way { color: #8fd0ff; }
   .pty-rd.in { color: #8fd0ff; background: rgba(80,150,230,.12); border-color: rgba(143,208,255,.35); } .pty-bar i.in { background: #8fd0ff; }
+  /* Out after a run, the room filling up again for a rerun: cyan = waiting
+     (amber read as "not Ready"). */
+  .pty-rd.wt { color: #4fd8d0; background: rgba(79,216,208,.12); border-color: rgba(79,216,208,.4); } .pty-bar i.wt { background: #4fd8d0; }
+  .pty-m.s-wt::before { background: #4fd8d0; } .pty-m .st.wt { color: #4fd8d0; } .pty-ft .wnote { margin-right: auto; color: #8fc9c4; }
   .pty-m .newtag { font-size: 9px; font-weight: 800; color: #8fd0ff; background: rgba(80,150,230,.16); padding: 0 4px; border-radius: 3px; flex: none; }
   .pty-m.gone { opacity: .45; } .pty-m.gone .n { text-decoration: line-through; }
   .pty-empty { height: 28px; margin: 2px 0; border: 1px dashed rgba(255,255,255,.10); border-radius: 6px; display: flex; align-items: center; justify-content: center; color: var(--dim); font-size: 11px; }
@@ -292,6 +296,17 @@
   .so-bn b { display: block; font-size: 12px; font-weight: 650; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .so-bn span { color: var(--muted); font-size: 9.5px; line-height: 1.1; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .wb-share b { color: var(--good); font-weight: 700; }
+  /* World boss rank after the kill ("#4 of 23"), under the card's last line. */
+  .wbr { display: flex; align-items: center; gap: 6px; margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(var(--rk),.25); font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+  .wbr > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .wbr b { color: #e8e4da; font-weight: 650; } .wbr b.pos { color: #ffd77a; font-weight: 800; font-size: 12.5px; }
+  .wbr .top { color: #8fc6ff; font-weight: 650; }
+  .wbr .go { margin-left: auto; flex: none; color: #8fc6ff; font-weight: 600; cursor: pointer; }
+  .wbr .go:hover { text-decoration: underline; }
+  .wbr.na { color: #8d8a84; } .wbr.na .q { margin-left: auto; flex: none; opacity: .7; cursor: help; }
+  .row.stranger .nm { opacity: .6; } .row.stranger .edge { opacity: .4; } .row.stranger .fill { filter: saturate(.15) brightness(.7); }
+  .so-bn .so-wbr b { display: inline; font-size: inherit; line-height: inherit; color: #ffd77a; font-weight: 800; }
+  .so-bn .so-wbr .top { color: #8fc6ff; font-weight: 650; }
   .so-bn .wb-share b { display: inline; font-size: inherit; line-height: inherit; }
   .so-bn .chk.ow svg { vertical-align: -2px; }
   .so-rt { display: flex; align-items: center; gap: 6px; flex: none; }
@@ -385,7 +400,7 @@
   .so-ft .srv-dot.err { background: var(--bad); box-shadow: 0 0 6px rgba(229,103,95,0.6); }
   .so-ft .srv-dot.demo { background: #8f7ae0; }
   .so-ft .srv { color: var(--text); font-weight: 600; }
-  .so-ft .st { font-family: "Oxanium", var(--font); font-weight: 500; position: relative; top: 1px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .so-ft .st { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .so-ft .lt.y { display: none; }
   .so-pad { height: 6px; }
   .so-idle { color: var(--muted); font-size: 10.5px; padding: 2px 0 1px; }
@@ -735,14 +750,31 @@
   const WORLD_BOSS_STRANGERS = 3;
   // World boss (a crowd, the list is you, your party and your Force): the
   // label and your exact share of its health. Same markup in Classic and Solo.
-  function worldBoss(t) {
+  function worldBoss(t, noShare) {
     const f = lastFight;
     if (!f || !f.world_boss || t.id !== f.clock_target) return "";
     const share = f.boss_share != null ? f.boss_share : null;
     const me = (f.players || []).find((p) => p.is_self);
     const tip = `World boss: the game only sends the hits of players near you, so the list shows just you, your party and your Force.` + (share != null ? `
 Your damage: ${D.fmt(me ? me.dmg : 0)}, ${D.pct(share, 1)} of ${t.name}'s ${D.fmt(t.max_hp || 0)} HP.` : "");
-    return ` · <span class="chk ow wb" title="${D.esc(tip)}">${D.icon("globe")} World Boss</span>` + (share != null ? ` · <span class="wb-share" title="${D.esc(tip)}"><b>${D.pct(share, 1)}</b> HP</span>` : "");
+    return ` · <span class="chk ow wb" title="${D.esc(tip)}">${D.icon("globe")} World Boss</span>` + (share != null && !noShare ? ` · <span class="wb-share" title="${D.esc(tip)}"><b>${D.pct(share, 1)}</b> HP</span>` : "");
+  }
+  // World boss rank, once it's dead: "#4 of 23 players" among everyone the
+  // meter saw hit it (the engine only ranks when it saw 80%+ of its health).
+  // "See all" swaps your list for everyone on the boss, for this fight only.
+  let wbAll = null; // fight_id showing everyone
+  const wbRank = (f) => ui.wb_rank !== false && f && f.world_boss && f.wb_rank ? f.wb_rank : null;
+  const wbTop = (r) => Math.max(1, Math.round((r.pos / r.of) * 100));
+  function wbRankStrip(t) {
+    const f = lastFight, r = wbRank(f);
+    if (!r || t.id !== f.clock_target) return "";
+    const tip = `Among the ${r.of} players the meter saw hit ${t.name}. The game only sends the hits of players near you, so this isn't the whole server.`;
+    if (r.pos == null) {
+      const why = `The meter saw ${D.pct(r.seen, 1)} of ${t.name}'s health go: most players' hits never reached it (out of range, or you joined late). A rank needs 80%.`;
+      return `<div class="wbr na" title="${D.esc(why)}"><span>📊 Rank: not enough data · saw ${D.pct(r.seen, 1)} of its HP, needs 80%</span><span class="q">ⓘ</span></div>`;
+    }
+    if (wbAll === f.fight_id) return `<div class="wbr" title="${D.esc(tip)}"><span>🌐</span><span>Everyone on ${D.esc(t.name)} · <b>${r.of}</b> players · you <b class="pos">#${r.pos}</b></span><span class="go" data-wbr="0">‹ My party</span></div>`;
+    return `<div class="wbr" title="${D.esc(tip)}"><span>🏆</span><span><b class="pos">#${r.pos}</b> of <b>${r.of}</b> players on ${D.esc(t.name)} · <span class="top">top ${wbTop(r)}%</span></span><span class="go" data-wbr="1">See all ›</span></div>`;
   }
   function hpCheck(t) {
     const wb = worldBoss(t);
@@ -819,12 +851,20 @@ Your damage: ${D.fmt(me ? me.dmg : 0)}, ${D.pct(share, 1)} of ${t.name}'s ${D.fm
     const nameit = t.named === false && t.npc_id && !(lastSnap && lastSnap.status && lastSnap.status.monster_data === "loading") ? `<span class="nameit" data-npc="${t.npc_id}" title="Looking it up on aion2.gaming.tools… or type the name yourself (saved for good)">✎ name it</span><span class="nameit" data-lk="${t.npc_id}" title="Open on aion2.gaming.tools">🔎</span>` : "";
     const unknownTip = t.name === "Unknown monster" ? ` title="This monster was already nearby when the meter started, so the game never said which one it is. It gets its name after you change zone or it comes back into view."` : "";
     const portrait = D.npcIcon(t.art_npc || t.npc_id, 24) || '<span class="tc-ic"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.5C4.5 1.5 2 4 2 7c0 1.9 1 3.3 2.3 4.1V13c0 .6.4 1 1 1h.7v-1.5h1V14h2v-1.5h1V14h.7c.6 0 1-.4 1-1v-1.9C13 10.3 14 8.9 14 7c0-3-2.5-5.5-6-5.5zM5.6 9.2a1.3 1.3 0 1 1 0-2.6 1.3 1.3 0 0 1 0 2.6zm4.8 0a1.3 1.3 0 1 1 0-2.6 1.3 1.3 0 0 1 0 2.6z"/></svg></span>';
-    const html = `<div class="tcard${dead ? " dead" : ""}${rkey ? " r-" + rkey : ""}"><div class="row1">${portrait}<div class="name"${unknownTip}>${D.esc(t.name)}${nameit}</div>${kill}</div>${hp}${bot}</div>`;
+    const html = `<div class="tcard${dead ? " dead" : ""}${rkey ? " r-" + rkey : ""}"><div class="row1">${portrait}<div class="name"${unknownTip}>${D.esc(t.name)}${nameit}</div>${kill}</div>${hp}${bot}${dead ? wbRankStrip(t) : ""}</div>`;
     if (html !== lastTargetHtml) { $("target").innerHTML = html; lastTargetHtml = html; }
   }
   // Handled on press, on the container: the target bar redraws 4x a second,
   // which used to swallow clicks on these buttons.
   $("target").addEventListener("pointerdown", (ev) => {
+    const w = ev.target.closest("[data-wbr]");
+    if (w) {
+      ev.preventDefault();
+      wbAll = w.dataset.wbr === "1" && lastFight ? lastFight.fight_id : null;
+      lastTargetHtml = ""; $("rows").__html = null;
+      render(lastSnap);
+      return;
+    }
     const b = ev.target.closest("[data-npc]");
     const l = ev.target.closest("[data-lk]");
     if (!b && !l) return;
@@ -932,7 +972,10 @@ Your damage: ${D.fmt(me ? me.dmg : 0)}, ${D.pct(share, 1)} of ${t.name}'s ${D.fm
     // Auto: your party once another member of it is in the fight, else everyone.
     const inParty = f.players.some((p) => p.in_party && !p.is_self);
     const mode = ui.show_players === "auto" || !ui.show_players ? (inParty ? "party" : "all") : ui.show_players;
-    const list = mode === "me" ? f.players.filter((p) => p.is_self)
+    const wr = wbRank(f);
+    const everyone = wr && wr.everyone && wbAll === f.fight_id ? wr.everyone : null;
+    const list = everyone ? everyone
+      : mode === "me" ? f.players.filter((p) => p.is_self)
       : mode === "party" ? f.players.filter((p) => p.in_party || p.is_self)
       : f.players;
     const rows = list.slice(0, Math.max(1, ui.rows || 8));
@@ -967,7 +1010,8 @@ Your damage: ${D.fmt(me ? me.dmg : 0)}, ${D.pct(share, 1)} of ${t.name}'s ${D.fm
       // With columns on, the heal cell is always there (a dash when none) so the figures stay under their labels.
       const heal = ui.show_heal && (p.heal || cc.length) ? `<span class="sub">${p.heal ? `♥ ${D.fmt(p.hps)}/s` : "–"}</span>` : "";
       const tip = `${p.name}${p.class ? " (" + p.class + ")" : ""}\nDamage ${D.fmt(p.dmg)} · ${D.fmt(p.dps)}/s\n${clockRule(f)}\nCrit ${D.pct(p.crit_rate)} · Back ${D.pct(p.back_rate)} · Hits ${p.hits}\nMax hit ${D.fmt(p.max_hit)} (${p.max_hit_skill})${p.heal ? "\nHealing " + D.fmt(p.heal) : ""}${p.deaths ? "\nDeaths " + p.deaths : ""}`;
-      return `<div class="row${p.is_self ? " self" : ""}" data-id="${p.id}" title="${D.esc(tip)}">
+      const stranger = everyone && !p.is_self && !p.in_party && !p.in_force;
+      return `<div class="row${p.is_self ? " self" : ""}${stranger ? " stranger" : ""}" data-id="${p.id}" title="${D.esc(tip)}">
         <i class="fill" style="width:${((v / top) * 100).toFixed(1)}%;background:${color}"></i>
         <i class="edge" style="background:${color}"></i>
         <span class="who">${D.classIcon(p.class, 18)}<span class="nm">${D.esc(displayName(p, i))}</span>${mix ? facIc(p, 13) : ""}</span>
@@ -1040,6 +1084,7 @@ Your damage: ${D.fmt(me ? me.dmg : 0)}, ${D.pct(share, 1)} of ${t.name}'s ${D.fm
   function partyPanel(p) {
     const ms = p.members || [];
     if (p.inside) return dungeonPanel(p, ms);
+    if (p.waiting) return rerunPanel(p, ms);
     const voters = ms.filter((m) => !m.leader && m.ready != null);
     const readyN = voters.filter((m) => m.ready).length;
     const all = p.room && voters.length > 0 && readyN === voters.length;
@@ -1072,6 +1117,28 @@ Your damage: ${D.fmt(me ? me.dmg : 0)}, ${D.pct(share, 1)} of ${t.name}'s ${D.fm
     const n = ms.filter((m) => m.ready).length;
     const dots = ms.map((m) => `<i class="${m.ready || m.is_self ? "r" : ""}" title="${D.esc(m.name)}${m.ready ? " · ready" : ""}"></i>`).join("");
     return `${PARTY_IC}<b>Party queue</b><span class="ttl">${p.title ? `“${D.esc(p.title)}” · ` : ""}${ms.length}/5</span><span class="dots">${dots}</span><span class="rd${n === ms.length ? " all" : ""}">Ready ${n}/${ms.length}</span>`;
+  }
+
+  // Too few accepted the rerun and the game moved you out: who stayed, who
+  // joined (and clicked Ready) and the open seats, until the leader's Enter.
+  function rerunPanel(p, ms) {
+    const size = Math.max(p.size || 0, ms.length);
+    const head = `<div class="pty-h"><b>Party</b>${p.title ? `<span class="ttl" title="${D.esc(p.title)}">“${D.esc(p.title)}”</span>` : `<span class="ttl"></span>`}<span class="pty-rd wt" title="Too few accepted the rerun: the room is filling up again">Waiting · Rerun ${ms.length}/${size}</span></div>`
+      + `<div class="pty-bar"><i class="wt" style="width:${size ? Math.round((ms.length / size) * 100) : 0}%"></i></div>`;
+    const mix = facMix(ms);
+    const rows = ms.map((m) => {
+      const st = m.leader ? ["ld", "Leader"] : m.new ? (m.ready ? ["ok", "✓ Joined"] : ["no", "● Not ready"]) : ["wt", "● Waiting"];
+      return `<div class="pty-m s-${st[0]}${m.is_self ? " me" : ""}">
+        <span class="nm">${D.classIcon(m.class, 16)}${m.leader ? `<span title="Party leader">👑</span>` : ""}<span class="n">${D.esc(m.name)}</span>${mix ? facIc(m, 12) : ""}${m.is_self ? `<span class="metag">ME</span>` : ""}${m.new ? `<span class="newtag" title="Joined for the rerun">NEW</span>` : ""}</span>
+        <span class="sv" title="${D.esc(m.server || "")}">${D.esc(m.server_tag || "")}</span>
+        <span class="num" title="Gear score">${m.gs ? m.gs.toLocaleString() : "–"}</span>
+        <span class="num" title="Combat power">${m.cp ? D.fmt(m.cp) : "–"}</span>
+        <span class="st ${st[0]}">${st[1]}</span></div>`;
+    }).join("") + `<div class="pty-empty">Open seat · looking for members…</div>`.repeat(Math.max(0, size - ms.length));
+    const gs = ms.filter((m) => m.gs), cp = ms.filter((m) => m.cp);
+    const avg = (xs, k) => Math.round(xs.reduce((a, m) => a + m[k], 0) / xs.length);
+    const foot = `<div class="pty-ft"><span class="wnote">Outside · back in when the party is full</span>${gs.length ? `<span>Avg GS <b>${avg(gs, "gs").toLocaleString()}</b></span>` : ""}${cp.length ? `<span>CP <b>${D.fmt(avg(cp, "cp"))}</b></span>` : ""}</div>`;
+    return `<div class="pty">${head}<div class="pty-hd"><span>Member</span><span>Server</span><span>GS</span><span>CP</span><span>Status</span></div>${rows}${foot}</div>`;
   }
 
   // Inside the dungeon there's no Ready check any more: the panel says who
@@ -1136,7 +1203,11 @@ Your damage: ${D.fmt(me ? me.dmg : 0)}, ${D.pct(share, 1)} of ${t.name}'s ${D.fm
         enr = left > 0 ? `<span class="so-enr${left <= 60 ? " soon" : ""}" title="Enrage: the boss hits harder and faster${t.berserk_from === "aion2.gg" ? " · timer from aion2.gg" : ""}">⏱ ${D.dur(left)}</span>` : `<span class="so-enr on">🔥 Enraged</span>`;
       }
       const pc = dead ? `<span class="so-pc dead">✓ Killed</span>` : pctv != null ? `<span class="so-pc">${D.pct(pctv < 1 ? Math.min(pctv, 0.999) : 1, (pctv > 0 && pctv < 0.1) || (pctv > 0.99 && pctv < 1) ? 1 : 0)}</span>` : "";
-      const sub = (t.max_hp ? `${D.fmt(dead ? 0 : hpNow != null ? hpNow : t.max_hp)} / ${D.fmt(t.max_hp)}` : t.rank ? D.esc(t.rank) : "") + worldBoss(t);
+      // After a ranked world boss kill: "World Boss · 🏆 #4 of 23 · top 17%".
+      const wr = dead && t.id === f.clock_target ? wbRank(f) : null;
+      const sub = wr && wr.pos != null
+        ? worldBoss(t, true).slice(3) + ` · <span class="so-wbr" title="${D.esc(`Among the ${wr.of} players the meter saw hit ${t.name}`)}">🏆 <b>#${wr.pos}</b> of ${wr.of} · <span class="top">top ${wbTop(wr)}%</span></span>`
+        : (t.max_hp ? `${D.fmt(dead ? 0 : hpNow != null ? hpNow : t.max_hp)} / ${D.fmt(t.max_hp)}` : t.rank ? D.esc(t.rank) : "") + worldBoss(t);
       hd = `<div class="so-hd" data-drag>${rankIcon(t)}<div class="so-bn" data-drag><b>${D.esc(t.name)}</b><span>${sub}</span></div><div class="so-rt">${enr}<span class="so-clock">${clock(secs)}</span>${pc}</div></div>`
         + (pctv != null ? `<div class="so-hp"><i style="width:${(pctv * 100).toFixed(1)}%"></i></div>` : "");
     } else {
@@ -1193,6 +1264,7 @@ Your damage: ${D.fmt(me ? me.dmg : 0)}, ${D.pct(share, 1)} of ${t.name}'s ${D.fm
       // Inside the dungeon: who's in, not who's Ready.
       const inN = (pt.members || []).filter((m) => m.in_dungeon).length, n = (pt.members || []).length;
       const count = pt.inside ? ` <span style="margin-left:auto;${inN === n ? "" : "color:#8fd0ff;font-weight:700"}" class="${inN === n ? "ok" : ""}">${inN === n ? "✓ " : ""}${inN}/${n} in dungeon</span>`
+        : pt.waiting ? ` <span style="margin-left:auto;color:#4fd8d0;font-weight:700">Waiting · Rerun ${n}/${Math.max(pt.size || 0, n)}</span>`
         : pt.room && v.length ? ` <span style="margin-left:auto" class="${r === v.length ? "ok" : "no"}">${r === v.length ? "✓ " : ""}${r}/${v.length} ready</span>` : "";
       strip = `<div class="so-pty">${PARTY_IC}Party <b>${(pt.members || []).length}</b>${pt.title ? ` · <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px">“${D.esc(pt.title)}”</span>` : ""}${count}</div>`;
     }

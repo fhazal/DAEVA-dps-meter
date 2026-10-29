@@ -21,7 +21,8 @@ window.DAEVA_CREDITS = [
     ["A2Tools", "Names of zone and dungeon monster variants and newer skills · taengu · used with permission"],
     ["aion2.gg", "Boss data and skill names · aion2.gg", "aion2gg"],
     ["Lucide", "Icons · ISC licence"],
-    ["Oxanium", "Title and status font · Severin Meyer · SIL Open Font License"],
+    ["Visitor TT1", "Classic title font · Brian Kent (BRK Fonts) · freeware"],
+    ["Oxanium", "Solo title font · Severin Meyer · SIL Open Font License"],
     ["Bajubesi Network", "Our community on Discord"],
   ]],
 ];
@@ -30,7 +31,8 @@ window.DAEVA_CREDITS = [
 window.DAEVA_OSS = [
   ["Tauri", "MIT or Apache-2.0", "The app framework"],
   ["Lucide", "ISC", "Icons"],
-  ["Oxanium (The Oxanium Project Authors)", "SIL OFL 1.1", "Title and status font (app/ui/fonts, licence included there)"],
+  ["Visitor TT1 (Brian Kent, BRK Fonts)", "Freeware", "Classic title font (app/ui/fonts, note included there)"],
+  ["Oxanium (The Oxanium Project Authors)", "SIL OFL 1.1", "Solo title font (app/ui/fonts, licence included there)"],
   ["serde, serde_json", "MIT or Apache-2.0", "Reading and writing settings"],
   ["ureq", "MIT or Apache-2.0", "Web requests (updates, names, event schedule)"],
   ["lz4_flex", "MIT", "Unpacking game messages"],

@@ -456,4 +456,28 @@ mod aion2_framing {
         let ops: Vec<u64> = out.iter().map(|f| f.opcode).collect();
         assert!(ops.ends_with(&[0x3600, 0x3804, 0x3600, 0x371d]), "{ops:x?}");
     }
+
+    /// A connection joined without its first packets: the leftover bytes
+    /// parse as a chain of made-up frames. That chain must not count as being
+    /// in step, or it runs over the real messages (Transcendence, 2026-10-29:
+    /// the boss's spawn was skipped and it stayed unnamed).
+    #[test]
+    fn leftover_bytes_of_a_half_captured_connection_are_not_frames() {
+        let d = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
+        let defs = crate::protocol::Definitions::from_json(&d).unwrap();
+        let leftover = "b8 d9 8c 02 0f 05 79 0f 31 70 5c 8e dd 00 04 66 00 23 01 d4 11 00 05 33 00 40 38 5d 8e 0e a5 17 \
+                        04 33 00 4a 01 9c 5d 8e ba 01 2b 00 5e 11 00 b2 64 5e 8e 0e 03 00 00 00 84 65 cc 77 00 1c c8 22 \
+                        00 2b 2c 5f 33 00 1c 90 11 00 b1 38 1f db 0e 0a 00 00 00 2b 02 d1 44 00 41 01 9c 1f db aa 00 04";
+        let good = "0e 00 36 aa 21 fd 47 a1 01 00 00 1e 04 38 d1 5d 00 00 d1 5d bb 8e 15 01 eb 02 17 c1 6b 6c 01 00 00 00 e6 56 01 00 \
+                    0e 00 36 46 97 fa 47 a1 01 00 00 11 1d 37 b3 04 2f 03 45 b6 05 c7 de c7 de";
+        let hex = |s: &str| s.split_whitespace().map(|h| u8::from_str_radix(h, 16).unwrap()).collect::<Vec<u8>>();
+        let mut bytes = hex(leftover);
+        bytes.extend(hex(good));
+        let known = |op: u64| defs.messages.contains_key(&op);
+        let mut fr = crate::protocol::Framer::new();
+        let mut out = Vec::new();
+        fr.push(&defs.framing, &known, &bytes, true, &mut out);
+        let ops: Vec<u64> = out.iter().map(|f| f.opcode).collect();
+        assert_eq!(ops, vec![0x3600, 0x3804, 0x3600, 0x371d]);
+    }
 }

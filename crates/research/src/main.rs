@@ -524,7 +524,7 @@ fn cmd_decode(pkts: &[Packet], a: &Args) -> Result<(), String> {
                     let ready = pi.members.iter().filter(|m| m.status.map_or(false, |s| s & 0x02 != 0)).count();
                     let t0 = pkts[0].ts;
                     let end = e.display_fight().map_or("-".to_string(), |f| format!("{:.0}", f.end - t0));
-                    format!("{view} {} ready {}/{}{}{} · since {:.0} · fight end {end} · you {}{}", pi.title.as_deref().unwrap_or("-"), ready, pi.members.len(), if pi.inside { " inside" } else { "" }, if pi.entering { " entering" } else { "" }, pi.since - t0, e.self_name.as_deref().unwrap_or("?"), if e.current.as_ref().map_or(false, |f| !f.finished) { " · FIGHTING" } else { "" })
+                    format!("{view} {} ready {}/{}{}{}{} · since {:.0} · fight end {end} · you {}{}", pi.title.as_deref().unwrap_or("-"), ready, pi.members.len(), if pi.inside { " inside" } else if pi.waiting { " waiting" } else { "" }, if pi.waiting { format!(" {}/{}", pi.members.len(), pi.size) } else { String::new() }, if pi.entering { " entering" } else { "" }, pi.since - t0, e.self_name.as_deref().unwrap_or("?"), if e.current.as_ref().map_or(false, |f| !f.finished) { " · FIGHTING" } else { "" })
                 }
             };
             if line != last_party {
@@ -554,6 +554,10 @@ fn cmd_decode(pkts: &[Packet], a: &Args) -> Result<(), String> {
     println!("you: {} (id {:?})\n", p.engine.self_name.as_deref().unwrap_or("unknown"), p.engine.self_id);
     for f in &fights {
         println!("{}", p.engine.summary_text(f, 12));
+        if let Some(r) = p.engine.fight_table(f, None).get("wb_rank").filter(|r| r.get("of").is_some()) {
+            let pos = r.get("pos").and_then(|p| p.as_u64()).map_or("-".to_string(), |p| format!("#{p}"));
+            println!("  World boss rank: {pos} of {} (saw {:.1}% of its HP)\n", r.f64_or("of", 0.0), r.f64_or("seen", 0.0) * 100.0);
+        }
         if let Some(pv) = p.engine.fight_table(f, None).get("pvp").filter(|v| v.get("enemies").is_some()) {
             let en: Vec<String> = pv.get("enemies").and_then(|e| e.as_arr()).map(|e| e.iter().map(|x| format!("{}[{}] {}/{}", x.str_or("name", "?"), x.f64_or("id", 0.0), x.f64_or("dealt", 0.0), x.f64_or("taken", 0.0))).collect()).unwrap_or_default();
             println!("  PvP{} {:.0}s dealt {} took {}: {}\n", if pv.bool_or("show", false) { " (card)" } else { "" }, pv.f64_or("secs", 0.0), pv.f64_or("dealt", 0.0), pv.f64_or("taken", 0.0), en.join(", "));

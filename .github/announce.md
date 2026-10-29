@@ -1,19 +1,14 @@
 <!-- Short release notes the Daeva Discord bot posts when a release is published.
      Update "version" and the lists with each release. -->
-version: 0.5.6
-tagline: A PvP card for the Abyss, and every hit counted in full again.
+version: 0.5.7
+tagline: Your rank at world bosses, and bosses and players named after entering a zone.
 
 ## New
-- ⚔️ **PvP card:** the player you're fighting with their class and faction, Dealt and Took, everyone you fought in a table, ✝ Down and ☠ You died
-- 🔍 **PvP details:** click an enemy to see the whole PvP fight skill by skill
-- 🛡️ **Factions** read from the game: your own side never counts as an enemy, and mixed dungeon parties work as before
-- 🛡️ Faction emblems on your list and party panel when a party mixes Elyos and Asmodians
+- 🏆 **World boss rank:** after a kill, see where you placed among everyone the meter saw on the boss (#4 of 23), and *See all* to list them
+- ⏳ **Waiting · Rerun:** when a rerun vote fails, the party panel shows who stayed, who joined and the open seats
 
 ## Fixed
-- 🎯 Some players' hits (mostly Gladiators) counted as 1 damage; bosses now read 100% of HP counted
-- 🩹 PvP damage no longer shows up as healing
-- 👥 Enemy players and the other faction's strangers stay off your monster fight list
-- 🧭 No false enemies when the meter starts mid-zone
-- 🚪 No "Leaving now." room flash after a dungeon party ends
-- 📜 History details now scroll into view
-- 🔔 Event banner's time-left line clear of the rounded corners
+- 🏷️ Bosses showing as "Unknown monster" and players as "Player #…" after entering a dungeon or zone
+- 🚪 Leaving a dungeon but staying in the party: those fights now count as open-world fights
+- 🛡️ Wrong gear score (about double) at the end of a dungeon run
+- 🔤 "DAEVA METER" title back in the pixel font, status line back in the normal font
