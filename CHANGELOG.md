@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.8 (2026-10-31)
+
+- **The meter no longer mutes the game or makes it stutter:** clicking or dragging it, minimising it, and opening Settings, History or Details no longer take the game's focus. Only typing in a box (a name, a setting) takes the keyboard, and the game gets it back as soon as you click away or close the window.
+- **Elementalist spirits and Cleric auras:** a spirit or Divine Aura that hit before the game said whose it was got a row of its own (*Fire Spirit*, *Player #49787*, or the Cleric's name twice). Those hits now count for the Elementalist or Cleric. In dungeons this also catches spirit damage that went uncounted before: dungeon Elementalists can show up to ~9% more, and bosses add up closer to 100%.
+- **More skill names and icons:** Theostone procs, Elementalist spirit skills, potions and more monster skills now have names and icons, thanks to timort. A few skills that showed a neighbouring skill's name now show their own.
+
 ## 0.5.7 (2026-10-29)
 
 - **Unknown bosses and players:** sometimes, right after entering a dungeon or zone, a boss showed as "Unknown monster" and players as "Player #…" for the whole visit. This now happens far less. (Older versions had this too.)

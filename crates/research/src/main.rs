@@ -502,6 +502,9 @@ fn cmd_decode(pkts: &[Packet], a: &Args) -> Result<(), String> {
     let mut last_party = String::new();
     let mut last_trace = 0.0f64;
     let mut last_line = String::new();
+    // --watch ID,ID: print what the meter knows about these actors whenever it changes.
+    let watch: Vec<u64> = a.get("watch").map(|w| w.split(',').filter_map(|x| x.trim().parse().ok()).collect()).unwrap_or_default();
+    let mut watched: HashMap<u64, String> = HashMap::new();
     for (i, pk) in pkts.iter().enumerate() {
         if Some(i) == swap_at {
             let before = p.decoder.frames_total;
@@ -512,6 +515,13 @@ fn cmd_decode(pkts: &[Packet], a: &Args) -> Result<(), String> {
             println!("swapped decoder after {i} packets ({before} frames so far)");
         }
         fights.extend(p.push_frame(pk.linktype, &pk.data, pk.ts));
+        for id in &watch {
+            let line = p.engine.actors.get(id).map_or("unseen".to_string(), |x| format!("{:?} name={:?} class={:?} npc={:?} owner={:?}", x.kind, x.name, x.class, x.npc_id, x.owner));
+            if watched.get(id) != Some(&line) {
+                println!("t={:.1} watch {id}: {line}", pk.ts - pkts[0].ts);
+                watched.insert(*id, line);
+            }
+        }
         if party {
             // The live meter's timer: ends idle fights between packets.
             fights.extend(p.tick(pk.ts));

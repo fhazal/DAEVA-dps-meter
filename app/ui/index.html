@@ -879,8 +879,9 @@ Your damage: ${D.fmt(me ? me.dmg : 0)}, ${D.pct(share, 1)} of ${t.name}'s ${D.fm
     const box = $("target").querySelector(".name");
     box.innerHTML = `<input class="nm" maxlength="60" placeholder="Name on the target frame, then Enter">`;
     const i = box.querySelector("input");
-    i.focus();
-    const done = () => { editing = null; lastTargetHtml = ""; render(lastSnap); };
+    // The overlay never takes the keyboard (the game muted itself), only to type this.
+    D.typing(true).then(() => i.focus());
+    const done = () => { if (editing === null) return; editing = null; D.typing(false); lastTargetHtml = ""; render(lastSnap); };
     i.onkeydown = async (ev) => {
       if (ev.key === "Escape") return done();
       if (ev.key !== "Enter" || !i.value.trim()) return;

@@ -189,7 +189,8 @@
     td.querySelectorAll("span").forEach((x) => x.remove());
     td.insertAdjacentHTML("beforeend", '<input maxlength="60" placeholder="Skill name, then Enter">');
     const i = td.querySelector("input");
-    setTimeout(() => i.focus(), 0);
+    // The window takes the keyboard only to type this (see D.typing).
+    D.typing(true).then(() => i.focus());
     const done = () => { editing = false; render(); };
     i.onkeydown = async (e2) => {
       if (e2.key === "Escape") return done();

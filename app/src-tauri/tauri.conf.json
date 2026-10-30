@@ -23,7 +23,8 @@
         "resizable": true,
         "maximizable": false,
         "shadow": false,
-        "skipTaskbar": false
+        "skipTaskbar": false,
+        "focusable": false
       }
     ],
     "security": {

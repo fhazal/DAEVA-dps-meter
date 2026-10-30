@@ -117,6 +117,57 @@ fn set_name(st: St<'_>, kind: String, id: u32, name: String) -> Result<String, S
     st.lock().set_name(&kind, id, &name)
 }
 
+/// The meter's windows never take the keyboard on a click: the game muted
+/// itself and stuttered whenever it lost focus. A window takes it only while
+/// you type in it (a text box, a boss name), then the game gets it back.
+#[tauri::command]
+fn typing(app: AppHandle, window: tauri::WebviewWindow, on: bool) {
+    use std::sync::atomic::Ordering::Relaxed;
+    let fg = winsys::foreground();
+    if on {
+        if !app.webview_windows().values().any(|w| hwnd_of(w) == fg) {
+            KEYS_BEFORE.store(fg, Relaxed);
+        }
+        let _ = window.set_focusable(true);
+        let _ = window.set_focus();
+    } else {
+        hand_back_keys(&window);
+    }
+}
+
+/// The window that had the keyboard before a meter window took it to type
+/// (the game, usually).
+static KEYS_BEFORE: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+
+fn hwnd_of(w: &tauri::WebviewWindow) -> isize {
+    w.hwnd().map_or(0, |h| h.0 as isize)
+}
+
+/// The window in front (the game, usually) when a meter window last opened:
+/// where the keyboard goes back to if a meter window got it some other way
+/// than typing (a colour picker, Alt+Tab, Windows passing it along on close).
+static FRONT_BEFORE: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+
+/// Notes the window in front, unless it's one of the meter's own.
+fn note_front(app: &AppHandle) {
+    let fg = winsys::foreground();
+    if fg != 0 && !app.webview_windows().values().any(|w| hwnd_of(w) == fg) {
+        FRONT_BEFORE.store(fg, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// Ends typing in `window`: it can't take the keyboard again, and if it still
+/// has it, the game gets it back (you may have clicked into the game already,
+/// or moved on to type in another meter window).
+fn hand_back_keys(window: &tauri::WebviewWindow) {
+    use std::sync::atomic::Ordering::Relaxed;
+    let _ = window.set_focusable(false);
+    if winsys::foreground() == hwnd_of(window) {
+        let typed = KEYS_BEFORE.swap(0, Relaxed);
+        winsys::set_foreground(if typed != 0 { typed } else { FRONT_BEFORE.load(Relaxed) });
+    }
+}
+
 /// Opens a gaming.tools page for a monster ("npc") or skill.
 #[tauri::command]
 fn open_lookup(kind: String, id: u32) -> Result<(), String> {
@@ -446,6 +497,40 @@ fn window_params(window: WebviewWindow, st: St<'_>) -> String {
     st.lock().window_params.get(window.label()).cloned().unwrap_or_else(|| "{}".into())
 }
 
+/// Hides a side window the same way open_window shows it again: straight
+/// through Windows, so it never takes the keyboard. Tauri's own show would
+/// activate it, and mixing the two left Tauri thinking a reopened window was
+/// still hidden, so ✕ did nothing (0.5.8-test.3).
+fn hide_side_window(window: &WebviewWindow) -> Result<(), String> {
+    hand_back_keys(window);
+    let res = match window.hwnd() {
+        Ok(h) => {
+            winsys::hide(h.0 as isize);
+            Ok(())
+        }
+        Err(_) => window.hide().map_err(|e| e.to_string()),
+    };
+    // Safety net: Windows can leave the keyboard on the window that just
+    // closed (or move it there a moment later), and the game stays muted.
+    let app = window.app_handle().clone();
+    rescue_keys(&app);
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        rescue_keys(&app);
+    });
+    res
+}
+
+/// If the keyboard sits on a hidden meter window, gives it back to the
+/// window that was in front before (the game, usually).
+fn rescue_keys(app: &AppHandle) {
+    let fg = winsys::foreground();
+    let stuck = app.webview_windows().values().any(|w| hwnd_of(w) == fg && !w.is_visible().unwrap_or(true));
+    if stuck {
+        winsys::set_foreground(FRONT_BEFORE.load(std::sync::atomic::Ordering::Relaxed));
+    }
+}
+
 #[tauri::command]
 fn win_action(app: AppHandle, window: WebviewWindow, action: String) -> Result<(), String> {
     match action.as_str() {
@@ -461,12 +546,20 @@ fn win_action(app: AppHandle, window: WebviewWindow, action: String) -> Result<(
                 // under the same label while the old one is still being torn
                 // down left the new one without IPC ("failed to acquire webview
                 // reference") and with a dead close button.
-                window.hide().map_err(|e| e.to_string())
+                hide_side_window(&window)
             }
         }
-        "minimize" => window.minimize().map_err(|e| e.to_string()),
+        // Tauri's minimise brought the meter to the front as it went down,
+        // and the game muted itself (0.5.8-test.5 button check).
+        "minimize" => match window.hwnd() {
+            Ok(h) => {
+                winsys::minimize_no_activate(h.0 as isize);
+                Ok(())
+            }
+            Err(_) => window.minimize().map_err(|e| e.to_string()),
+        },
         "drag" => window.start_dragging().map_err(|e| e.to_string()),
-        "hide" => window.hide().map_err(|e| e.to_string()),
+        "hide" => hide_side_window(&window),
         _ => Err(format!("unknown action {action}")),
     }
 }
@@ -486,11 +579,16 @@ async fn open_window(app: AppHandle, kind: String, params: Option<String>) -> Re
     if let Some(s) = app.try_state::<Arc<Shared>>() {
         s.lock().window_params.insert(kind.clone(), params.unwrap_or_else(|| "{}".into()));
     }
+    note_front(&app);
     if let Some(win) = app.get_webview_window(&kind) {
         let _ = win.eval("window.__reloadParams && window.__reloadParams()");
-        let _ = win.show();
-        let _ = win.unminimize();
-        let _ = win.set_focus();
+        // Never the keyboard: the game would mute itself (see `typing`).
+        match win.hwnd() {
+            Ok(h) => winsys::show_no_activate(h.0 as isize),
+            Err(_) => {
+                let _ = win.show();
+            }
+        }
         return Ok(());
     }
     WebviewWindowBuilder::new(&app, &kind, WebviewUrl::App(format!("{kind}.html").into()))
@@ -504,6 +602,9 @@ async fn open_window(app: AppHandle, kind: String, params: Option<String>) -> Re
         .shadow(false)
         .always_on_top(true)
         .maximizable(false)
+        // Opens beside the game without taking its focus (see `typing`).
+        .focusable(false)
+        .focused(false)
         .build()
         .map(|_| ())
         .map_err(|e| e.to_string())
@@ -530,10 +631,17 @@ fn start_hotkeys(app: &AppHandle, shared: &Arc<Shared>) {
         }
         "hide" => {
             if let Some(w) = app2.get_webview_window("main") {
-                if w.is_visible().unwrap_or(true) {
-                    let _ = w.hide();
-                } else {
-                    let _ = w.show();
+                // Straight through Windows both ways, like the side windows:
+                // Tauri's show would take the game's focus.
+                match (w.hwnd(), w.is_visible().unwrap_or(true)) {
+                    (Ok(h), true) => winsys::hide(h.0 as isize),
+                    (Ok(h), false) => winsys::show_no_activate(h.0 as isize),
+                    (Err(_), true) => {
+                        let _ = w.hide();
+                    }
+                    (Err(_), false) => {
+                        let _ = w.show();
+                    }
                 }
             }
         }
@@ -552,7 +660,8 @@ fn start_hotkeys(app: &AppHandle, shared: &Arc<Shared>) {
         }
         "report" => {
             // In game: save quietly (a chime and a line on the meter), no
-            // Explorer window popping up over the game.
+            // Explorer window popping up over the game. The chime comes once
+            // the zip is written: it means "saved" (user's choice, 0.5.8).
             let mut c = sh.lock();
             if c.report_problem("hotkey").is_ok() {
                 winsys::play_wav(meter_core::chime::chime_wav("soon", (c.settings.alerts.volume / 100.0) as f32 * 0.6));
@@ -583,6 +692,10 @@ fn toast_positioner(handle: AppHandle, sh: Arc<Shared>) {
         std::thread::sleep(std::time::Duration::from_millis(if idle { 250 } else { 80 }));
         tick = tick.wrapping_add(1);
         let (Some(t), Some(m)) = (handle.get_webview_window("toast"), handle.get_webview_window("main")) else { continue };
+        // Keep "the window in front before the meter" fresh for rescue_keys.
+        if tick % 4 == 0 {
+            note_front(&handle);
+        }
 
         // The alert window asks for alerts every second or so. In long
         // sessions Windows can slow its page down until it misses banners
@@ -861,7 +974,9 @@ fn main() {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     if window.label() != "toast" {
                         api.prevent_close();
-                        let _ = window.hide();
+                        if let Some(w) = window.app_handle().get_webview_window(window.label()) {
+                            let _ = hide_side_window(&w);
+                        }
                     }
                 }
                 return;
@@ -906,6 +1021,7 @@ fn main() {
             update_status,
             check_updates_now,
             open_link,
+            typing,
             dismiss_update,
             open_release,
             get_snapshot,

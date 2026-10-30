@@ -255,5 +255,24 @@
     if (e.target.closest && e.target.closest("[data-drag]")) e.preventDefault();
   });
 
-  window.Daeva = { call, callJSON, fmt, pct, dur, when, esc, classColor, classIcon, classGlyph, skillIcon, npcIcon, eventIcon, loadArt, art, applyTheme, applyClassBorder, toast, icon, lights, winAction, params, wireTitlebar };
+  // ---- The keyboard only while you type. The meter's windows never take
+  // focus on a click (the game muted itself and stuttered); a box you type in
+  // takes it, and the game gets it back once you click away.
+  const TYPED = 'input:not([type]), input[type="text"], input[type="number"], input[type="search"], textarea, [contenteditable="true"]';
+  let typingOn = false;
+  function typing(on) {
+    if (mock || on === typingOn) return Promise.resolve();
+    typingOn = on;
+    return call("typing", { on }).catch(() => {});
+  }
+  document.addEventListener("pointerdown", (ev) => {
+    const el = ev.target.closest && ev.target.closest(TYPED);
+    if (el && !typingOn) typing(true).then(() => { if (document.activeElement !== el) el.focus(); });
+  }, true);
+  document.addEventListener("focusout", () => setTimeout(() => {
+    const a = document.activeElement;
+    if (typingOn && !(a && a.matches && a.matches(TYPED))) typing(false);
+  }, 150));
+
+  window.Daeva = { call, callJSON, fmt, pct, dur, when, esc, classColor, classIcon, classGlyph, skillIcon, npcIcon, eventIcon, loadArt, art, applyTheme, applyClassBorder, toast, icon, lights, winAction, params, wireTitlebar, typing };
 })();

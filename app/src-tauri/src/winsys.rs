@@ -270,6 +270,68 @@ pub fn keep_on_top(hwnd: isize) {
 #[cfg(not(windows))]
 pub fn keep_on_top(_hwnd: isize) {}
 
+/// The window that has the keyboard now (the game, usually), and giving it
+/// back. The overlay never takes it on a click: the game muted itself and
+/// stuttered whenever it lost focus.
+#[cfg(windows)]
+pub fn foreground() -> isize {
+    unsafe { windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow() as isize }
+}
+
+#[cfg(windows)]
+pub fn set_foreground(hwnd: isize) {
+    if hwnd != 0 {
+        unsafe {
+            windows_sys::Win32::UI::WindowsAndMessaging::SetForegroundWindow(hwnd as _);
+        }
+    }
+}
+
+/// Shows (or restores) a window without giving it the keyboard.
+#[cfg(windows)]
+pub fn show_no_activate(hwnd: isize) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_SHOWNOACTIVATE};
+    unsafe {
+        ShowWindow(hwnd as _, SW_SHOWNOACTIVATE);
+    }
+    keep_on_top(hwnd);
+}
+
+#[cfg(not(windows))]
+pub fn show_no_activate(_hwnd: isize) {}
+
+/// Minimises a window without bringing it (or the meter) to the front.
+#[cfg(windows)]
+pub fn minimize_no_activate(hwnd: isize) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_SHOWMINNOACTIVE};
+    unsafe {
+        ShowWindow(hwnd as _, SW_SHOWMINNOACTIVE);
+    }
+}
+
+#[cfg(not(windows))]
+pub fn minimize_no_activate(_hwnd: isize) {}
+
+/// Hides a window (the counterpart of show_no_activate).
+#[cfg(windows)]
+pub fn hide(hwnd: isize) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE};
+    unsafe {
+        ShowWindow(hwnd as _, SW_HIDE);
+    }
+}
+
+#[cfg(not(windows))]
+pub fn hide(_hwnd: isize) {}
+
+#[cfg(not(windows))]
+pub fn foreground() -> isize {
+    0
+}
+
+#[cfg(not(windows))]
+pub fn set_foreground(_hwnd: isize) {}
+
 /// Plays an in-memory WAV without blocking. The bytes are kept alive in a
 /// static until the next sound replaces them (PlaySound reads them while
 /// playing).

@@ -906,6 +906,51 @@ impl Engine {
         self.player_alias.get(&cur).copied().unwrap_or(cur)
     }
 
+    /// Moves what `from` did in the running fight onto `to`'s row.
+    fn fold_stats(&mut self, from: u64, to: u64) {
+        if let Some(f) = self.current.as_mut().filter(|f| !f.finished) {
+            if let Some(st) = f.stats.remove(&from) {
+                match f.stats.get_mut(&to) {
+                    Some(o) => o.absorb(st),
+                    None => {
+                        f.stats.insert(to, st);
+                    }
+                }
+            }
+            if f.allies.remove(&from) {
+                f.allies.insert(to);
+            }
+        }
+    }
+
+    /// The Elementalist a spirit the game never ties to anyone belongs to:
+    /// a nameless actor using a spirit's own skill ("Water Spirit: …") on a
+    /// monster, inside a dungeon with just one Elementalist in the party.
+    /// Elsewhere a stranger's spirits may be around, so it stays unowned.
+    fn spirit_owner(&self, id: u64, tgt: u64, skill: u32) -> Option<u64> {
+        // A spirit's first hit often comes before the game has shown it at all.
+        let known = self.actors.get(&id).map_or(false, |a| a.name.is_some() || a.owner.is_some() || a.npc_id.is_some());
+        if known || Some(id) == self.self_id || self.is_friendly(tgt) {
+            return None;
+        }
+        let name = self.names.skill(skill & !DOT_KEY);
+        let spirit = name.split_once(" Spirit: ").map_or(false, |(s, _)| matches!(s, "Fire" | "Water" | "Wind" | "Earth" | "Ancient"));
+        let dungeon_party = self.party.len() >= 2 && !self.crowd_out && self.party_info.as_ref().map_or(false, |p| p.title.is_some() || p.inside);
+        if !spirit || !dungeon_party {
+            return None;
+        }
+        let mut elementalists = self.party_member_codes.iter().filter(|(_, code)| self.names.party_class(**code).map_or(false, |c| c == "Elementalist"));
+        match (elementalists.next(), elementalists.next()) {
+            // Only a player seen under that name, or you by your known name:
+            // owner_by_name answers "you" while your name is unknown, and a
+            // party member's spirits then made the meter think you were them
+            // (report 1793382557, meter started in a room).
+            (Some((n, _)), None) if self.self_name.as_deref() == Some(n.as_str()) => self.self_id,
+            (Some((n, _)), None) => self.actors.values().find(|a| a.kind == ActorKind::Player && a.name.as_deref() == Some(n.as_str())).map(|a| a.id),
+            _ => None,
+        }
+    }
+
     fn owner_by_name(&self, name: &str) -> Option<u64> {
         if self.self_name.as_deref() == Some(name) {
             return self.self_id;
@@ -962,6 +1007,7 @@ impl Engine {
                     return finished;
                 }
                 let attacker = self.resolve_owner(*src);
+                let attacker = self.spirit_owner(attacker, *tgt, *skill).unwrap_or(attacker);
                 self.learn_class(attacker, *skill);
                 // Everything that hit this target, in scope or not (the HP
                 // check), except boss mechanics and ticks after a kill.
@@ -1292,19 +1338,7 @@ impl Engine {
                         if let Some(old) = old {
                             self.player_alias.insert(*id, old);
                             // Hits made under the new id before its name came.
-                            if let Some(f) = self.current.as_mut().filter(|f| !f.finished) {
-                                if let Some(st) = f.stats.remove(id) {
-                                    match f.stats.get_mut(&old) {
-                                        Some(o) => o.absorb(st),
-                                        None => {
-                                            f.stats.insert(old, st);
-                                        }
-                                    }
-                                }
-                                if f.allies.remove(id) {
-                                    f.allies.insert(old);
-                                }
-                            }
+                            self.fold_stats(*id, old);
                         }
                     }
                 }
@@ -1352,6 +1386,15 @@ impl Engine {
                 if let Some(n) = name {
                     if self.actors.get(id).map_or(false, |a| a.kind == ActorKind::Player) {
                         self.backfill_name(*id, n);
+                    }
+                }
+                // A summon often hits a few seconds before the game says whose
+                // it is (Elementalist spirits, a Cleric's Divine Aura): those
+                // first hits were a row of their own. Now they're the owner's.
+                if self.actors.get(id).map_or(false, |a| a.kind == ActorKind::Summon) {
+                    let owner = self.resolve_owner(*id);
+                    if owner != *id {
+                        self.fold_stats(*id, owner);
                     }
                 }
             }
@@ -4895,6 +4938,76 @@ mod zone_notice_tests {
         assert!(!e.party_info.as_ref().unwrap().inside, "three named strangers: out");
         assert!(!e.current.as_ref().unwrap().grouped);
         assert!(!e.party_queueing(), "no queue panel in the open world");
+    }
+
+    /// Transcendence, 2026-10-29: a Cleric's Divine Aura and an Elementalist's
+    /// spirits hit for a few seconds before the game said whose they were,
+    /// and those hits stayed a second row (Yvond 0.1%, Fire Spirit 0.1%).
+    #[test]
+    fn a_summons_first_hits_are_its_owners() {
+        fn dmg(ts: f64, src: u64, tgt: u64, skill: u32, amount: u64, flags: u32) -> GameEvent {
+            GameEvent::Damage { ts, src, tgt, skill, amount, flags }
+        }
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&GameEvent::Actor { id: 2, name: Some("Yvond".into()), class: Some("17".into()), kind: ActorKind::Player, npc_id: None, owner: None, max_hp: None });
+        e.handle(&GameEvent::Actor { id: 3, name: Some("HTOa".into()), class: Some("16".into()), kind: ActorKind::Player, npc_id: None, owner: None, max_hp: None });
+        e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(10_000_000) });
+        e.handle(&dmg(1.0, 1, 50, 18010000, 1000, 0));
+        e.handle(&dmg(1.5, 2, 50, 17040230, 500, 0));
+        // Both show up as nameless players first, and hit.
+        for id in [30, 31] {
+            e.handle(&GameEvent::Actor { id, name: None, class: None, kind: ActorKind::Player, npc_id: None, owner: None, max_hp: None });
+        }
+        e.handle(&dmg(2.0, 30, 50, 17150342, 40, 0));
+        e.handle(&dmg(2.0, 31, 50, 16100004, 60, 0));
+        // Then the game says whose: the aura by its owner's name, the spirit by id.
+        e.handle(&GameEvent::Actor { id: 30, name: Some("Yvond".into()), class: None, kind: ActorKind::Summon, npc_id: None, owner: None, max_hp: None });
+        e.handle(&GameEvent::Actor { id: 31, name: None, class: None, kind: ActorKind::Summon, npc_id: Some(2920113), owner: Some(3), max_hp: None });
+        let f = e.current.as_ref().unwrap();
+        assert!(!f.stats.contains_key(&30) && !f.stats.contains_key(&31), "no rows of their own");
+        assert_eq!(f.stats[&2].dmg, 540);
+        assert_eq!(f.stats[&3].dmg, 60);
+        assert_eq!(f.total(), 1600, "the fight's total doesn't change");
+    }
+
+    /// Urugugu, 2026-10-29: two of HTOa's spirits were never tied to anyone
+    /// and stayed "Player #49787 (Elementalist)". In a dungeon with one
+    /// Elementalist in the party, a spirit's own skill is theirs; elsewhere,
+    /// or with two Elementalists, it stays a row of its own.
+    #[test]
+    fn an_unowned_spirit_is_the_dungeon_elementalists() {
+        fn dmg(ts: f64, src: u64, tgt: u64, skill: u32, amount: u64, flags: u32) -> GameEvent {
+            GameEvent::Damage { ts, src, tgt, skill, amount, flags }
+        }
+        let names = r#"{"skills": {"16110004": "Water Spirit: Discharge Chill"}, "party_class_ranges": {"Elementalist": [21, 24], "Chanter": [33, 36]}}"#;
+        let run_as = |me: Option<&str>, party: Option<Vec<(&str, u32)>>| {
+            let mut e = Engine::new(EngineConfig::default(), Names::from_json(names).unwrap());
+            e.handle(&GameEvent::SelfId { id: 1, name: me.map(String::from) });
+            if let Some(p) = &party {
+                let members = p.iter().map(|(n, _)| crate::events::PartyMember { name: (*n).into(), status: Some(0x1c), ..Default::default() }).collect();
+                e.handle(&GameEvent::PartyInfo { title: Some("DPS".into()), leader: None, members });
+                e.handle(&GameEvent::Party { names: p.iter().map(|(n, _)| n.to_string()).collect(), codes: p.iter().map(|(_, c)| Some(*c)).collect() });
+            }
+            for (id, n) in [(2, "HTOa"), (3, "Babo")] {
+                e.handle(&GameEvent::Actor { id, name: Some(n.into()), class: None, kind: ActorKind::Player, npc_id: None, owner: None, max_hp: None });
+            }
+            e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(10_000_000) });
+            e.handle(&dmg(1.0, 1, 50, 18010000, 1000, 0));
+            e.handle(&dmg(1.5, 2, 50, 16040120, 500, 0));
+            // The spirit's first hit comes before the game has shown it at all.
+            e.handle(&dmg(2.0, 49787, 50, 16110004, 70, 0));
+            e.current.as_ref().unwrap().stats.keys().copied().collect::<std::collections::HashSet<u64>>()
+        };
+        let run = |party| run_as(Some("Me"), party);
+        let rows = run(Some(vec![("Me", 33), ("HTOa", 21)]));
+        assert!(rows.contains(&2) && !rows.contains(&49787), "HTOa's spirit: {rows:?}");
+        assert!(run(None).contains(&49787), "open world: could be a stranger's");
+        assert!(run(Some(vec![("Me", 33), ("HTOa", 21), ("Babo", 22)])).contains(&49787), "two Elementalists: whose?");
+        // Report 1793382557: meter started in a room, your name not known yet,
+        // the party's Elementalist not seen yet. Their spirit is never yours.
+        let rows = run_as(None, Some(vec![("Me", 33), ("Enock", 21)]));
+        assert!(rows.contains(&49787), "stays its own row, not yours: {rows:?}");
     }
 
     /// Urugugu, 2026-10-25: the leader clicked Enter inside for the next
