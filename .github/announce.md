@@ -1,12 +1,14 @@
 <!-- Short release notes the Daeva Discord bot posts when a release is published.
      Update "version" and the lists with each release. -->
-version: 0.5.8
-tagline: The game keeps its sound while you use the meter, and Elementalists and Clerics get all their damage.
+version: 0.5.9
+tagline: See your party while you fight in the open world, with everyone's GS and CP the moment you join.
 
 ## New
-- 🖼️ **More skill names and icons:** Theostone procs, Elementalist spirit skills, potions and more monster skills, thanks to timort
+- 👥 **Party strip in the open world:** with friends outside a dungeon, a slim strip above the boss card shows who's fighting with you ("In this fight 3/4")
+- 📊 **GS and CP in an open-world party:** everyone's gear score and combat power show as soon as you join, not "–"
 
 ## Fixed
-- 🔊 Clicking the meter, or opening Settings, History or Details, no longer mutes the game or makes it stutter
-- 🔥 Elementalist spirits and Cleric auras no longer show as extra rows (*Fire Spirit*, *Player #…*, a Cleric twice): their damage counts for their owner, so dungeon Elementalists can show up to ~9% more
-- 🏷️ A few skills that showed a neighbouring skill's name now show their own
+- 🪪 Your own CP now shows when you join someone else's dungeon room
+- 🔁 Joining a new party right after a run no longer shows a false "Waiting · Rerun"
+- 🗿 The Shining Mau Totem fight now counts as a kill and ends as soon as the Totem dies
+- 🔑 The Shugo Festival card shows 0 keys after you use your last one, not 1

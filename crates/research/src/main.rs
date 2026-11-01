@@ -505,6 +505,9 @@ fn cmd_decode(pkts: &[Packet], a: &Args) -> Result<(), String> {
     // --watch ID,ID: print what the meter knows about these actors whenever it changes.
     let watch: Vec<u64> = a.get("watch").map(|w| w.split(',').filter_map(|x| x.trim().parse().ok()).collect()).unwrap_or_default();
     let mut watched: HashMap<u64, String> = HashMap::new();
+    // --cards 1: how often the live card changed target in each fight.
+    let cards = a.get("cards").is_some();
+    let mut card_log: BTreeMap<u64, (Option<u64>, u32, f64, f64)> = BTreeMap::new();
     for (i, pk) in pkts.iter().enumerate() {
         if Some(i) == swap_at {
             let before = p.decoder.frames_total;
@@ -515,6 +518,23 @@ fn cmd_decode(pkts: &[Packet], a: &Args) -> Result<(), String> {
             println!("swapped decoder after {i} packets ({before} frames so far)");
         }
         fights.extend(p.push_frame(pk.linktype, &pk.data, pk.ts));
+        if cards {
+            if let Some(f) = p.engine.current.as_ref().filter(|f| !f.finished) {
+                let e = card_log.entry(f.id).or_insert((f.focus, 0, f.start, f.end));
+                if e.0 != f.focus {
+                    if e.0.is_some() {
+                        e.1 += 1;
+                        // --cards 2: every switch, with what the card moved to.
+                        if a.get("cards") == Some("2") {
+                            let name = f.focus.map(|t| p.engine.fname(f, t)).unwrap_or_default();
+                            println!("card #{} t={:.1} -> {name}", f.id, pk.ts - pkts[0].ts);
+                        }
+                    }
+                    e.0 = f.focus;
+                }
+                e.3 = f.end;
+            }
+        }
         for id in &watch {
             let line = p.engine.actors.get(id).map_or("unseen".to_string(), |x| format!("{:?} name={:?} class={:?} npc={:?} owner={:?}", x.kind, x.name, x.class, x.npc_id, x.owner));
             if watched.get(id) != Some(&line) {
@@ -560,8 +580,14 @@ fn cmd_decode(pkts: &[Packet], a: &Args) -> Result<(), String> {
     if let Some(f) = p.engine.finish() {
         fights.push(f);
     }
+    for (id, (_, n, a, z)) in &card_log {
+        println!("card #{id}: {n} switches in {:.0} s", (z - a).max(0.0));
+    }
     println!("{} packets, {} game packets, {} frames, {} resyncs, {} events, {} fights\n", p.packets, p.game_packets, p.decoder.frames_total, p.decoder.resyncs(), p.engine.events_seen, fights.len());
     println!("you: {} (id {:?})\n", p.engine.self_name.as_deref().unwrap_or("unknown"), p.engine.self_id);
+    if let Some(k) = p.engine.self_keys {
+        println!("Shugo keys: {k}\n");
+    }
     for f in &fights {
         println!("{}", p.engine.summary_text(f, 12));
         if let Some(r) = p.engine.fight_table(f, None).get("wb_rank").filter(|r| r.get("of").is_some()) {

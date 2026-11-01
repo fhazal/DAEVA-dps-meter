@@ -6,7 +6,7 @@
 // updates after a game patch never need a new build.
 {
   "name": "AION 2 (global)",
-  "version": "0.6.29",
+  "version": "0.6.30",
   "process_names": ["aion2"],
   // Server ports, if they turn out to be fixed. Auto-detection by process
   // already finds the server, so this can stay empty.
@@ -199,7 +199,8 @@
                 {"name": "bonus", "type": "varint", "if": "flags&8"}],
      "emit": [
        {"event": "odyle", "when": "kind==1&&t0==135&&t1==147&&t2==3", "cur": "cur", "bonus": "bonus"},
-       {"event": "keys", "when": "kind==1&&t0==0&&t1==0&&t2==0&&flags&4", "cur": "cur"}
+       // No flag 4 = 0 keys left (the game leaves zeros out, as for Odyle).
+       {"event": "keys", "when": "kind==1&&t0==0&&t1==0&&t2==0", "cur": "cur"}
      ]},
     // Full counter list sent at login: a count, then entries of flags,
     // kind, 3-byte tag, values. The first entry is the Shugo key count;
@@ -212,7 +213,7 @@
                 {"name": "cur", "type": "varint", "if": "flags&4"},
                 {"name": "bonus", "type": "varint", "if": "flags&8"}],
      "emit": [
-       {"event": "keys", "when": "kk==1&&k0==0&&k1==0&&k2==0&&kf&4", "cur": "keys"},
+       {"event": "keys", "when": "kk==1&&k0==0&&k1==0&&k2==0", "cur": "keys"},
        {"event": "odyle", "when": "kind==1&&t0==135&&t1==147&&t2==3", "cur": "cur", "bonus": "bonus"},
        // Sent on login: everything around you is being introduced.
        {"event": "fresh", "when": "1"}

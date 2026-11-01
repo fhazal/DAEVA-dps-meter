@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.9 (2026-11-02)
+
+- **Party strip in the open world:** in a party with friends outside a dungeon, a slim strip above the boss card shows your party while you fight: one dot per member, green when they're fighting with you, and "In this fight 3/4".
+- **No false "Waiting · Rerun":** joining a new party right after a dungeon run no longer shows the rerun panel, even when a friend from your last run is in it. A real rerun still does, also when the leader renames the room while you wait.
+- **Your own CP in the party panel:** when you join someone else's room, your row now shows your combat power, not "–".
+- **Shugo key count right at 0:** after you used your last Shugo Festival Reward Key, the event card kept saying you had 1 key left. It now shows 0.
+- **GS and CP in an open-world party:** when you join a party outside a dungeon, the party panel now shows everyone's gear score and combat power right away, not "–".
+- **Mau Totem counts as a kill:** the Shining Mau Totem fight ended without "killed" when the Shamans before it took more damage. It now counts as a kill and ends as soon as the Totem dies.
+
 ## 0.5.8 (2026-10-31)
 
 - **The meter no longer mutes the game or makes it stutter:** clicking or dragging it, minimising it, and opening Settings, History or Details no longer take the game's focus. Only typing in a box (a name, a setting) takes the keyboard, and the game gets it back as soon as you click away or close the window.

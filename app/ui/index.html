@@ -240,6 +240,9 @@
   .qbar .dots i { width: 7px; height: 7px; border-radius: 50%; background: rgba(255,255,255,.18); } .qbar .dots i.r { background: var(--good); }
   .qbar .rd { margin-left: auto; flex: none; font-weight: 700; padding: 0 7px; border-radius: 9px; color: #e5675f; background: rgba(229,103,95,.12); border: 1px solid rgba(229,103,95,.35); }
   .qbar .rd.all { color: var(--good); background: rgba(111,207,142,.12); border-color: rgba(111,207,142,.3); }
+  /* Open-world party: never red (that's the queue's "not Ready"). */
+  .qbar .rd.fi { color: #aeb4bd; background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.18); }
+  .qbar .rd.fi.all { color: var(--good); background: rgba(111,207,142,.12); border-color: rgba(111,207,142,.3); }
   .pty { padding: 8px 4px 6px; }
   .pty-h { display: flex; align-items: center; gap: 8px; padding: 0 8px 6px; }
   .pty-h b { font-size: 13px; }
@@ -1115,6 +1118,13 @@ Your damage: ${D.fmt(me ? me.dmg : 0)}, ${D.pct(share, 1)} of ${t.name}'s ${D.fm
   // (green = Ready, or you) and how many clicked Ready.
   function queueBar(p) {
     const ms = p.members || [];
+    // A party out in the world: a dot per member, green = fighting with you.
+    if (p.open) {
+      const here = new Set(((lastFight && lastFight.players) || []).map((x) => x.name));
+      const n = ms.filter((m) => m.is_self || here.has(m.name)).length;
+      const dots = ms.map((m) => { const on = m.is_self || here.has(m.name); return `<i class="${on ? "r" : ""}" title="${D.esc(m.name)}${on ? " · in this fight" : " · not in this fight"}"></i>`; }).join("");
+      return `${PARTY_IC}<b>Party</b><span class="ttl">${ms.length}/5</span><span class="dots">${dots}</span><span class="rd fi${n === ms.length ? " all" : ""}">In this fight ${n}/${ms.length}</span>`;
+    }
     const n = ms.filter((m) => m.ready).length;
     const dots = ms.map((m) => `<i class="${m.ready || m.is_self ? "r" : ""}" title="${D.esc(m.name)}${m.ready ? " · ready" : ""}"></i>`).join("");
     return `${PARTY_IC}<b>Party queue</b><span class="ttl">${p.title ? `“${D.esc(p.title)}” · ` : ""}${ms.length}/5</span><span class="dots">${dots}</span><span class="rd${n === ms.length ? " all" : ""}">Ready ${n}/${ms.length}</span>`;

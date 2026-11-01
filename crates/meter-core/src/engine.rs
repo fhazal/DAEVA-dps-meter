@@ -759,6 +759,14 @@ pub struct Engine {
     /// fills again (the game drops the party list for a moment on the way
     /// out, test4-001: "4/4" with piaoyiq's seat open).
     run_size: usize,
+    /// Who was inside during the last run: a rerun room has some of them,
+    /// a new party you join after it doesn't.
+    run_names: HashSet<String>,
+    /// The room title and leader of the last run: a rerun keeps its room
+    /// (the leader may rename it while you wait, test-006), a new party has
+    /// its own (even with a friend from the last run in it).
+    run_title: Option<String>,
+    run_leader: Option<u64>,
     /// Named players outside your party and Force seen hitting monsters
     /// since the last zone load, while the meter thinks you're inside.
     crowd_names: HashSet<String>,
@@ -838,6 +846,9 @@ impl Engine {
             named_from_join: None,
             exited_dungeon: false,
             run_size: 0,
+            run_names: HashSet::new(),
+            run_title: None,
+            run_leader: None,
             crowd_names: HashSet::new(),
             crowd_out: false,
             skip_party_names: false,
@@ -1287,7 +1298,12 @@ impl Engine {
                 // damage than the boss, say) doesn't end the fight or make it
                 // a kill: that would read as a kill of the boss.
                 let boss_lives = self.current.as_ref().and_then(|f| self.card_boss(f)).map_or(false, |b| b != *target && !self.dead_at.contains_key(&b));
-                let main = main.filter(|_| !boss_lives);
+                // The card's boss dying is the kill even when an unranked
+                // monster took more damage (Shining Mau Totem, Heroic 300k,
+                // after two unranked Shamans of 570k: "killed" was missing
+                // and the fight waited for the idle end, 2026-11-01).
+                let card_kill = self.is_real_boss(*target) && self.current.as_ref().and_then(|f| self.card_boss(f)) == Some(*target);
+                let main = if card_kill { Some(*target) } else { main.filter(|_| !boss_lives) };
                 if let Some(f) = self.current.as_mut() {
                     f.deaths.push((*ts, *target, *killer));
                     if let Some(s) = f.stats.get_mut(target) {
@@ -1686,8 +1702,16 @@ impl Engine {
                     // Out of the dungeon, yet the room still marks members as
                     // in it: they accepted a rerun and wait for the room to
                     // fill (urugugu-test2-057, test15, vakron-012). After a
-                    // plain way out no such list comes.
-                    let rerun_wait = self.exited_dungeon && title.is_some() && members.iter().any(|m| m.status.map_or(false, |s| s & IN_DUNGEON != 0));
+                    // plain way out no such list comes. A new party you join
+                    // right after can carry the mark from its own runs: only
+                    // a room with someone from your last run is a rerun
+                    // (dungeon-test2, 0.5.9-test.2).
+                    let me_name = self.self_name.as_deref();
+                    let rerun_wait = self.exited_dungeon
+                        && title.is_some()
+                        && (*title == self.run_title || (leader.is_some() && *leader == self.run_leader))
+                        && members.iter().any(|m| m.status.map_or(false, |s| s & IN_DUNGEON != 0))
+                        && members.iter().any(|m| Some(m.name.as_str()) != me_name && self.run_names.contains(&m.name));
                     if self.exited_dungeon {
                         for m in members.iter_mut() {
                             m.status = m.status.map(|s| s & !IN_DUNGEON);
@@ -1709,6 +1733,16 @@ impl Engine {
                     let waiting = !inside && (rerun_wait || (old.map_or(false, |p| p.waiting && (title.is_none() || p.title == *title)) && self.exited_dungeon));
                     if inside {
                         self.run_size = if was_inside { self.run_size.max(members.len()) } else { members.len() };
+                        if !was_inside {
+                            self.run_names.clear();
+                        }
+                        self.run_names.extend(members.iter().map(|m| m.name.clone()));
+                        if title.is_some() {
+                            self.run_title = title.clone();
+                        }
+                        if leader.is_some() {
+                            self.run_leader = *leader;
+                        }
                     }
                     let size = members.len().max(old.filter(|p| title.is_none() || p.title == *title).map_or(0, |p| p.size)).max(if waiting { self.run_size } else { 0 });
                     let mut joined_list: Vec<(String, f64)> = old.map_or(Vec::new(), |p| p.joined.clone());
@@ -2733,6 +2767,12 @@ impl Engine {
         !self.crowd_out && self.party_info.as_ref().map_or(false, |p| p.title.is_some() && !p.inside && p.members.len() > 1)
     }
 
+    /// In a party out in the world (no dungeon room): the slim party strip
+    /// over the rows while you fight.
+    pub fn party_open(&self) -> bool {
+        self.party_info.as_ref().map_or(false, |p| p.title.is_none() && !p.inside && p.members.len() > 1)
+    }
+
     /// You hit or healed in the last 8 s (a fight nearby that only your
     /// party is in doesn't count). Also in a fight that just ended, so the
     /// panel doesn't flash between two pulls.
@@ -3664,6 +3704,23 @@ mod tests {
         assert!(done.boss_killed && done.targets.contains_key(&50) && !done.targets.contains_key(&60));
         let now = e.current.as_ref().unwrap();
         assert!(now.targets.contains_key(&60) && !now.targets.contains_key(&50));
+    }
+
+    /// Mau Totem room: two unranked Shamans (570k) take more damage than the
+    /// Heroic Shining Mau Totem (300k) on the card. Its death is the kill.
+    #[test]
+    fn card_boss_death_is_the_kill_when_an_unranked_monster_took_more() {
+        let mut e = Engine::new(EngineConfig::default(), Names::from_json(r#"{"bosses": ["777"]}"#).unwrap());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(6), owner: None, max_hp: Some(570_000) });
+        e.handle(&GameEvent::Actor { id: 60, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(300_000) });
+        e.handle(&dmg(1.0, 1, 50, 18000000, 570_000, 0));
+        e.handle(&GameEvent::Death { ts: 2.0, target: 50, killer: None });
+        e.handle(&dmg(3.0, 1, 60, 18000000, 300_000, 0));
+        e.handle(&GameEvent::Death { ts: 3.1, target: 60, killer: None });
+        let f = e.current.as_ref().unwrap();
+        assert!(f.boss_killed && f.targets.contains_key(&50), "one fight, killed");
+        assert!(e.pending_end.is_some(), "a real boss's death ends the fight");
     }
 
     #[test]
@@ -4760,6 +4817,56 @@ mod zone_notice_tests {
         e.handle(&GameEvent::SelfId { id: 9, name: Some("Me".into()) });
         assert!(e.party_info.as_ref().unwrap().inside, "back in after the teleport");
         assert!(e.party_is_new("New"));
+    }
+
+    /// dungeon-test2 (0.5.9-test.2): after a run you join a new party whose
+    /// members still carry the "in dungeon" mark from their own runs. That's
+    /// a new room, not a rerun, even with a friend from your last run in it.
+    #[test]
+    fn a_new_party_after_a_run_is_not_a_rerun() {
+        let m = |n: &str, id: u64, st: u8| crate::events::PartyMember { name: n.into(), id: Some(id), status: Some(st), ..Default::default() };
+        let room = |t: &str, lead: u64, ms: Vec<crate::events::PartyMember>| GameEvent::PartyInfo { title: Some(t.into()), leader: Some(lead), members: ms };
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&room("75k 3B", 2, vec![m("Lead", 2, 0x1e), m("Me", 1, 0x1e), m("Friend", 3, 0x1e)]));
+        e.see_time(500.0);
+        e.handle(&GameEvent::DungeonLeft);
+        e.handle(&GameEvent::PartyGone);
+        // Strangers only.
+        e.handle(&room("Kina Buy&Sell", 5, vec![m("Stranger", 5, 0x1c), m("Me", 1, 0x0c), m("Other", 6, 0x0e)]));
+        let p = e.party_info.as_ref().unwrap();
+        assert!(!p.waiting && !p.inside, "a new room");
+        // Your friend from the last run joins the new room too.
+        e.handle(&room("Kina Buy&Sell", 5, vec![m("Stranger", 5, 0x1c), m("Me", 1, 0x0c), m("Friend", 3, 0x1c)]));
+        let p = e.party_info.as_ref().unwrap();
+        assert!(!p.waiting && !p.inside, "still a new room, not a rerun");
+
+        // test-006: a real rerun whose leader renames the room while you wait.
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&room("123123", 2, vec![m("Lead", 2, 0x1e), m("Me", 1, 0x1e), m("Friend", 3, 0x1e)]));
+        e.see_time(500.0);
+        e.handle(&GameEvent::DungeonLeft);
+        e.handle(&room("60+", 2, vec![m("Lead", 2, 0x1c), m("Me", 1, 0x1e)]));
+        assert!(e.party_info.as_ref().unwrap().waiting, "same leader: still the rerun");
+    }
+
+    /// A party with friends out in the world (no room title) gets the slim
+    /// strip while you fight; a dungeon room doesn't count as one.
+    #[test]
+    fn an_open_world_party_shows_the_strip() {
+        let m = |n: &str| crate::events::PartyMember { name: n.into(), ..Default::default() };
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&GameEvent::PartyInfo { title: None, leader: None, members: vec![m("Me")] });
+        assert!(!e.party_open(), "just you");
+        e.handle(&GameEvent::PartyInfo { title: None, leader: None, members: vec![m("Me"), m("Friend")] });
+        assert!(e.party_open());
+        assert!(!e.party_queueing(), "not a dungeon queue");
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&GameEvent::PartyInfo { title: Some("80k ish".into()), leader: Some(2), members: vec![m("Me"), m("Lead")] });
+        assert!(!e.party_open() && e.party_queueing(), "a dungeon room keeps its queue strip");
     }
 
     /// test8 (0-112 s): the meter started while the party waited outside for

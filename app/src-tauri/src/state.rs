@@ -1535,7 +1535,9 @@ impl Core {
                     .set("server", server)
                     .set("server_tag", tag)
                     .set("gs", m.gs)
-                    .set("cp", m.cp)
+                    // Yours from the game's own CP message when known (it
+                    // follows upgrades; the room list can lag or miss it).
+                    .set("cp", if e.self_name.as_deref() == Some(m.name.as_str()) { e.self_cp.or(m.cp.map(u64::from)) } else { m.cp.map(u64::from) })
                     .set("leader", p.leader.is_some() && m.id == p.leader)
                     .set("ready", m.status.map(|s| s & 0x02 != 0))
                     // The game's bit, or seen fighting here (the bit stays off
@@ -1555,7 +1557,8 @@ impl Core {
             // Queueing for a dungeon: the full panel while you're idle (even
             // with a fight nearby), a slim bar over the rows while you fight.
             .set("lobby", e.party_lobby() || e.party_queue_panel())
-            .set("queue_bar", e.party_queueing() && e.self_active())
+            .set("queue_bar", (e.party_queueing() || e.party_open()) && e.self_active())
+            .set("open", e.party_open())
             .set("entering", p.entering)
             .set("rerun", p.rerun)
             .set("ready", e.party_ready())

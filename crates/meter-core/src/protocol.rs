@@ -570,11 +570,51 @@ fn read_fields(r: &mut Reader<'_>, defs: &[FieldDef], parents: &[&Scope], out: &
                                 // another current/max pool (two u32s, ~3.6k),
                                 // which the panel showed as gear score at the
                                 // end of a run (2026-10-29: 3656 for a 1796).
-                                let gs = if *marker == 0 { 0 } else { u32at(at + 8).filter(|g| (1..=20_000).contains(g)).unwrap_or(0) };
-                                let cp = (at + 12..(at + 22).min(b.len().saturating_sub(4)))
-                                    .find(|j| b[*j] == 0x04 && u32at(j + 1).map_or(false, |c| (1_000..=5_000_000).contains(&c)))
-                                    .and_then(|j| u32at(j + 1))
-                                    .unwrap_or(0);
+                                // The real values come 54-93 bytes on (position,
+                                // legion name): level u32, 0 u32, gear score u32,
+                                // then combat power, 0-11 bytes later and always
+                                // followed by a zero u32, or zeros to the end (2026-11-01: 558 entries
+                                // in 177 recordings). Search only up to the next
+                                // member's "$GUID".
+                                let open = if *marker == 0 {
+                                    let end = (at + 4..b.len().saturating_sub(10)).find(|k| b[*k] == b'$' && b[k + 9] == b'-').unwrap_or(b.len()).min(at + 140);
+                                    (at + 8..end.saturating_sub(11)).find_map(|j| {
+                                        let (lv, z, g) = (u32at(j)?, u32at(j + 4)?, u32at(j + 8)?);
+                                        if !(1..=60).contains(&lv) || z != 0 || !(1..=20_000).contains(&g) {
+                                            return None;
+                                        }
+                                        let cp = (0..=12).map(|k| j + 12 + k).find(|k| u32at(*k).map_or(false, |c| (1_000..=5_000_000).contains(&c)) && b.get(k + 4..(k + 8).min(b.len())).map_or(false, |z| z.iter().all(|x| *x == 0))).and_then(u32at);
+                                        Some((g, cp.unwrap_or(0)))
+                                    })
+                                } else {
+                                    None
+                                };
+                                let gs = if *marker == 0 { open.map_or(0, |o| o.0) } else { u32at(at + 8).filter(|g| (1..=20_000).contains(g)).unwrap_or(0) };
+                                // The byte before the combat power is its length:
+                                // 04 = u32, 03 = three bytes (your own entry in a
+                                // room someone else leads, 2026-10-31). It follows
+                                // a server u16 sent twice, sometimes one byte later.
+                                let sized = |j: usize| {
+                                    let n = *b.get(j)? as usize;
+                                    let v = b.get(j + 1..j + 1 + n)?.iter().rev().fold(0u32, |a, x| a << 8 | *x as u32);
+                                    (1_000..=5_000_000).contains(&v).then_some(v)
+                                };
+                                let cp = if *marker == 0 {
+                                    open.map_or(0, |o| o.1)
+                                } else {
+                                    (at + 16..at + 22)
+                                    .find_map(|j| {
+                                        let pair = b.get(j - 4..j)?;
+                                        let s = u16::from_le_bytes([pair[2], pair[3]]);
+                                        (pair[..2] == pair[2..] && (1000..=9999).contains(&s) && matches!(b.get(j), Some(3 | 4))).then(|| sized(j)).flatten()
+                                    })
+                                    .or_else(|| {
+                                        (at + 12..(at + 22).min(b.len().saturating_sub(4)))
+                                            .find(|j| b[*j] == 0x04 && u32at(j + 1).map_or(false, |c| (1_000..=5_000_000).contains(&c)))
+                                            .and_then(|j| u32at(j + 1))
+                                    })
+                                    .unwrap_or(0)
+                                };
                                 let status = if *marker == 0 { String::new() } else { b[i].to_string() };
                                 let c = code.map(|c| c.to_string()).unwrap_or_default();
                                 names.push(format!("{n}\t{c}\t{id}\t{server}\t{gs}\t{cp}\t{status}"));
@@ -1212,8 +1252,9 @@ fn emit(e: &Emit, header: &Scope, scope: &Scope, ts: f64, out: &mut Vec<GameEven
             "room_exit" => GameEvent::RoomExit,
             "dungeon_left" => GameEvent::DungeonLeft,
             "party_gone" => GameEvent::PartyGone,
-            "keys" => match num("cur") {
-                Some(cur) if cur < 10_000 => GameEvent::Keys { cur },
+            // A key count left out is 0: the last key used sends no number.
+            "keys" => match num("cur").unwrap_or(0) {
+                cur if cur < 10_000 => GameEvent::Keys { cur },
                 _ => continue,
             },
             // The game leaves a counter value out when it is 0 (the flags only
@@ -1432,6 +1473,18 @@ mod odyle_tests {
         assert!(out.iter().any(|e| matches!(e, GameEvent::Keys { cur: 21 })), "{out:?}");
     }
 
+    /// The last key used: the update comes without a number (flag 4 off).
+    #[test]
+    fn no_key_count_means_no_keys_left() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
+        let mut d = Decoder::new(Arc::new(Definitions::from_json(&src).unwrap()), None);
+        let flow = FlowKey { src: Endpoint { ip: Ipv4Addr::new(9, 9, 9, 9), port: 13328 }, dst: Endpoint { ip: Ipv4Addr::new(10, 0, 0, 2), port: 5000 } };
+        let bytes: Vec<u8> = "0d 0c 61 00 00 01 00 00 00 03".split_whitespace().map(|h| u8::from_str_radix(h, 16).unwrap()).collect();
+        let mut out = Vec::new();
+        d.push(flow, true, &bytes, false, 1.0, &mut out);
+        assert!(out.iter().any(|e| matches!(e, GameEvent::Keys { cur: 0 })), "{out:?}");
+    }
+
     #[test]
     fn odyle_from_login_list() {
         let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
@@ -1497,11 +1550,30 @@ mod party_tests {
         assert!(members[4].cp.map_or(false, |c| (1_000..=5_000_000).contains(&c)), "{:?}", members[4]);
     }
 
+    /// A real room list (others renamed): your own entry gives the combat
+    /// power as 03 + three bytes, not 04 + u32, and has an extra byte before
+    /// the server pair. Read only the 04 form, your CP showed "-" (2026-10-31).
+    #[test]
+    fn own_room_entry_combat_power_in_three_bytes() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
+        let mut d = Decoder::new(Arc::new(Definitions::from_json(&src).unwrap()), None);
+        let flow = FlowKey { src: Endpoint { ip: Ipv4Addr::new(9, 9, 9, 9), port: 13328 }, dst: Endpoint { ip: Ipv4Addr::new(10, 0, 0, 2), port: 5000 } };
+        let hex = "b4 02 02 97 62 de 0c 00 1b 31 31 31 31 31 31 31 31 31 31 31 31 31 31 31 31 31 31 31 31 31 31 31 31 31 31 31 05 f7 27 09 00 02 03 fc 2e 04 00 00 00 e3 05 ef 02 00 05 1c 01 fc 2e 04 00 00 00 e3 05 06 4d 65 6d 30 30 31 22 00 00 00 2d 00 00 00 cd 07 00 00 de 05 de 05 04 8c 63 01 00 00 00 00 00 00 45 00 00 00 00 00 00 00 01 01 1e 02 22 b8 01 00 00 00 e5 05 0c 4d 65 6d 62 65 72 30 30 30 30 30 32 19 00 00 00 2d 00 00 00 09 08 00 00 e5 05 e5 05 04 0c 6c 01 00 00 00 00 00 00 38 00 00 00 00 00 00 00 01 01 00 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 04 00 00 00 00 00 00 00 00 00 00 00 1e 04 e4 36 04 00 00 00 e4 05 06 4d 65 6d 30 30 33 0a 00 00 00 2d 00 00 00 d0 07 00 00 e4 05 e4 05 04 b8 45 01 00 00 00 00 00 00 68 00 00 00 00 00 00 00 01 01 0e 05 e0 6a 03 00 00 00 cc 09 09 44 65 77 61 50 75 74 69 68 1f 00 00 00 2d 00 00 00 9a 07 00 00 01 cc 09 cc 09 03 03 42 01 00 00 00 00 00 00 01 01 00 09";
+        let bytes: Vec<u8> = hex.split_whitespace().map(|h| u8::from_str_radix(h, 16).unwrap()).collect();
+        let mut out = Vec::new();
+        d.push(flow, true, &bytes, false, 1.0, &mut out);
+        let members = out.iter().find_map(|e| match e { GameEvent::PartyInfo { members, .. } => Some(members.clone()), _ => None }).expect("party info");
+        let cps: Vec<_> = members.iter().map(|m| (m.name.as_str(), m.gs, m.cp)).collect();
+        assert_eq!(cps, vec![("Mem001", Some(1997), Some(91020)), ("Member000002", Some(2057), Some(93196)), ("Mem003", Some(2000), Some(83384)), ("DewaPutih", Some(1946), Some(82435))]);
+    }
+
     /// A real 0x9200 (names of the other two replaced). After the class come
     /// current/max HP (varints) and a current/max pool (`76 0d 00 00` twice):
-    /// no gear score. Read as one, a 1796 showed 3656 (2026-10-29).
+    /// no gear score there (read as one, a 1796 showed 3656, 2026-10-29). The
+    /// real level, gear score and combat power come after the position and
+    /// legion name; Member000012's CP sits 8 bytes after the gear score.
     #[test]
-    fn open_world_party_list_has_no_gear_score() {
+    fn open_world_party_list_gear_score_and_combat_power() {
         let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
         let mut d = Decoder::new(Arc::new(Definitions::from_json(&src).unwrap()), None);
         let flow = FlowKey { src: Endpoint { ip: Ipv4Addr::new(9, 9, 9, 9), port: 13328 }, dst: Endpoint { ip: Ipv4Addr::new(10, 0, 0, 2), port: 5000 } };
@@ -1510,7 +1582,29 @@ mod party_tests {
         let mut out = Vec::new();
         d.push(flow, true, &bytes, false, 1.0, &mut out);
         let members = out.iter().find_map(|e| match e { GameEvent::PartyInfo { members, .. } => Some(members.clone()), _ => None }).expect("party info");
-        assert_eq!(members.iter().map(|m| (m.name.as_str(), m.gs)).collect::<Vec<_>>(), vec![("BajuBesi", None), ("Member009", None), ("Member000012", None)], "the pair after HP is no gear score");
+        assert_eq!(
+            members.iter().map(|m| (m.name.as_str(), m.gs, m.cp)).collect::<Vec<_>>(),
+            vec![("BajuBesi", Some(1419), Some(67103)), ("Member009", Some(1473), Some(75629)), ("Member000012", Some(1689), Some(82372))]
+        );
+    }
+
+    /// The 0x9200 sent when DewiHijau joined a friend's open-world party
+    /// (2026-11-01, friend renamed): GS and CP showed "-" until a dungeon room
+    /// list came. The in-game values were 101.0K CP for DewiHijau.
+    #[test]
+    fn open_world_party_join_has_gear_score_and_combat_power() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
+        let mut d = Decoder::new(Arc::new(Definitions::from_json(&src).unwrap()), None);
+        let flow = FlowKey { src: Endpoint { ip: Ipv4Addr::new(9, 9, 9, 9), port: 13328 }, dst: Endpoint { ip: Ipv4Addr::new(10, 0, 0, 2), port: 5000 } };
+        let hex = "d0 03 00 92 08 53 d0 13 00 5b 68 f8 23 a7 24 04 00 00 00 cc 09 05 00 00 00 02 01 00 02 05 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 02 03 02 bc 1f 00 00 cc 09 cc 09 24 30 41 42 42 34 30 41 33 2d 41 30 39 33 2d 34 34 36 46 2d 42 35 39 38 2d 34 32 36 36 30 41 42 30 35 32 31 33 ae e4 03 00 00 00 cc 09 09 44 65 77 69 48 69 6a 61 75 24 00 00 00 8d a7 01 8d a7 01 4a 0e 00 00 4a 0e 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 56 04 00 00 00 00 00 00 38 04 00 00 94 4f 0d 48 8d 1f 98 47 00 a0 6c 45 3f 05 66 69 69 73 74 02 00 00 00 2d 00 00 00 00 00 00 00 83 08 00 00 ae 8a 01 00 00 00 00 00 01 03 01 e6 0d 00 00 cc 09 cc 09 24 31 31 39 32 33 38 32 33 2d 33 43 46 44 2d 34 36 38 34 2d 39 31 43 35 2d 41 33 45 32 44 46 41 39 30 34 45 37 a7 24 04 00 00 00 cc 09 0a 4d 65 6d 62 65 72 30 30 31 30 07 00 00 00 b9 b8 01 b9 b8 01 9f 0d 00 00 9f 0d 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 85 03 00 00 0f 1b 00 00 85 03 00 00 e3 37 53 47 7d db 1c 47 00 ef b2 47 05 66 69 69 73 74 02 00 00 00 2d 00 00 00 00 00 00 00 bc 09 00 00 3a 0e 02 00 00 00 00 00 01 01";
+        let bytes: Vec<u8> = hex.split_whitespace().map(|h| u8::from_str_radix(h, 16).unwrap()).collect();
+        let mut out = Vec::new();
+        d.push(flow, true, &bytes, false, 1.0, &mut out);
+        let members = out.iter().find_map(|e| match e { GameEvent::PartyInfo { members, .. } => Some(members.clone()), _ => None }).expect("party info");
+        assert_eq!(
+            members.iter().map(|m| (m.name.as_str(), m.gs, m.cp)).collect::<Vec<_>>(),
+            vec![("DewiHijau", Some(2179), Some(101038)), ("Member0010", Some(2492), Some(134714))]
+        );
     }
 
     /// The real 0x9715 sent when you clicked Ready (report 1792800005).
@@ -1617,7 +1711,8 @@ mod party_tests {
     }
 
     /// A real 0x920d: Palabuto (Templar) accepted your invite. The 3158 in it
-    /// (twice) is a current/max pool, not his gear score.
+    /// (twice) is a current/max pool, not his gear score: that comes at the
+    /// end, with his combat power (the message stops 3 bytes after it).
     #[test]
     fn invite_accepted_message() {
         let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
@@ -1628,7 +1723,7 @@ mod party_tests {
         let mut out = Vec::new();
         d.push(flow, true, &bytes, false, 1.0, &mut out);
         assert!(
-            out.iter().any(|e| matches!(e, GameEvent::PartyJoin { member } if member.name == "Palabuto" && member.code == Some(11) && member.id == Some(199_654) && member.gs.is_none())),
+            out.iter().any(|e| matches!(e, GameEvent::PartyJoin { member } if member.name == "Palabuto" && member.code == Some(11) && member.id == Some(199_654) && member.gs == Some(2635) && member.cp == Some(149_044))),
             "{out:?}"
         );
     }
