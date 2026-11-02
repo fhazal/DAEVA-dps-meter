@@ -18,10 +18,11 @@ if (!edge) throw new Error("Microsoft Edge not found");
 
 // Made-up party, so no real player names end up in the README.
 const now = Date.now() / 1000;
-const P = (id, name, cls, dps, share, crit, back, me) => ({ id, name, class: cls, is_self: !!me, in_party: true, dmg: Math.round(dps * 212), dps, share, hits: 400, crit_rate: crit, back_rate: back, perfect_rate: 0.09, front_rate: 1 - back, double_rate: 0.17, cp: me ? 74100 : null, max_hit: 99000, max_hit_skill: "x", heal: 0, hps: 0, taken: 0, deaths: 0 });
-const fight = { fight_id: 7, live: true, duration: 212, clock: "boss", clock_secs: 212, clock_target_name: "Watcher Kaira", total: 10.85e6,
+const P = (id, name, cls, dps, share, crit, back, me) => ({ id, name, class: cls, is_self: !!me, in_party: true, dmg: Math.round(dps * 34), dps, share, hits: 400, crit_rate: crit, back_rate: back, perfect_rate: 0.09, front_rate: 1 - back, double_rate: 0.17, cp: me ? 74100 : null, max_hit: 99000, max_hit_skill: "x", heal: 0, hps: 0, taken: 0, deaths: 0 });
+// 0.6.0: a pet-farm fight, so the pictures show the pet strip and Solo's pet chip.
+const fight = { fight_id: 7, live: true, duration: 34, clock: "fight", clock_secs: 34, clock_target_name: "Tamed Blades Beast", total: 1.42e6,
   players: [P(2, "Seraphiel", "Cleric", 12900, 0.28, 0.31, 0.42, true), P(3, "Nyxara", "Sorcerer", 11800, 0.26, 0.28, 0.18), P(4, "Drakthar", "Gladiator", 9710, 0.21, 0.24, 0.55), P(5, "Kaelith", "Chanter", 6220, 0.14, 0.19, 0.08), P(6, "Vaelor", "Ranger", 5420, 0.12, 0.22, 0.37)],
-  target: { id: 50, name: "Watcher Kaira", hp: 20.15e6, max_hp: 31e6, hp_pct: 0.65, berserk: 600, secs: 212, rank: "Heroic", family: "Cogni", dmg_taken: 10.85e6 } };
+  target: { id: 50, name: "Tamed Blades Beast", hp: 0.61e6, max_hp: 2.03e6, hp_pct: 0.30, secs: 34, rank: "Elite", family: "Fera", dmg_taken: 1.42e6, pet: { id: 1203, name: "Tamed Blades Beast", level: 2, count: 47, target: 75, gain_ago: 0.4, gain_n: 1, up_ago: null } } };
 const status = { version, server: "Beritra", ping_ms: 79, odyle: 640, odyle_bonus: 40, self_class: "Cleric", self_name: "Seraphiel", devices: [1], game_process: true, servers: [1], game_idle: 1 };
 const settings = { solo: { rank: true, chips: true, footer: true }, accent: "#d9a441", opacity: 0.94, scale: 1, rows: 8, columns: [], show_players: "auto", primary_metric: "dps", dps_clock: "boss", alerts: { enabled: true }, hotkeys: {} };
 const next = [{ id: "spacetime_rift", short: "Rift", name: "Spacetime Rift", emoji: "🌀", starts: now - 240, ends: now + 1560, active: true }, { id: "shugo_festival", short: "Shugo", name: "Shugo Festival", emoji: "🎪", starts: now + 394, ends: now + 994, active: false }];
@@ -35,7 +36,9 @@ const J = (v) => JSON.stringify(JSON.stringify(v));
 // the right side of Solo (the meter itself sizes its window to the card).
 function meter(layout, width) {
   const snap = { party: null, status, fight, ui: { layout, solo: settings.solo, show_target: true, opacity: 0.94, scale: 1, accent: "#d9a441", rows: 8, columns: [], primary_metric: "dps" }, alerts: { enabled: true, show_next: true, next } };
-  const html = withMock("index.html", `if(cmd==="get_snapshot")return ${J(snap)};if(cmd==="get_settings")return JSON.parse(${J({ ...settings, layout })});if(cmd==="get_events")return JSON.stringify({catalog:[]});if(cmd==="update_status")return JSON.stringify({current:${JSON.stringify(version)}});if(cmd==="get_names")return JSON.stringify({lookup_on:true});`);
+  let html = withMock("index.html", `if(cmd==="get_snapshot")return ${J(snap)};if(cmd==="get_settings")return JSON.parse(${J({ ...settings, layout })});if(cmd==="get_events")return JSON.stringify({catalog:[]});if(cmd==="update_status")return JSON.stringify({current:${JSON.stringify(version)}});if(cmd==="get_names")return JSON.stringify({lookup_on:true});`);
+  // The +1 pops for 3 s: freeze it so a still picture shows it.
+  html = html.replace("</head>", "<style>.petbar .plus,.so-pet .plus{animation:none!important;opacity:1}</style></head>");
   return width ? html.replace("</head>", `<style>.shell{right:auto!important;width:${width}px!important}</style></head>`) : html;
 }
 function alert() {
@@ -60,11 +63,11 @@ function shot(name, html, w, h, scale = 2, clear = false) {
     if (!r.ok) throw new Error("font download failed: " + f);
     fs.writeFileSync(path.join(tmp, f), Buffer.from(await r.arrayBuffer()));
   }
-  // Window sizes: Classic 520x330, Solo 372x135 at its 1.28 zoom, the alert takes the meter's width.
+  // Window sizes: Classic 520x372 (with the pet strip), Solo 372x135 at its 1.28 zoom, the alert takes the meter's width.
   // Always transparent (the last argument): only the meter's own rounded edge
   // may show. A dark backdrop or a frame around the shot gave every picture a
   // second edge at the corners (0.5.5). Zoom into the corners before committing.
-  const shots = { classic: shot("classic", meter("classic"), 520, 330, 2, true), solo: shot("solo", meter("solo", 476), 477, 177, 2, true), alert: shot("alert", alert(), 520, 118, 2, true) };
+  const shots = { classic: shot("classic", meter("classic"), 520, 372, 2, true), solo: shot("solo", meter("solo", 476), 477, 177, 2, true), alert: shot("alert", alert(), 520, 118, 2, true) };
   for (const [k, p] of Object.entries(shots)) fs.copyFileSync(p, path.join(outDir, `shot-${k}.png`));
 
   const page = fs.readFileSync(path.join(__dirname, "showcase.html"), "utf8").replace(/\{\{version\}\}/g, version);
@@ -72,7 +75,7 @@ function shot(name, html, w, h, scale = 2, clear = false) {
 
   // Tall picture for the meter section on aion2.bajubesi.org (transparent background).
   const stack = fs.readFileSync(path.join(__dirname, "site.html"), "utf8");
-  fs.copyFileSync(shot("site", stack, 468, 690, 2, true), path.join(outDir, "site-meter.png"));
+  fs.copyFileSync(shot("site", stack, 468, 736, 2, true), path.join(outDir, "site-meter.png"));
   fs.rmSync(tmp, { recursive: true, force: true });
   console.log(`Rendered README pictures for ${version} into docs/branding`);
 })().catch((e) => { console.error(e); process.exit(1); });
