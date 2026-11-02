@@ -311,6 +311,11 @@ pub struct MessageDef {
     pub container: bool,
     pub decompress: bool,
     pub skip: usize,
+    /// Counts as a known opcode when finding the next frame after a gap.
+    /// Off for messages whose opcode bytes are common in other data (0x9000
+    /// = "00 90" made a family of false frame starts: two dungeon
+    /// recordings lost a fight's worth of frames).
+    pub sync: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -478,6 +483,7 @@ impl Definitions {
                     container: m.bool_or("container", false),
                     decompress: m.bool_or("decompress", false),
                     skip: m.u64_or("skip", 0) as usize,
+                    sync: m.bool_or("sync", true),
                 };
                 messages.entry(opcode).or_default().push(def);
             }
@@ -1019,7 +1025,7 @@ impl Decoder {
         let defs = self.defs.clone();
         let framer = self.framers.entry(flow).or_default();
         let mut frames = Vec::new();
-        let known = |op: u64| defs.messages.is_empty() || defs.messages.contains_key(&op);
+        let known = |op: u64| defs.messages.is_empty() || defs.messages.get(&op).map_or(false, |m| m.iter().any(|m| m.sync));
         framer.push(&defs.framing, &known, bytes, gap, &mut frames);
         for f in frames {
             self.handle_frame(&defs, f, from_server, ts, out, 0);
@@ -1252,9 +1258,25 @@ fn emit(e: &Emit, header: &Scope, scope: &Scope, ts: f64, out: &mut Vec<GameEven
             "room_exit" => GameEvent::RoomExit,
             "dungeon_left" => GameEvent::DungeonLeft,
             "party_gone" => GameEvent::PartyGone,
+            "pets_reset" => GameEvent::PetsReset,
+            "pet" => match num("pet") {
+                Some(pet) if pet > 0 && pet < 1 << 31 => GameEvent::Pet {
+                    ts,
+                    pet: pet as u32,
+                    level: num("level").map(|v| v as u32),
+                    count: num("count").map(|v| v as u32),
+                    gain: num("gain").map(|v| v as u32),
+                    up: num("up").unwrap_or(0) != 0,
+                },
+                _ => continue,
+            },
+            "pet_crystal" => match (num("colour"), num("amount")) {
+                (Some(c), Some(n)) if (1..=9).contains(&c) && n > 0 && n < 1000 => GameEvent::PetCrystal { ts, colour: c as u8, amount: n as u32 },
+                _ => continue,
+            },
             // A key count left out is 0: the last key used sends no number.
             "keys" => match num("cur").unwrap_or(0) {
-                cur if cur < 10_000 => GameEvent::Keys { cur },
+                cur if cur < 10_000 => GameEvent::Keys { cur, which: num("which").unwrap_or(1) as u8 },
                 _ => continue,
             },
             // The game leaves a counter value out when it is 0 (the flags only
@@ -1470,7 +1492,91 @@ mod odyle_tests {
         let ody: Vec<_> = out.iter().filter_map(|e| match e { GameEvent::Odyle { cur, bonus } => Some((*cur, *bonus)), _ => None }).collect();
         // The second update sends no bonus: the game leaves zeros out.
         assert_eq!(ody, vec![(Some(160), Some(40)), (Some(160), Some(0))]);
-        assert!(out.iter().any(|e| matches!(e, GameEvent::Keys { cur: 21 })), "{out:?}");
+        assert!(out.iter().any(|e| matches!(e, GameEvent::Keys { cur: 21, which: 1 })), "{out:?}");
+    }
+
+    /// The Ore Insectoid Egg spawns as a=28, b=0 with only the hatchling's
+    /// id (2400456): named, no template (report 1793397926, t=14.55).
+    #[test]
+    fn ore_insectoid_egg_gets_its_name() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
+        let mut d = Decoder::new(Arc::new(Definitions::from_json(&src).unwrap()), None);
+        let flow = FlowKey { src: Endpoint { ip: Ipv4Addr::new(9, 9, 9, 9), port: 13328 }, dst: Endpoint { ip: Ipv4Addr::new(10, 0, 0, 2), port: 5000 } };
+        let hex = "6d 41 36 f4 ed 01 1c 00 00 c8 a0 24 00 00 02 b6 23 0c 48 e4 64 48 47 00 60 c5 44 \
+                   59 59 48 43 78 8e 01 94 a7 07 94 a7 07 64 00 00 00 64 00 00 00 00 00 00 00 00 00 \
+                   00 00 00 00 00 00 00 00 00 00 64 00 00 00 64 00 00 00 01 00 00 00 00 00 00 00 00 \
+                   00 00 00 00 00 00 00 00 00 00 00 06 00 06 01 3e 56 00 00 00 23 00 00 00 00";
+        let bytes: Vec<u8> = hex.split_whitespace().map(|h| u8::from_str_radix(h, 16).unwrap()).collect();
+        let mut out = Vec::new();
+        d.push(flow, true, &bytes, false, 1.0, &mut out);
+        let egg: Vec<_> = out.iter().filter_map(|e| match e { GameEvent::Actor { name, kind, npc_id, .. } => Some((name.clone(), *kind, *npc_id)), _ => None }).collect();
+        assert_eq!(egg, vec![(Some("Ore Insectoid Egg".to_string()), ActorKind::Npc, None)], "{out:?}");
+    }
+
+    /// Dimensional Invasion keys: counter kind 8 (Shugo is kind 1). One
+    /// left (dimensional-test4-059-001), then the last one used: no
+    /// number = 0 (petfarm-test1-060-002 t=171).
+    #[test]
+    fn dimensional_invasion_keys() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
+        let mut d = Decoder::new(Arc::new(Definitions::from_json(&src).unwrap()), None);
+        let flow = FlowKey { src: Endpoint { ip: Ipv4Addr::new(9, 9, 9, 9), port: 13328 }, dst: Endpoint { ip: Ipv4Addr::new(10, 0, 0, 2), port: 5000 } };
+        let hex = "0e 0c 61 00 04 08 00 00 00 01 03 \
+                   0d 0c 61 00 00 08 00 00 00 03";
+        let bytes: Vec<u8> = hex.split_whitespace().map(|h| u8::from_str_radix(h, 16).unwrap()).collect();
+        let mut out = Vec::new();
+        d.push(flow, true, &bytes, false, 1.0, &mut out);
+        let keys: Vec<_> = out.iter().filter_map(|e| match e { GameEvent::Keys { cur, which } => Some((*cur, *which)), _ => None }).collect();
+        assert_eq!(keys, vec![(1, 8), (0, 8)]);
+    }
+
+    /// Pet list at login (0x9000), a pet +1 (0x900d), a level-up (0x9014)
+    /// and a crystal drop (0x9011), built like the real frames of petfarm-059-001 / 060-002.
+    #[test]
+    fn pet_list_and_pet_gain() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
+        let mut d = Decoder::new(Arc::new(Definitions::from_json(&src).unwrap()), None);
+        let flow = FlowKey { src: Endpoint { ip: Ipv4Addr::new(9, 9, 9, 9), port: 13328 }, dst: Endpoint { ip: Ipv4Addr::new(10, 0, 0, 2), port: 5000 } };
+        let hex = "38 00 90 b4 04 00 00 \
+                   02 ea 03 00 00 ea 03 00 00 01 00 00 00 92 04 00 00 92 04 00 00 01 00 00 00 \
+                   02 92 04 00 00 0d 00 00 00 a5 04 00 00 03 00 00 00 \
+                   06 01 0a 00 \
+                   0f 0d 90 01 92 04 00 00 01 00 00 00 \
+                   1d 14 90 00 00 f8 03 00 00 03 00 00 00 03 0a 00 00 00 00 00 00 00 00 00 00 00                    0d 11 90 01 02 01 00 00 00 02";
+        let bytes: Vec<u8> = hex.split_whitespace().map(|h| u8::from_str_radix(h, 16).unwrap()).collect();
+        let mut out = Vec::new();
+        d.push(flow, true, &bytes, false, 1.0, &mut out);
+        let pets: Vec<_> = out.iter().filter_map(|e| match e { GameEvent::Pet { pet, level, count, gain, up, .. } => Some((*pet, *level, *count, *gain, *up)), _ => None }).collect();
+        assert!(matches!(out.first(), Some(GameEvent::PetsReset)), "{out:?}");
+        assert_eq!(pets, vec![
+            (1002, Some(1), None, None, false), (1170, Some(1), None, None, false),
+            (1170, None, Some(13), None, false), (1189, None, Some(3), None, false),
+            (1170, None, None, Some(1), false), (1016, Some(3), Some(0), None, true),
+        ]);
+        // A maxed pet's crystal drop (0x9011, real frame from petfarm-test2-001).
+        assert!(matches!(out.last(), Some(GameEvent::PetCrystal { colour: 2, amount: 1, .. })), "{out:?}");
+    }
+
+    /// Two pets' kills in one 0x900d, two colours in one 0x9011, a pet
+    /// unlocked by 0x900e (real frames: dunegon-test7-001 t=486.5 and
+    /// t=286.3, petfarm-test7-001 t=4.6).
+    #[test]
+    fn pet_gain_and_crystal_with_two_entries() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
+        let mut d = Decoder::new(Arc::new(Definitions::from_json(&src).unwrap()), None);
+        let flow = FlowKey { src: Endpoint { ip: Ipv4Addr::new(9, 9, 9, 9), port: 13328 }, dst: Endpoint { ip: Ipv4Addr::new(10, 0, 0, 2), port: 5000 } };
+        let hex = "17 0d 90 02 f7 03 00 00 01 00 00 00 60 04 00 00 01 00 00 00                    12 11 90 02 03 01 00 00 00 04 01 00 00 00 02                    0f 0e 90 01 63 04 00 00 05 00 00 00                    0f 0e 90 01 71 04 00 00 19 00 00 00";
+        let bytes: Vec<u8> = hex.split_whitespace().map(|h| u8::from_str_radix(h, 16).unwrap()).collect();
+        let mut out = Vec::new();
+        d.push(flow, true, &bytes, false, 1.0, &mut out);
+        let gains: Vec<_> = out.iter().filter_map(|e| match e { GameEvent::Pet { pet, gain: Some(g), .. } => Some((*pet, *g)), _ => None }).collect();
+        assert_eq!(gains, vec![(1015, 1), (1120, 1)]);
+        let drops: Vec<_> = out.iter().filter_map(|e| match e { GameEvent::PetCrystal { colour, amount, .. } => Some((*colour, *amount)), _ => None }).collect();
+        assert_eq!(drops, vec![(3, 1), (4, 1)]);
+        // A pet unlocked at 5 kills (0x900e, no 0x9014); the 25 one is
+        // left to the level-up that comes with it.
+        let ups: Vec<_> = out.iter().filter_map(|e| match e { GameEvent::Pet { pet, level, count, up: true, .. } => Some((*pet, *level, *count)), _ => None }).collect();
+        assert_eq!(ups, vec![(1123, Some(1), Some(0))]);
     }
 
     /// The last key used: the update comes without a number (flag 4 off).
@@ -1482,7 +1588,7 @@ mod odyle_tests {
         let bytes: Vec<u8> = "0d 0c 61 00 00 01 00 00 00 03".split_whitespace().map(|h| u8::from_str_radix(h, 16).unwrap()).collect();
         let mut out = Vec::new();
         d.push(flow, true, &bytes, false, 1.0, &mut out);
-        assert!(out.iter().any(|e| matches!(e, GameEvent::Keys { cur: 0 })), "{out:?}");
+        assert!(out.iter().any(|e| matches!(e, GameEvent::Keys { cur: 0, which: 1 })), "{out:?}");
     }
 
     #[test]
@@ -1498,7 +1604,7 @@ mod odyle_tests {
         d.push(flow, true, &bytes, false, 1.0, &mut out);
         let ody: Vec<_> = out.iter().filter_map(|e| match e { GameEvent::Odyle { cur, bonus } => Some((*cur, *bonus)), _ => None }).collect();
         assert_eq!(ody, vec![(Some(175), Some(40))], "{out:?}");
-        assert!(out.iter().any(|e| matches!(e, GameEvent::Keys { cur: 21 })), "{out:?}");
+        assert!(out.iter().any(|e| matches!(e, GameEvent::Keys { cur: 21, which: 1 })), "{out:?}");
     }
 }
 

@@ -50,6 +50,8 @@ pub struct Pipeline {
     stall_since: f64,
     pub ping: Ping,
     events: Vec<GameEvent>,
+    /// Research only: when set, every decoded event is copied here too.
+    pub tap: Option<Vec<GameEvent>>,
     /// The game connection the server last sent data on.
     server_flow: Option<FlowKey>,
 }
@@ -128,6 +130,7 @@ impl Pipeline {
             stall_since: 0.0,
             ping: Ping::default(),
             events: Vec::new(),
+            tap: None,
             server_flow: None,
         }
     }
@@ -192,6 +195,9 @@ impl Pipeline {
         }
         let mut done = Vec::new();
         for ev in evs.drain(..) {
+            if let Some(t) = self.tap.as_mut() {
+                t.push(ev.clone());
+            }
             if let Some(f) = self.engine.handle(&ev) {
                 done.push(f);
             }

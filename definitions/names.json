@@ -17,8 +17,16 @@
   "4": "Eternal",
   "5": "Mythic"
  },
- "skills_note": "Skills neither gaming.tools nor A2Tools names; 3000017-3000117 Theostones, Delayed Explosion, Contamination and the system \"Attack\" ids as listed on aion2.gg (2026-10-26) (Elementalist spirit basic attacks: 16990002 Water and 16990003 Wind come from A2Tools; Fire and Earth follow its spirit order. More from timort's skills.json (EU client 2.0.9.0, 2026-10-30): Theostone procs 3000118-3001016, Ancient Spirit 16001617, monster \"Attack\"/\"Protection Prayer\" ids, and exact names where the meter used a neighbouring id's name (1601140, 1601190, 1601213, 1604391, 1900702, 16001608). Not taken: his 16001312/16001315/16001316 (Wind Storm and Earth Colossal Stalk swapped against A2Tools and the Fire, Water, Wind, Earth, Ancient id order).",
+ "skills_note": "Skills neither gaming.tools nor A2Tools names (or A2Tools names wrong: 16001309-16001312 are the Earth Spirit's Colossal Stalk and 16001313-16001316 the Wind Spirit's Storm, A2Tools has the two blocks swapped; checked by caster in our recordings and with timort, 2026-11-03); 3000017-3000117 Theostones, Delayed Explosion, Contamination and the system \"Attack\" ids as listed on aion2.gg (2026-10-26) (Elementalist spirit basic attacks: 16990002 Water and 16990003 Wind come from A2Tools; Fire and Earth follow its spirit order. More from timort's skills.json (EU client 2.0.9.0, 2026-10-30): Theostone procs 3000118-3001016, Ancient Spirit 16001617, monster \"Attack\"/\"Protection Prayer\" ids, and exact names where the meter used a neighbouring id's name (1601140, 1601190, 1601213, 1604391, 1900702, 16001608). Not taken: his 16001312/16001315/16001316 (Wind Storm and Earth Colossal Stalk swapped against A2Tools and the Fire, Water, Wind, Earth, Ancient id order).",
  "skills": {
+  "16001309": "Earth Spirit: Colossal Stalk",
+  "16001310": "Earth Spirit: Colossal Stalk",
+  "16001311": "Earth Spirit: Colossal Stalk",
+  "16001312": "Earth Spirit: Colossal Stalk",
+  "16001313": "Wind Spirit: Storm",
+  "16001314": "Wind Spirit: Storm",
+  "16001315": "Wind Spirit: Storm",
+  "16001316": "Wind Spirit: Storm",
   "1229960": "Attack",
   "1232685": "Attack",
   "1235460": "Attack",

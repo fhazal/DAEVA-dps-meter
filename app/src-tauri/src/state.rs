@@ -81,6 +81,7 @@ pub struct Core {
     pub uploads: Vec<String>,
     pub loot_uploaded: u64,
     pub settings_dirty: bool,
+    last_pets_save: Instant,
     pub window_params: HashMap<String, String>,
     last_settings_save: Instant,
     /// Last few minutes of game traffic, kept in memory for problem reports.
@@ -404,6 +405,7 @@ impl Core {
             settings_dirty: false,
             window_params: HashMap::new(),
             last_settings_save: Instant::now(),
+            last_pets_save: Instant::now(),
             rolling: Default::default(),
             rolling_bytes: 0,
             diary: Diary::default(),
@@ -446,6 +448,9 @@ impl Core {
         };
         c.load_wanted();
         c.load_site_missing();
+        if !c.settings.demo {
+            c.load_pets();
+        }
         c.events = EventFeed::new(&c.settings.alerts);
         c.pipeline.decoder.keep_recent = 200;
         c.prune_history();
@@ -610,6 +615,10 @@ impl Core {
                 self.settings.last_keys = e.self_keys;
                 self.settings_dirty = true;
             }
+            if e.self_dim_keys.is_some() && e.self_dim_keys != self.settings.last_dim_keys {
+                self.settings.last_dim_keys = e.self_dim_keys;
+                self.settings_dirty = true;
+            }
             let e = &self.pipeline.engine;
             if let Some(id) = e.self_id {
                 let name = e.self_name.clone();
@@ -628,6 +637,51 @@ impl Core {
         }
         if self.settings_dirty && self.last_settings_save.elapsed() > Duration::from_secs(2) {
             self.save_settings();
+        }
+        if self.sim.is_none() && self.pipeline.engine.pets_dirty && self.last_pets_save.elapsed() > Duration::from_secs(5) {
+            self.save_pets();
+        }
+    }
+
+    // ------------------------------------------------------------ pets
+
+    fn pets_path(&self) -> PathBuf {
+        self.paths.data.join("pets.json")
+    }
+
+    /// Pet Insight from last time (the game sends the list only at login)
+    /// and the monster -> pet links learned from kills.
+    fn load_pets(&mut self) {
+        let Some(doc) = std::fs::read_to_string(self.pets_path()).ok().and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok()) else { return };
+        let e = &mut self.pipeline.engine;
+        if let Some(o) = doc["pets"].as_object() {
+            for (k, v) in o {
+                let (Ok(id), Some(level), Some(count)) = (k.parse::<u32>(), v[0].as_u64(), v[1].as_u64()) else { continue };
+                e.pets.insert(id, meter_core::engine::Pet { level: level as u32, count: count as u32, ..Default::default() });
+            }
+            e.pets_listed = true;
+        }
+        if let Some(o) = doc["links"].as_object() {
+            e.pet_links.extend(o.iter().filter_map(|(k, v)| Some((k.clone(), v.as_u64()? as u32))));
+        }
+        if let Some(a) = doc["maxed"].as_array() {
+            e.pets_maxed.extend(a.iter().filter_map(|v| v.as_str().map(String::from)));
+        }
+    }
+
+    fn save_pets(&mut self) {
+        let e = &mut self.pipeline.engine;
+        e.pets_dirty = false;
+        self.last_pets_save = Instant::now();
+        let pets: serde_json::Map<String, serde_json::Value> = e.pets.iter().map(|(id, p)| (id.to_string(), serde_json::json!([p.level, p.count]))).collect();
+        let links: serde_json::Map<String, serde_json::Value> = e.pet_links.iter().map(|(n, id)| (n.clone(), serde_json::json!(id))).collect();
+        let mut maxed: Vec<&String> = e.pets_maxed.iter().collect();
+        maxed.sort();
+        let doc = serde_json::json!({ "pets": if e.pets_listed { serde_json::Value::Object(pets) } else { serde_json::Value::Null }, "links": links, "maxed": maxed });
+        let path = self.pets_path();
+        let tmp = path.with_extension("json.part");
+        if std::fs::write(&tmp, doc.to_string()).is_ok() {
+            let _ = std::fs::rename(&tmp, &path);
         }
     }
 
@@ -1375,6 +1429,7 @@ impl Core {
         self.diary.self_id = self_id;
         self.diary.self_name = self_name;
         self.diary.layout = self.settings.layout.clone();
+        notes.extend(self.pipeline.engine.take_pet_notes());
         for n in notes {
             self.auto_note(now, n);
         }
@@ -1585,9 +1640,14 @@ impl Core {
             .set("anchor", self.toast_anchor)
             .set("error", self.events.error.clone())
             // Keys per event id, once the game's key counter is decoded.
-            .set("keys", match self.pipeline.engine.self_keys.or(self.settings.last_keys) {
-                Some(k) => Obj::new().set("shugo_festival", k).build(),
-                None => Value::Null,
+            .set("keys", {
+                let e = &self.pipeline.engine;
+                let (shugo, dim) = (e.self_keys.or(self.settings.last_keys), e.self_dim_keys.or(self.settings.last_dim_keys));
+                if shugo.is_none() && dim.is_none() {
+                    Value::Null
+                } else {
+                    Obj::new().set("shugo_festival", shugo).set("dimensional_invasion", dim).build()
+                }
             })
             .set(
                 "next",

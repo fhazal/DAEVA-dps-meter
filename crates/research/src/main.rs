@@ -507,6 +507,16 @@ fn cmd_decode(pkts: &[Packet], a: &Args) -> Result<(), String> {
     let mut watched: HashMap<u64, String> = HashMap::new();
     // --cards 1: how often the live card changed target in each fight.
     let cards = a.get("cards").is_some();
+    let kills = a.get("kills").is_some();
+    // --casters ID,ID: who hits with these skills (summon npc and owner), to
+    // check skill names against the caster (spirit skills, 2026-11-03).
+    let casters: Vec<u32> = a.get("casters").map(|w| w.split(',').filter_map(|x| x.trim().parse().ok()).collect()).unwrap_or_default();
+    let mut caster_log: BTreeMap<(u32, Option<u32>), u32> = BTreeMap::new();
+    if !casters.is_empty() {
+        p.tap = Some(Vec::new());
+    }
+    let mut kills_seen = (0u64, 0usize);
+    let mut kills_resyncs = 0u64;
     let mut card_log: BTreeMap<u64, (Option<u64>, u32, f64, f64)> = BTreeMap::new();
     for (i, pk) in pkts.iter().enumerate() {
         if Some(i) == swap_at {
@@ -518,6 +528,15 @@ fn cmd_decode(pkts: &[Packet], a: &Args) -> Result<(), String> {
             println!("swapped decoder after {i} packets ({before} frames so far)");
         }
         fights.extend(p.push_frame(pk.linktype, &pk.data, pk.ts));
+        if let Some(t) = p.tap.as_mut() {
+            for ev in t.drain(..) {
+                if let meter_core::events::GameEvent::Damage { src, skill, .. } = ev {
+                    if casters.contains(&skill) {
+                        *caster_log.entry((skill, p.engine.actors.get(&src).and_then(|x| x.npc_id))).or_default() += 1;
+                    }
+                }
+            }
+        }
         if cards {
             if let Some(f) = p.engine.current.as_ref().filter(|f| !f.finished) {
                 let e = card_log.entry(f.id).or_insert((f.focus, 0, f.start, f.end));
@@ -533,6 +552,27 @@ fn cmd_decode(pkts: &[Packet], a: &Args) -> Result<(), String> {
                     e.0 = f.focus;
                 }
                 e.3 = f.end;
+            }
+        }
+        // --kills 1: every monster that dies in your fight (pet research).
+        if kills {
+            for n in p.engine.take_pet_notes() {
+                println!("t={:.1} {n}", pk.ts - pkts[0].ts);
+            }
+            if p.decoder.resyncs() != kills_resyncs {
+                kills_resyncs = p.decoder.resyncs();
+                println!("t={:.1} RESYNC #{kills_resyncs}", pk.ts - pkts[0].ts);
+            }
+            if let Some(f) = p.engine.current.as_ref() {
+                if f.id != kills_seen.0 {
+                    kills_seen = (f.id, 0);
+                }
+                for (ts, t, _) in f.deaths.iter().skip(kills_seen.1) {
+                    let npc = p.engine.actors.get(t).and_then(|a| a.npc_id);
+                    let fam = npc.and_then(|n| p.engine.names.npc_ref(n, &p.engine.fname(f, *t))).and_then(|n| p.engine.names.families.get(&n).cloned()).unwrap_or_default();
+                    println!("t={:.1} kill {} npc={npc:?} {fam}", ts - pkts[0].ts, p.engine.fname(f, *t));
+                }
+                kills_seen.1 = f.deaths.len();
             }
         }
         for id in &watch {
@@ -587,6 +627,34 @@ fn cmd_decode(pkts: &[Packet], a: &Args) -> Result<(), String> {
     println!("you: {} (id {:?})\n", p.engine.self_name.as_deref().unwrap_or("unknown"), p.engine.self_id);
     if let Some(k) = p.engine.self_keys {
         println!("Shugo keys: {k}\n");
+    }
+    if let Some(k) = p.engine.self_dim_keys {
+        println!("Dimensional keys: {k}\n");
+    }
+    for ((skill, npc), n) in &caster_log {
+        println!("caster: skill {skill} by npc {npc:?} x{n}");
+    }
+    if !p.engine.crystals.is_empty() {
+        let mut c: Vec<_> = p.engine.crystals.iter().collect();
+        c.sort();
+        println!("crystals: {}
+", c.iter().map(|(k, n)| format!("colour {k} x{n}")).collect::<Vec<_>>().join(", "));
+    }
+    if !p.engine.pets.is_empty() || !p.engine.pet_links.is_empty() || !p.engine.pets_maxed.is_empty() {
+        let mut links: Vec<(&String, &u32)> = p.engine.pet_links.iter().collect();
+        links.sort_by_key(|(n, _)| n.as_str());
+        println!("pets: {} listed, {} named", p.engine.pets.len(), links.len());
+        let mut maxed: Vec<&String> = p.engine.pets_maxed.iter().collect();
+        maxed.sort();
+        for name in maxed {
+            println!("  {name} = maxed (from crystals)");
+        }
+        for (name, id) in links {
+            let pet = p.engine.pets.get(id).cloned().unwrap_or_default();
+            let of = meter_core::engine::pet_target(pet.level).map_or("max".to_string(), |t| t.to_string());
+            println!("  {name} = pet {id}: Lv {} {}/{of}", pet.level, pet.count);
+        }
+        println!();
     }
     for f in &fights {
         println!("{}", p.engine.summary_text(f, 12));

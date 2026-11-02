@@ -6,7 +6,7 @@
 // updates after a game patch never need a new build.
 {
   "name": "AION 2 (global)",
-  "version": "0.6.30",
+  "version": "0.6.36",
   "process_names": ["aion2"],
   // Server ports, if they turn out to be fixed. Auto-detection by process
   // already finds the server, so this can stay empty.
@@ -149,6 +149,11 @@
        {"event": "actor", "when": "b==0&&a!=31&&npc0>2000000&&npc0<3000000&&m0", "id": "id", "kind": "'summon'", "npc_id": "npc0", "name": "oname"},
        {"event": "actor", "when": "b==0&&a!=31&&npc0>2000000&&npc0<3000000&&m0==0&&owner95>0", "id": "id", "kind": "'summon'", "npc_id": "npc0", "owner": "owner95"},
        {"event": "actor", "when": "b==0&&a==31&&npc0>2000000&&npc0<3000000&&owner31>0", "id": "id", "kind": "'summon'", "npc_id": "npc0", "owner": "owner31"},
+       // a==28 with no owner: an Ore Insectoid Egg in the open world. The only
+       // id it carries (2400456) is the Giant Ore Insectoid that hatches from
+       // it, so it gets the name and no template (user reports 1793397570,
+       // 1793397926: it showed as "Unknown monster").
+       {"event": "actor", "when": "b==0&&a==28&&npc0==2400456&&m0==0&&m95==0", "id": "id", "kind": "'npc'", "name": "'Ore Insectoid Egg'"},
        // Max HP only where the layout is verified. The spawn's own "hp" field
        // is not current HP (e.g. 196 of 270000), so a new monster starts full;
        // 0x8d00 updates take over from the first hit.
@@ -200,20 +205,29 @@
      "emit": [
        {"event": "odyle", "when": "kind==1&&t0==135&&t1==147&&t2==3", "cur": "cur", "bonus": "bonus"},
        // No flag 4 = 0 keys left (the game leaves zeros out, as for Odyle).
-       {"event": "keys", "when": "kind==1&&t0==0&&t1==0&&t2==0", "cur": "cur"}
+       {"event": "keys", "when": "kind==1&&t0==0&&t1==0&&t2==0", "cur": "cur", "which": "1"},
+       // kind 8 = Dimensional Invasion keys (1 -> 0 as the last one was used,
+       // petfarm-test1-060-002 t=171).
+       {"event": "keys", "when": "kind==8&&t0==0&&t1==0&&t2==0", "cur": "cur", "which": "8"}
      ]},
     // Full counter list sent at login: a count, then entries of flags,
     // kind, 3-byte tag, values. The first entry is the Shugo key count;
-    // then jump to the Odyle entry (kind 1, tag 87 93 03).
+    // then jump to the Dimensional Invasion keys (kind 8, tag 00 00 00:
+    // "04 08 00 00 00 01" = 1 key, report 1793586112), then to the Odyle
+    // entry (kind 1, tag 87 93 03).
     {"opcode": "0x610b", "name": "S_COUNTER_LIST", "dir": "server",
      "fields": ["n:u8", "kf:u8", "kk:u8", "k0:u8", "k1:u8", "k2:u8",
                 {"name": "keys", "type": "varint", "if": "kf&4"},
+                {"name": "dat", "type": "seek", "pattern": "08 00 00 00", "back": 1, "optional": true},
+                {"name": "df", "type": "u8", "if": "dat"}, {"name": "dk", "type": "u8", "if": "dat"}, {"name": "dtag", "type": "skip", "len": 3, "if": "dat"},
+                {"name": "dkeys", "type": "varint", "if": "df&4"},
                 {"name": "at", "type": "seek", "pattern": "01 87 93 03", "back": 1},
                 "flags:u8", "kind:u8", "t0:u8", "t1:u8", "t2:u8",
                 {"name": "cur", "type": "varint", "if": "flags&4"},
                 {"name": "bonus", "type": "varint", "if": "flags&8"}],
      "emit": [
-       {"event": "keys", "when": "kk==1&&k0==0&&k1==0&&k2==0", "cur": "keys"},
+       {"event": "keys", "when": "kk==1&&k0==0&&k1==0&&k2==0", "cur": "keys", "which": "1"},
+       {"event": "keys", "when": "dat&&dk==8", "cur": "dkeys", "which": "8"},
        {"event": "odyle", "when": "kind==1&&t0==135&&t1==147&&t2==3", "cur": "cur", "bonus": "bonus"},
        // Sent on login: everything around you is being introduced.
        {"event": "fresh", "when": "1"}
@@ -234,6 +248,57 @@
     {"opcode": "0x920d", "name": "S_PARTY_JOINED", "dir": "server",
      "fields": [{"name": "members", "type": "member_names", "marker": 0}],
      "emit": {"event": "party_join", "when": "1", "members": "members"}},
+    // Pet list, sent at login only (not on teleport or opening the Pets
+    // window): u32, then each owned pet (pet id twice, level 1-3), then
+    // each pet's kills towards its next level (a pet with 1-4 kills and no
+    // level isn't unlocked yet; a pet left out has 0). More data follows
+    // (not read). Pet ids are the game's own (Kerubian = 1170), not monster
+    // ids (petfarm-059-001, 2026-11-02).
+    {"opcode": "0x9000", "name": "S_PET_LIST", "dir": "server", "sync": false,
+     "fields": ["x:u32le", "n:varint",
+                {"name": "levels", "type": "repeat", "count": "n", "fields": ["pet:u32le", "pet2:u32le", "level:u32le"]},
+                "m:varint",
+                {"name": "counts", "type": "repeat", "count": "m", "fields": ["pet:u32le", "count:u32le"]}],
+     "emit": [
+       {"event": "pets_reset", "when": "1"},
+       {"event": "pet", "each": "levels", "when": "1", "pet": "pet", "level": "level"},
+       {"event": "pet", "each": "counts", "when": "1", "pet": "pet", "count": "count"}
+     ]},
+    // Kills counted for pets: how many pets, then each pet id and its +n.
+    // Usually one (matched the other meter's "Kerubian 13/25 +1",
+    // petfarm-059-001 t=303.2); two monsters of different pets dying
+    // together come as one message with two (dunegon-test7-001: Kailin and
+    // Young Kailin levelled at 21/25 and 22/25 while these were skipped).
+    {"opcode": "0x900d", "name": "S_PET_GAIN", "dir": "server", "sync": false,
+     "fields": ["x:u8", {"name": "gains", "type": "repeat", "count": "x", "fields": ["pet:u32le", "n:u32le"]}],
+     "emit": {"event": "pet", "each": "gains", "when": "1", "pet": "pet", "gain": "n"}},
+    // A kill of a monster whose pet is maxed dropped Insight crystals
+    // (not every kill does): how many drops (1), colour (1 Fera, 2 Cogni, 3 Natura,
+    // 4 Varian), amount (2 when two died at once), 02. No pet id
+    // (petfarm-test2-001: 46 Cogni, petfarm-test4-001: 31 Fera,
+    // petfarm-test4-003: 24 Natura, r1792660621: Varian, each right after
+    // such a kill). Colour 6 comes alone, 10-1000 at once, with no kill
+    // before it (Special crystals come from Hidden Cubes, maybe that).
+    // Two monsters of different families dropping at once come as one
+    // message: 02, colour, amount, colour, amount, 02 (petfarm-test7-001
+    // t=4.6: Natura + Varian).
+    {"opcode": "0x9011", "name": "S_PET_CRYSTAL", "dir": "server", "sync": false,
+     "fields": ["x:u8", {"name": "drops", "type": "repeat", "count": "x", "fields": ["colour:u8", "n:u32le"]}],
+     "emit": {"event": "pet_crystal", "each": "drops", "when": "1", "colour": "colour", "amount": "n"}},
+    // The game levelled a pet up by itself (its kills reached 5, 25 or 75):
+    // 00 00, pet id, new level, more (not read). Comes right after the +1
+    // that filled the bar, with 0x900e (pet id, the kills it took). Kills
+    // start again at 0 (petfarm-test1-060-002: Slink 74 -> 75 -> Lv 3).
+    {"opcode": "0x9014", "name": "S_PET_LEVEL_UP", "dir": "server", "sync": false,
+     "fields": ["x:u16le", "pet:u32le", "level:u32le"],
+     "emit": {"event": "pet", "when": "x==0", "pet": "pet", "level": "level", "count": "0", "up": "1"}},
+    // A pet reached a goal: 01, pet id, the kills it took (5, 25, 75).
+    // At 25 and 75 the level-up 0x9014 comes with it; unlocking at 5 sends
+    // only this one (dunegon-test7-001: Sylphen, Ursus, Young Ursus kept
+    // counting past 5 at Lv 0 until the next login list said Lv 1).
+    {"opcode": "0x900e", "name": "S_PET_GOAL", "dir": "server", "sync": false,
+     "fields": ["x:u8", "pet:u32le", "n:u32le"],
+     "emit": {"event": "pet", "when": "x==1&&n==5", "pet": "pet", "level": "1", "count": "0", "up": "1"}},
     // You joined someone's dungeon room (8 zero bytes). The room announces
     // you with a 0x970b in the same moment, which names you on a fresh
     // install (r1792651601, report 1792823256).

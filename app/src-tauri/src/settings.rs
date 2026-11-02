@@ -222,6 +222,8 @@ pub struct Settings {
     /// Last Shugo Festival Reward Key count the game sent (it is only sent
     /// at login and when it changes, so it is remembered between sessions).
     pub last_keys: Option<u64>,
+    /// Dimensional Invasion keys, last seen.
+    pub last_dim_keys: Option<u64>,
     /// Last Odyle (base, bonus) the game sent, for display after a restart.
     pub last_odyle: Option<(u64, u64)>,
 }
@@ -277,6 +279,7 @@ impl Default for Settings {
             last_self: None,
             last_server: None,
             last_keys: None,
+            last_dim_keys: None,
             last_odyle: None,
         }
     }

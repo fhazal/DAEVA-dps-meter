@@ -584,6 +584,41 @@ impl Fight {
     }
 }
 
+/// One pet's Pet Insight progress (kills of its monster).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Pet {
+    /// 0 = not unlocked yet, 3 = max.
+    pub level: u32,
+    /// Kills towards the next level.
+    pub count: u32,
+    /// Game time of the last kill that counted (the strip's +1).
+    pub gain_at: f64,
+    /// Kills that counted within 3 s of each other, up to the last one
+    /// (an AoE pull shows +2, +3).
+    pub gain_run: u32,
+    /// Game time the game last levelled it up (the strip lights up).
+    pub up_at: f64,
+}
+
+/// The family whose Insight crystal a drop's colour number is (matched to
+/// the kills drops follow; 6 comes alone, from no kill).
+pub fn crystal_family(colour: u8) -> Option<&'static str> {
+    match colour {
+        1 => Some("Fera"),
+        2 => Some("Cogni"),
+        3 => Some("Natura"),
+        4 => Some("Varian"),
+        _ => None,
+    }
+}
+
+/// Kills a pet needs for its next level: unlock at 5, then 25 and 75
+/// (game's Pets window and the wiki); None once it's max. The game levels
+/// the pet up by itself when the kills reach it.
+pub fn pet_target(level: u32) -> Option<u32> {
+    [5, 25, 75].get(level as usize).copied()
+}
+
 /// What the party panel shows.
 #[derive(Debug, Clone)]
 pub struct PartyState {
@@ -715,6 +750,36 @@ pub struct Engine {
     pub self_odyle: Option<(u64, u64)>,
     /// Shugo Festival Reward Keys held.
     pub self_keys: Option<u64>,
+    /// Dimensional Invasion keys held.
+    pub self_dim_keys: Option<u64>,
+    /// Pet Insight by the game's pet id, from the login list plus the kills
+    /// since; empty until a login list (or the saved copy) is seen.
+    pub pets: HashMap<u32, Pet>,
+    /// A login list (or the saved copy) was seen: without one a +1 only
+    /// names the pet, its count isn't known.
+    pub pets_listed: bool,
+    /// Monster name -> pet id, learned when a pet +1 follows your kill
+    /// (the packets only carry the pet id).
+    pub pet_links: HashMap<String, u32>,
+    /// Pets or links changed since the app last saved them.
+    pub pets_dirty: bool,
+    /// What the meter had counted before the last login list replaced it,
+    /// for the "list corrected" check in recordings and reports.
+    pets_before_list: Option<HashMap<u32, Pet>>,
+    /// Self-checks for recordings and reports (level-ups, corrections).
+    pet_notes: Vec<String>,
+    /// Insight crystals dropped since the meter started, by colour.
+    pub crystals: HashMap<u8, u32>,
+    /// The last drop: game time, colour, and the crystals of that colour
+    /// dropped within 3 s of each other up to it (the strip's +1, +2).
+    crystal_last: (f64, u8, u32),
+    /// Monsters that died in your fight in the last few seconds (game
+    /// time, name, family): one of them earned the next +1 or crystal.
+    recent_kills: VecDeque<(f64, String, Option<String>)>,
+    /// Monsters whose pet is maxed, learned from the crystals their kills
+    /// drop: a pet maxed before the meter saw it never gets a +1, so it has
+    /// no link (the drop carries no pet id either).
+    pub pets_maxed: HashSet<String>,
     /// Your group members' names (from the game's party list).
     pub party: std::collections::HashSet<String>,
     /// A player back under a new entity id (died and returned, Divine
@@ -830,6 +895,17 @@ impl Engine {
             self_server: None,
             self_odyle: None,
             self_keys: None,
+            self_dim_keys: None,
+            pets: HashMap::new(),
+            pets_listed: false,
+            pet_links: HashMap::new(),
+            pets_dirty: false,
+            pets_before_list: None,
+            pet_notes: Vec::new(),
+            crystals: HashMap::new(),
+            crystal_last: (0.0, 0, 0),
+            recent_kills: VecDeque::new(),
+            pets_maxed: HashSet::new(),
             party: Default::default(),
             player_alias: HashMap::new(),
             force: HashMap::new(),
@@ -1304,6 +1380,20 @@ impl Engine {
                 // and the fight waited for the idle end, 2026-11-01).
                 let card_kill = self.is_real_boss(*target) && self.current.as_ref().and_then(|f| self.card_boss(f)) == Some(*target);
                 let main = if card_kill { Some(*target) } else { main.filter(|_| !boss_lives) };
+                // A monster your fight hit: it may earn a pet +1.
+                if let Some(f) = self.current.as_ref() {
+                    let npc = self.actors.get(target).map_or(false, |a| a.npc_id.is_some() && !matches!(a.kind, ActorKind::Player | ActorKind::Summon));
+                    if npc && f.targets.get(target).map_or(false, |d| *d > 0) {
+                        let name = self.fname(f, *target);
+                        if name != "Unknown monster" {
+                            let family = self.actors.get(target).and_then(|a| a.npc_id).and_then(|n| self.names.npc_ref(n, &name)).and_then(|n| self.names.families.get(&n).cloned());
+                            self.recent_kills.push_back((*ts, name, family));
+                            if self.recent_kills.len() > 32 {
+                                self.recent_kills.pop_front();
+                            }
+                        }
+                    }
+                }
                 if let Some(f) = self.current.as_mut() {
                     f.deaths.push((*ts, *target, *killer));
                     if let Some(s) = f.stats.get_mut(target) {
@@ -1608,7 +1698,54 @@ impl Engine {
                     self.self_server = Some(*server);
                 }
             }
-            GameEvent::Keys { cur } => self.self_keys = Some(*cur),
+            GameEvent::Keys { cur, which: 8 } => self.self_dim_keys = Some(*cur),
+            GameEvent::Keys { cur, .. } => self.self_keys = Some(*cur),
+            GameEvent::PetsReset => {
+                if self.pets_listed && !self.pets.is_empty() {
+                    self.pets_before_list = Some(self.pets.clone());
+                }
+                self.pets.clear();
+                self.pets_listed = true;
+                self.pets_dirty = true;
+            }
+            GameEvent::Pet { ts, pet, level, count, gain, up } => {
+                if gain.is_some() {
+                    self.link_pet(*ts, *pet);
+                }
+                if self.pets_listed && *up {
+                    // The game levels up when the kills reach the target: the
+                    // meter's own count should be exactly there.
+                    let had = self.pets.get(pet).cloned().unwrap_or_default();
+                    let name = self.pet_links.iter().find(|(_, p)| *p == pet).map_or_else(|| format!("pet {pet}"), |(n, _)| n.clone());
+                    let of = pet_target(had.level).map_or("max".to_string(), |t| t.to_string());
+                    self.pet_notes.push(format!("pet level-up: {name} Lv {} -> {}, meter counted {}/{of}", had.level, level.unwrap_or(0), had.count));
+                }
+                if self.pets_listed {
+                    let p = self.pets.entry(*pet).or_default();
+                    if let Some(l) = level {
+                        p.level = *l;
+                    }
+                    if let Some(c) = count {
+                        p.count = *c;
+                    }
+                    if let Some(g) = gain {
+                        p.count += g;
+                        p.gain_run = if *ts - p.gain_at < 3.0 { p.gain_run + g } else { *g };
+                        p.gain_at = *ts;
+                    }
+                    if *up {
+                        p.up_at = *ts;
+                    }
+                    self.pets_dirty = true;
+                }
+            }
+            GameEvent::PetCrystal { ts, colour, amount } => {
+                self.learn_maxed(*ts, *colour);
+                *self.crystals.entry(*colour).or_default() += amount;
+                let (at, c, run) = self.crystal_last;
+                let run = if c == *colour && *ts - at < 3.0 { run + amount } else { *amount };
+                self.crystal_last = (*ts, *colour, run);
+            }
             GameEvent::PartyInfo { title, leader, members } => {
                 // After the dungeon's "party gone" (0x8d3f, also sent about a
                 // minute after the last boss dies) a room list still counts
@@ -2479,6 +2616,104 @@ impl Engine {
     }
 
     /// Name as of a given fight (frozen names win once the fight is over).
+    /// A pet +1 just came: the kill it was for names the pet. A monster
+    /// already linked to this pet is used up first; otherwise the kill is
+    /// only taken when the unlinked kills of the last 3 s are all the same
+    /// monster (a pack of mixed monsters dying at once stays unnamed).
+    fn link_pet(&mut self, ts: f64, pet: u32) {
+        while self.recent_kills.front().map_or(false, |(t, ..)| ts - t > 3.0) {
+            self.recent_kills.pop_front();
+        }
+        if let Some(i) = self.recent_kills.iter().position(|(_, n, _)| self.pet_links.get(n) == Some(&pet)) {
+            self.recent_kills.remove(i);
+            return;
+        }
+        let free: Vec<usize> = (0..self.recent_kills.len()).filter(|&i| !self.pet_links.contains_key(&self.recent_kills[i].1)).collect();
+        let Some(&first) = free.first() else { return };
+        let name = self.recent_kills[first].1.clone();
+        if free.iter().any(|&i| self.recent_kills[i].1 != name) {
+            return;
+        }
+        self.recent_kills.remove(first);
+        // A pet has one monster: a new name for it replaces the old link.
+        self.pet_links.retain(|_, p| *p != pet);
+        self.pets_maxed.remove(&name);
+        self.pet_links.insert(name, pet);
+        self.pets_dirty = true;
+    }
+
+    /// A crystal just dropped: only a maxed pet's monster drops them, in its
+    /// family's colour. Your kills of that family in the last 1.5 s that no
+    /// levelling pet owns are the candidates; when they're all the same
+    /// monster, its pet is maxed (petfarm-test6-001: Cursed Poison Blood).
+    fn learn_maxed(&mut self, ts: f64, colour: u8) {
+        let Some(fam) = crystal_family(colour) else { return };
+        let levelling = |n: &String| self.pet_links.get(n).and_then(|id| self.pets.get(id)).map_or(false, |p| pet_target(p.level).is_some());
+        let mut names = self.recent_kills.iter().filter(|(t, n, f)| ts - t <= 1.5 && f.as_deref().map_or(false, |f| f.eq_ignore_ascii_case(fam)) && !levelling(n)).map(|(_, n, _)| n);
+        let Some(first) = names.next().cloned() else { return };
+        if names.all(|n| *n == first) && !self.pet_links.contains_key(&first) && self.pets_maxed.insert(first) {
+            self.pets_dirty = true;
+        }
+    }
+
+    /// Pet self-checks since the last call (level-ups, and how the last
+    /// login list corrected the meter's counts), for recordings and reports.
+    pub fn take_pet_notes(&mut self) -> Vec<String> {
+        if let Some(before) = self.pets_before_list.take() {
+            let name = |id: &u32| self.pet_links.iter().find(|(_, p)| *p == id).map_or_else(|| format!("pet {id}"), |(n, _)| n.clone());
+            let mut fixed: Vec<String> = self
+                .pets
+                .iter()
+                .filter_map(|(id, p)| before.get(id).filter(|b| (b.level, b.count) != (p.level, p.count)).map(|b| format!("{} Lv {} {} -> Lv {} {}", name(id), b.level, b.count, p.level, p.count)))
+                .collect();
+            fixed.sort();
+            self.pet_notes.push(if fixed.is_empty() { format!("pet list at login: {} pets, all counts as the meter had them", self.pets.len()) } else { format!("pet list at login corrected {}: {}", fixed.len(), fixed.join("; ")) });
+        }
+        std::mem::take(&mut self.pet_notes)
+    }
+
+    /// The pet strip for a monster: its pet's level and kills, once both
+    /// the link and the pet list are known.
+    pub fn pet_json(&self, name: &str) -> Value {
+        // A maxed pet known only from its crystals: no id, Lv 3.
+        let maxed = Pet { level: 3, ..Default::default() };
+        let (id, p) = match self.pet_links.get(name) {
+            Some(id) => match self.pets.get(id) {
+                Some(p) => (*id, p),
+                None => return Value::Null,
+            },
+            None if self.pets_maxed.contains(name) => (0, &maxed),
+            None => return Value::Null,
+        };
+        Obj::new()
+            .set("id", id)
+            .set("name", name)
+            .set("level", p.level)
+            .set("count", p.count)
+            .set("target", pet_target(p.level))
+            .set("gain_ago", if p.gain_at > 0.0 { Some((self.last_ts - p.gain_at).max(0.0)) } else { None })
+            .set("gain_n", p.gain_run)
+            .set("up_ago", if p.up_at > 0.0 { Some((self.last_ts - p.up_at).max(0.0)) } else { None })
+            .set("crystal", self.crystal_json(p))
+            .build()
+    }
+
+    /// The last crystal drop, for a maxed pet's strip (+1 in the crystal's
+    /// colour; the UI matches the colour to the monster's family). Only
+    /// maxed pets drop them.
+    fn crystal_json(&self, p: &Pet) -> Value {
+        let (at, colour, run) = self.crystal_last;
+        if pet_target(p.level).is_some() || colour == 0 {
+            return Value::Null;
+        }
+        Obj::new()
+            .set("ago", (self.last_ts - at).max(0.0))
+            .set("colour", colour)
+            .set("n", run)
+            .set("total", self.crystals.get(&colour).copied().unwrap_or(0))
+            .build()
+    }
+
     pub fn fname(&self, f: &Fight, id: u64) -> String {
         match f.names.get(&id) {
             Some((n, _)) => n.clone(),
@@ -3031,6 +3266,7 @@ impl Engine {
             // Rank, family and portrait, borrowed by name for unlisted variants.
             let info = npc_id.and_then(|n| self.names.npc_ref(n, &name));
             let enrage = npc_id.and_then(|n| self.names.enrage_for(n, &name));
+            let pet = self.pet_json(&name);
             Obj::new()
                 .set("id", t)
                 .set("counted", counted)
@@ -3049,6 +3285,7 @@ impl Engine {
                 .set("berserk_from", enrage.map(|e| e.1))
                 .set("rank", info.and_then(|n| self.names.ranks.get(&n).cloned()))
                 .set("family", info.and_then(|n| self.names.families.get(&n).cloned()))
+                .set("pet", pet)
                 .build()
         });
         Obj::new()
@@ -3457,6 +3694,109 @@ mod tests {
 
     fn dmg(ts: f64, src: u64, tgt: u64, skill: u32, amount: u64, fl: u32) -> GameEvent {
         GameEvent::Damage { ts, src, tgt, skill, amount, flags: fl }
+    }
+
+    /// Pet +1s name the pet after the kill just before (petfarm-059-001:
+    /// Kerubian = 1170, 13/25 at login). Counts only once a login list is
+    /// known; a mixed pack dying at once names nothing.
+    #[test]
+    fn pet_kills_name_and_count_pets() {
+        let names = Names::from_json(r#"{"npcs": {"2000117": "Kerubian", "2000118": "Slink", "2000119": "Kerubiel"}}"#).unwrap();
+        let mut e = Engine::new(EngineConfig::default(), names);
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        let kill = |e: &mut Engine, ts: f64, id: u64, npc: u32| {
+            e.handle(&GameEvent::Actor { id, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(npc), owner: None, max_hp: Some(1000) });
+            e.handle(&dmg(ts, 1, id, 18000000, 1000, 0));
+            e.handle(&GameEvent::Death { ts: ts + 0.1, target: id, killer: Some(1) });
+        };
+        let gain = |e: &mut Engine, ts: f64, pet: u32| e.handle(&GameEvent::Pet { ts, pet, level: None, count: None, gain: Some(1), up: false });
+        // Before any login list: the +1 names the pet but counts nothing.
+        kill(&mut e, 1.0, 50, 2000117);
+        gain(&mut e, 1.3, 1170);
+        assert_eq!(e.pet_links.get("Kerubian"), Some(&1170));
+        assert!(e.pets.is_empty() && e.pet_json("Kerubian") == Value::Null);
+        // Login list: Kerubian Lv 1 with 13 kills.
+        e.handle(&GameEvent::PetsReset);
+        e.handle(&GameEvent::Pet { ts: 2.0, pet: 1170, level: Some(1), count: None, gain: None, up: false });
+        e.handle(&GameEvent::Pet { ts: 2.0, pet: 1170, level: None, count: Some(13), gain: None, up: false });
+        kill(&mut e, 10.0, 51, 2000117);
+        gain(&mut e, 10.4, 1170);
+        let p = e.pet_json("Kerubian");
+        assert_eq!((p.f64_or("level", 0.0), p.f64_or("count", 0.0), p.f64_or("target", 0.0)), (1.0, 14.0, 25.0), "{}", p.to_string());
+        assert!(p.f64_or("gain_ago", 9.0) < 1.0);
+        assert_eq!(p.f64_or("gain_n", 0.0), 1.0);
+        // The card carries it.
+        let f = e.current.clone().or_else(|| e.history.back().cloned()).unwrap();
+        assert_eq!(e.fight_table(&f, None).get("target").and_then(|t| t.get("pet")).map(|p| p.f64_or("id", 0.0)), Some(1170.0));
+        // Slink and Kerubiel die together, one +1 comes: can't tell which.
+        kill(&mut e, 20.0, 52, 2000118);
+        kill(&mut e, 20.0, 53, 2000119);
+        gain(&mut e, 20.5, 1171);
+        assert_eq!(e.pet_links.len(), 1, "{:?}", e.pet_links);
+        // The 25th kill: the game levels it up by itself, kills start at 0.
+        for i in 0..11 {
+            kill(&mut e, 30.0 + i as f64 * 5.0, 60 + i, 2000117);
+            gain(&mut e, 30.3 + i as f64 * 5.0, 1170);
+        }
+        e.handle(&GameEvent::Pet { ts: 80.4, pet: 1170, level: Some(2), count: Some(0), gain: None, up: true });
+        let p = e.pet_json("Kerubian");
+        assert_eq!((p.f64_or("level", 0.0), p.f64_or("count", 9.0), p.f64_or("target", 0.0)), (2.0, 0.0, 75.0), "{}", p.to_string());
+        assert!(p.f64_or("up_ago", 9.0) < 1.0);
+        // Two kills a second apart (an AoE pull): the strip says +2.
+        gain(&mut e, 90.0, 1170);
+        gain(&mut e, 91.0, 1170);
+        assert_eq!(e.pet_json("Kerubian").f64_or("gain_n", 0.0), 2.0);
+        gain(&mut e, 99.0, 1170);
+        assert_eq!(e.pet_json("Kerubian").f64_or("gain_n", 0.0), 1.0, "a kill 8 s later starts again");
+        assert_eq!(pet_target(3), None);
+        // Not maxed: crystal drops don't show on its strip.
+        e.handle(&GameEvent::PetCrystal { ts: 99.5, colour: 2, amount: 1 });
+        assert_eq!(e.pet_json("Kerubian").get("crystal"), Some(&Value::Null));
+        // Maxed: the drop shows, two within 3 s say +2, the total counts on.
+        e.handle(&GameEvent::Pet { ts: 100.0, pet: 1170, level: Some(3), count: Some(0), gain: None, up: true });
+        e.handle(&GameEvent::PetCrystal { ts: 103.0, colour: 2, amount: 1 });
+        e.handle(&GameEvent::PetCrystal { ts: 104.0, colour: 2, amount: 1 });
+        let c = e.pet_json("Kerubian").get("crystal").cloned().unwrap();
+        assert_eq!((c.f64_or("colour", 0.0), c.f64_or("n", 0.0), c.f64_or("total", 0.0)), (2.0, 2.0, 3.0), "{}", c.to_string());
+        e.handle(&GameEvent::PetCrystal { ts: 104.5, colour: 1, amount: 2 });
+        let c = e.pet_json("Kerubian").get("crystal").cloned().unwrap();
+        assert_eq!((c.f64_or("colour", 0.0), c.f64_or("n", 0.0), c.f64_or("total", 0.0)), (1.0, 2.0, 2.0), "another colour starts its own +n");
+    }
+
+    #[test]
+    fn crystal_drops_name_maxed_pets() {
+        let names = Names::from_json(r#"{"npcs": {"2000117": "Cursed Poison Blood", "2000118": "Slink", "2000119": "Rafflesia"},
+            "families": {"2000117": "Varian", "2000118": "Fera", "2000119": "Natura"}}"#).unwrap();
+        let mut e = Engine::new(EngineConfig::default(), names);
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        let kill = |e: &mut Engine, ts: f64, id: u64, npc: u32| {
+            e.handle(&GameEvent::Actor { id, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(npc), owner: None, max_hp: Some(1000) });
+            e.handle(&dmg(ts, 1, id, 18000000, 1000, 0));
+            e.handle(&GameEvent::Death { ts: ts + 0.1, target: id, killer: Some(1) });
+        };
+        // A Varian crystal (4) right after a Cursed Poison Blood kill: maxed
+        // (petfarm-test6-001, a pet maxed before the meter saw it).
+        kill(&mut e, 1.0, 50, 2000117);
+        e.handle(&GameEvent::PetCrystal { ts: 1.5, colour: 4, amount: 1 });
+        assert!(e.pets_maxed.contains("Cursed Poison Blood"));
+        let p = e.pet_json("Cursed Poison Blood");
+        assert_eq!((p.f64_or("level", 0.0), p.get("target").cloned()), (3.0, Some(Value::Null)), "{}", p.to_string());
+        assert_eq!(p.get("crystal").map(|c| c.f64_or("colour", 0.0)), Some(4.0));
+        // The colour must match the kill's family: a Varian crystal after a
+        // Fera kill teaches nothing; a crystal 2 s late neither.
+        kill(&mut e, 10.0, 51, 2000118);
+        e.handle(&GameEvent::PetCrystal { ts: 10.5, colour: 4, amount: 1 });
+        kill(&mut e, 20.0, 52, 2000119);
+        e.handle(&GameEvent::PetCrystal { ts: 22.5, colour: 3, amount: 1 });
+        assert_eq!(e.pets_maxed.len(), 1, "{:?}", e.pets_maxed);
+        // Two different Natura monsters dying together: can't tell which.
+        e.handle(&GameEvent::Actor { id: 60, name: Some("Soft Breeze Spirit".into()), class: None, kind: ActorKind::Npc, npc_id: Some(2000119), owner: None, max_hp: Some(1000) });
+        kill(&mut e, 30.0, 53, 2000119);
+        e.handle(&dmg(30.0, 1, 60, 18000000, 1000, 0));
+        e.handle(&GameEvent::Death { ts: 30.1, target: 60, killer: Some(1) });
+        e.handle(&GameEvent::PetCrystal { ts: 30.5, colour: 3, amount: 1 });
+        assert_eq!(e.pets_maxed.len(), 1, "{:?}", e.pets_maxed);
+        assert_eq!(crystal_family(6), None);
     }
 
     #[test]

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.0 (2026-11-03)
+
+- **Pet progress under the NPC card:** while you fight, a strip shows the pet the monster counts towards: its level, kills so far (13/25) and a +1 on each kill, in the colour of its Insight crystal. It lights up when the game levels the pet up ("Lv 2 reached"), and hides once a pet is maxed. Counts come from your last login, so start the meter before you log in the first time. The family icons on the card are new, in the same colours.
+- **Crystals from maxed pets:** when you farm a monster whose pet is already maxed, the strip shows a paw and MAX, and a crystal with +1 when one drops (+2 when two drop at once). Hover the strip for how many crystals you've collected since the meter started.
+- **Pet progress in Solo:** the Solo card now shows your pet in the boss line: a glowing orb (a paw once it's maxed), its level and kills (14/25, or MAX), with the +1 or crystal +1 on its corner.
+- **Dimensional Invasion keys:** the Dimensional Invasion alert now shows how many keys you hold, like the Shugo Festival one.
+- **Elementalist spirit skill names:** the Earth Spirit's Colossal Stalk and the Wind Spirit's Storm were shown under each other's names. They're named correctly now.
+- **Ore Insectoid Egg:** the egg in the open world now shows its name instead of "Unknown monster".
+
 ## 0.5.9 (2026-11-02)
 
 - **Party strip in the open world:** in a party with friends outside a dungeon, a slim strip above the boss card shows your party while you fight: one dot per member, green when they're fighting with you, and "In this fight 3/4".

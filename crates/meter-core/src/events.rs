@@ -113,8 +113,9 @@ pub enum GameEvent {
     ActorRace { id: u64, race: u8 },
     /// Your Odyle: base amount and the extra (+N) shown in brackets.
     Odyle { cur: Option<u64>, bonus: Option<u64> },
-    /// Shugo Festival Reward Keys you hold.
-    Keys { cur: u64 },
+    /// Event keys you hold: `which` is the game's counter kind (1 = Shugo
+    /// Festival Reward Keys, 8 = Dimensional Invasion keys).
+    Keys { cur: u64, which: u8 },
     /// Names of your group (party) members, you included, and each member's
     /// class number from the same list (follows the class, see Names::party_codes).
     Party { names: Vec<String>, codes: Vec<Option<u32>> },
@@ -150,6 +151,14 @@ pub enum GameEvent {
     PartyGone,
     /// The game just sent a full picture (login or zone change).
     Fresh,
+    /// The pet list sent at login follows: forget the old one.
+    PetsReset,
+    /// One pet (Pet Insight): its level and kills from the login list, a
+    /// kill that counted for it (+gain), or the game levelling it up (up).
+    Pet { ts: f64, pet: u32, level: Option<u32>, count: Option<u32>, gain: Option<u32>, up: bool },
+    /// A maxed pet's kill dropped Insight crystals of a colour (1 Fera,
+    /// 2 Cogni). The game doesn't say which pet.
+    PetCrystal { ts: f64, colour: u8, amount: u32 },
 }
 
 impl GameEvent {
@@ -184,6 +193,9 @@ impl GameEvent {
             GameEvent::DungeonLeft => "dungeon_left",
             GameEvent::PartyGone => "party_gone",
             GameEvent::Fresh => "fresh",
+            GameEvent::PetsReset => "pets_reset",
+            GameEvent::Pet { .. } => "pet",
+            GameEvent::PetCrystal { .. } => "pet_crystal",
         }
     }
 }

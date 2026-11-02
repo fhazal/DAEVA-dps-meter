@@ -71,7 +71,8 @@
   .so-bn img.fac { margin-left: 2px; vertical-align: -2px; }
   .tc-bot > span { display: inline-flex; align-items: center; gap: 5px; }
   .tc-bot .fam { color: var(--text); font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
-  .tc-bot .famic svg { width: 13px; height: 13px; display: block; }
+  .tc-bot .famic .fm { display: block; width: 13px; height: 13px; background: rgb(var(--fc));
+    -webkit-mask: var(--m) center / contain no-repeat; mask: var(--m) center / contain no-repeat; }
   .tc-bot .dotsep { color: var(--dim); margin: 0 1px; }
   .md-loading { color: var(--muted); font-style: italic; display: inline-flex; align-items: center; gap: 5px; }
   .md-spin { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid rgba(255,255,255,.18); border-top-color: var(--accent); animation: mdspin .9s linear infinite; }
@@ -243,6 +244,55 @@
   /* Open-world party: never red (that's the queue's "not Ready"). */
   .qbar .rd.fi { color: #aeb4bd; background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.18); }
   .qbar .rd.fi.all { color: var(--good); background: rgba(111,207,142,.12); border-color: rgba(111,207,142,.3); }
+  /* Pet Insight under the NPC card, in its family's crystal colour (--pet). */
+  .petbar { --pet: 183,156,255; position: relative; display: flex; align-items: center; gap: 8px; margin: 4px 8px 2px; padding: 5px 10px 5px 8px; border-radius: 8px; font-size: 11.5px;
+    background: linear-gradient(90deg, rgba(var(--pet),.16), rgba(var(--pet),.03) 70%); border: 1px solid rgba(var(--pet),.34); color: #d9d4c7; overflow: hidden; }
+  .petbar[hidden] { display: none; }
+  .petbar .gem { width: 15px; height: 17px; flex: none; filter: drop-shadow(0 0 5px rgba(var(--pet),.7)); }
+  .petbar .pn { color: #fff; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .petbar .lvp { flex: none; font-size: 10px; font-weight: 800; letter-spacing: .03em; color: #10131a; background: rgb(var(--pet)); border-radius: 6px; padding: 0 6px; line-height: 15px; box-shadow: 0 0 8px rgba(var(--pet),.5); }
+  /* The bar in five parts, with a glassy sheen on the fill. */
+  .petbar .pbar { flex: 1; min-width: 40px; height: 7px; border-radius: 4px; background: rgba(255,255,255,.07); box-shadow: inset 0 1px 2px rgba(0,0,0,.5); overflow: hidden; position: relative; }
+  .petbar .pbar i { position: absolute; inset: 0 auto 0 0; border-radius: 4px; background: linear-gradient(180deg, rgba(255,255,255,.35), rgba(255,255,255,0) 55%), linear-gradient(90deg, rgba(var(--pet),.6), rgb(var(--pet))); box-shadow: 0 0 6px rgba(var(--pet),.6); transition: width .4s ease-out; }
+  .petbar .pbar i.gain { background: linear-gradient(180deg, rgba(255,255,255,.35), rgba(255,255,255,0) 55%), linear-gradient(90deg, rgba(var(--pet),.6), rgb(var(--pet)) 85%, #fff); }
+  .petbar .pbar .seg { position: absolute; inset: 0; background: repeating-linear-gradient(90deg, transparent 0 calc(20% - 1px), rgba(12,14,20,.85) calc(20% - 1px) 20%); }
+  /* Fixed width, right-aligned: the bar ends in the same place on every strip. */
+  .petbar .cnt { flex: none; min-width: 46px; text-align: right; font-variant-numeric: tabular-nums; color: #cfcac0; white-space: nowrap; } .petbar .cnt b { color: #fff; }
+  /* The +1 (+2 for kills close together) fills a space kept at the right end,
+     so the bar and the count never move when it comes and goes. */
+  .petbar .slot { flex: none; width: 30px; display: flex; justify-content: center; }
+  .petbar .plus { line-height: 14px; font-weight: 800; color: #fff; padding: 0 6px; border-radius: 9px; background: linear-gradient(rgba(var(--pet),.3), rgba(var(--pet),.3)), #12151c; border: 1px solid rgba(var(--pet),.7); box-shadow: 0 0 8px rgba(var(--pet),.6); animation: petplus 3s ease-out forwards; }
+  @keyframes petplus { 0% { opacity: 0; transform: translateY(4px) scale(.7); } 10% { opacity: 1; transform: translateY(0) scale(1.1); } 20% { transform: scale(1); } 80% { opacity: 1; } 100% { opacity: 0; transform: translateY(-3px); } }
+  /* Levelled up (or just maxed): lights up in its own colour for a few seconds. */
+  .petbar.up { background: linear-gradient(90deg, rgba(var(--pet),.34), rgba(var(--pet),.08)); border-color: rgb(var(--pet)); box-shadow: 0 0 12px rgba(var(--pet),.5), inset 0 0 10px rgba(var(--pet),.25); }
+  .petbar.up .pbar i { box-shadow: 0 0 10px rgba(var(--pet),.9); }
+  /* A maxed pet while you farm: the slot stays, dimmed, so the list doesn't jump. */
+  .petbar.maxed { opacity: .5; filter: saturate(.55); background: rgba(var(--pet),.05); }
+  .petbar.maxed .gem { filter: none; }
+  /* A maxed pet shows the paw; a crystal drop fills the +1 space with a
+     small crystal and lights the strip like a level-up. */
+  .petbar .pet-ic { width: 15px; height: 15px; flex: none; fill: none; stroke: rgb(var(--pet)); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 0 4px rgba(var(--pet),.55)); }
+  .petbar.maxed .pet-ic { filter: none; }
+  .petbar .slot.cry { width: 40px; }
+  .petbar .plus .gem { width: 9px; height: 10px; margin: 0 3px -1px -2px; filter: none; }
+  .petbar .plus { white-space: nowrap; }
+  .petbar.drop { background: linear-gradient(90deg, rgba(var(--pet),.30), rgba(var(--pet),.06)); border-color: rgba(var(--pet),.8); box-shadow: 0 0 10px rgba(var(--pet),.4); }
+  body.lay-solo #petbar { display: none !important; }
+  /* Solo's pet chip: glowing paw, level diamonds and count in the pet's
+     colour, no box; the +1 sits on its corner so nothing moves. */
+  .so-pet { --pet: 183,156,255; position: relative; display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 700; font-variant-numeric: tabular-nums; color: #fff; }
+  .so-pet .pet-ic { width: 13px; height: 13px; flex: none; fill: none; stroke: rgb(var(--pet)); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 0 4px rgba(var(--pet),.7)); }
+  .so-pet .lv { display: inline-flex; align-items: center; gap: 4px; color: rgb(var(--pet)); font-size: 10px; text-shadow: 0 0 6px rgba(var(--pet),.6); }
+  .so-pet .pips { display: flex; gap: 2px; } .so-pet .pips i { width: 4px; height: 4px; transform: rotate(45deg); background: rgba(255,255,255,.16); border-radius: 1px; }
+  .so-pet .pips i.on { background: rgb(var(--pet)); box-shadow: 0 0 4px rgba(var(--pet),.9); }
+  .so-pet .c small { color: #9aa0aa; font-weight: 600; }
+  .so-pet .mx { text-shadow: 0 0 8px rgba(var(--pet),.9); }
+  .petbar .pet-ic.orb, .so-pet .pet-ic.orb { stroke-width: 1.7; }
+  .so-pet.up .pet-ic, .so-pet.drop .pet-ic { filter: drop-shadow(0 0 7px rgba(var(--pet),1)); }
+  .so-pet.maxed { opacity: .5; filter: saturate(.55); }
+  .so-pet .plus { position: absolute; top: -10px; right: -8px; font-size: 9px; line-height: 12px; padding: 0 4px; border-radius: 8px; color: #fff; font-weight: 800; white-space: nowrap; display: inline-flex; align-items: center;
+    background: linear-gradient(rgba(var(--pet),.35), rgba(var(--pet),.35)), #12151c; border: 1px solid rgba(var(--pet),.7); box-shadow: 0 0 8px rgba(var(--pet),.7); animation: petplus 3s ease-out forwards; }
+  .so-pet .plus .gem { width: 8px; height: 9px; margin: 0 2px 0 -1px; }
   .pty { padding: 8px 4px 6px; }
   .pty-h { display: flex; align-items: center; gap: 8px; padding: 0 8px 6px; }
   .pty-h b { font-size: 13px; }
@@ -427,6 +477,7 @@
   <div class="solo" id="solo" data-drag></div>
   <div class="qbar" id="qbar" hidden></div>
   <div class="target" id="target" hidden></div>
+  <div class="petbar" id="petbar" hidden></div>
   <div class="scroll"><div class="rows" id="rows"></div></div>
   <div class="zonetip" id="zonetip" hidden><span>📍 <b>Teleport or change zone once</b> so Daeva Meter can read names, monster health, Odyle and keys.</span><button class="x" id="zonetipX" title="Hide">✕</button></div>
   <div class="pbline" id="pbline" hidden></div>
@@ -560,17 +611,17 @@
       $("rows").__html = null; lastTargetHtml = "";
     } else if (snap.party && snap.party.lobby) {
       // In a party and not fighting yet: who's here and who's ready.
-      setProp($("target"), "hidden", true);
+      setProp($("target"), "hidden", true); setProp($("petbar"), "hidden", true);
       setHTML($("rows"), partyPanel(snap.party));
     } else if (snap.party && snap.party.ready) {
       // In a party, after a zone change and before the first fight there: the
       // party in the usual rows, dashes for figures, so the meter reads ready.
-      setProp($("target"), "hidden", true);
+      setProp($("target"), "hidden", true); setProp($("petbar"), "hidden", true);
       setHTML($("rows"), readyRoster(snap.party, m));
     } else if (pvpOn(f)) {
       renderPvp(f);
     } else if (!f || !f.players.length) {
-      setProp($("target"), "hidden", true);
+      setProp($("target"), "hidden", true); setProp($("petbar"), "hidden", true);
       if (setHTML($("rows"), emptyState(s, state, text))) wireEmpty();
     } else {
       renderTarget(f);
@@ -666,15 +717,11 @@
     // Banners are shown by the separate alert window (toast.html).
   }
 
-  // Monster family glyphs (our own artwork; the game data names the family
-  // but has no icon for it).
-  const FAMILY_ICON = {
-    fera: '<svg viewBox="0 0 16 16"><path d="M3 13c1-4 2-7 3.2-9M7 13.5c.6-4 1.3-7 2.3-9.5M11 13c.3-3 .8-5.5 1.8-7.5" stroke="#e08a52" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg>',
-    cogni: '<svg viewBox="0 0 16 16"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z" stroke="#9b8cf0" stroke-width="1.5" fill="none"/><circle cx="8" cy="8" r="2.1" fill="#9b8cf0"/></svg>',
-    natura: '<svg viewBox="0 0 16 16"><path d="M3 13C3 7 7 3 13.5 2.5 13 9 9 13 3 13zM3 13l6-6" stroke="#6fc28a" stroke-width="1.5" fill="none" stroke-linejoin="round"/></svg>',
-    varian: '<svg viewBox="0 0 16 16"><path d="M8 2.5c3 0 5.5 2.3 5.5 5.2 0 2.4-1.9 4.3-4.3 4.3-1.9 0-3.4-1.5-3.4-3.4 0-1.5 1.2-2.7 2.7-2.7 1.1 0 2 .9 2 2" stroke="#d76fc2" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>',
-    special: '<svg viewBox="0 0 16 16"><path d="M8 1.8l1.7 4.1 4.4.4-3.3 2.9 1 4.3L8 11.2l-3.8 2.3 1-4.3-3.3-2.9 4.4-.4z" stroke="#e8b04b" stroke-width="1.4" fill="none" stroke-linejoin="round"/></svg>',
-  };
+  // Monster family icons (img/families: white = colour, the line work is
+  // see-through), drawn in the family's Insight crystal colour (PET_RGB).
+  const FAMILY_ICON = Object.fromEntries(["fera", "cogni", "natura", "varian", "special"].map((f) =>
+    [f, `<span class="fm" style="--fc:${({ cogni: "86,156,255", fera: "236,96,84", natura: "104,206,128", varian: "240,200,72", special: "64,214,214" })[f]};--m:url(img/families/${f}.webp)"></span>`]));
+
   let zoneTipHidden = false;
   // New version on GitHub: Download opens the release page; ✕ hides this version.
   let updShown = "";
@@ -805,7 +852,7 @@ Your damage: ${D.fmt(me ? me.dmg : 0)}, ${D.pct(share, 1)} of ${t.name}'s ${D.fm
   function renderTarget(f) {
     const t = f.target;
     if (editing) return;
-    if (!ui.show_target || !t) { setProp($("target"), "hidden", true); return; }
+    if (!ui.show_target || !t) { setProp($("target"), "hidden", true); setProp($("petbar"), "hidden", true); return; }
     setProp($("target"), "hidden", false);
     // Health bar = the target's HP left (from the game's HP updates).
     // A dead target shows KILLED instead of an empty bar and "0.0%".
@@ -856,6 +903,77 @@ Your damage: ${D.fmt(me ? me.dmg : 0)}, ${D.pct(share, 1)} of ${t.name}'s ${D.fm
     const portrait = D.npcIcon(t.art_npc || t.npc_id, 24) || '<span class="tc-ic"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.5C4.5 1.5 2 4 2 7c0 1.9 1 3.3 2.3 4.1V13c0 .6.4 1 1 1h.7v-1.5h1V14h2v-1.5h1V14h.7c.6 0 1-.4 1-1v-1.9C13 10.3 14 8.9 14 7c0-3-2.5-5.5-6-5.5zM5.6 9.2a1.3 1.3 0 1 1 0-2.6 1.3 1.3 0 0 1 0 2.6zm4.8 0a1.3 1.3 0 1 1 0-2.6 1.3 1.3 0 0 1 0 2.6z"/></svg></span>';
     const html = `<div class="tcard${dead ? " dead" : ""}${rkey ? " r-" + rkey : ""}"><div class="row1">${portrait}<div class="name"${unknownTip}>${D.esc(t.name)}${nameit}</div>${kill}</div>${hp}${bot}${dead ? wbRankStrip(t) : ""}</div>`;
     if (html !== lastTargetHtml) { $("target").innerHTML = html; lastTargetHtml = html; }
+    renderPet(t);
+  }
+
+  // ---- Pet Insight strip: the pet this monster counts towards ----
+  // A faceted crystal (our own drawing) in the family's Insight crystal colour.
+  const GEM = '<svg class="gem" viewBox="0 0 16 18"><path d="M8 .8 14.6 5v8L8 17.2 1.4 13V5z" fill="rgba(var(--pet),.28)" stroke="rgb(var(--pet))" stroke-width="1.1" stroke-linejoin="round"/><path d="M8 .8 14.6 5 8 8.2 1.4 5z" fill="rgba(var(--pet),.85)"/><path d="M8 8.2V17.2M1.4 5 8 8.2l6.6-3.2" stroke="rgba(255,255,255,.45)" stroke-width=".7" fill="none"/></svg>';
+  // Insight crystal colour of each family board (blue Cogni, red Fera, green
+  // Natura, yellow Varian, turquoise Special); the card's family icons match.
+  // A pet still levelling: our own "Daeva orb" (a ball with a curved band
+  // and a diamond), the paw's size and line weight.
+  const ORB = '<svg class="pet-ic orb" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2.6 14.4C6 11.4 9 10.6 9.6 11M14.4 13C15.6 13.6 18.4 12.8 21.4 9.6"/><path d="M12 8.6 14.6 12 12 15.4 9.4 12Z"/></svg>';
+  // Lucide "paw-print": a maxed pet (no more Insight to earn, only crystals).
+  const PAW = '<svg class="pet-ic" viewBox="0 0 24 24"><circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/></svg>';
+  // Crystal colour numbers in the game's drop message, matched to the kills
+  // they follow. 6 is no kill drop: it comes alone, 10-1000 at a time
+  // (Special crystals come from Hidden Cubes, not from kills).
+  const CRYSTAL_FAMILY = { 1: "fera", 2: "cogni", 3: "natura", 4: "varian" };
+  const PET_RGB = { cogni: "86,156,255", fera: "236,96,84", natura: "104,206,128", varian: "240,200,72", special: "64,214,214" };
+  // While you farm, a monster whose pet is maxed keeps the slot (dimmed) so
+  // the list below doesn't jump; 2 minutes after the last pet kill it goes.
+  const PET_HOLD = 120 * 1000;
+  let petShownAt = 0;
+  // What a card target's pet shows (Classic strip and Solo chip use the
+  // same rules); null = nothing to show.
+  function petView(t) {
+    const p = t && t.pet;
+    if (!p) return null;
+    // The game levels a pet up by itself at 5 / 25 / 75 kills: the strip
+    // lights up for a few seconds (or shows MAX, then dims).
+    const up = p.up_ago != null && p.up_ago < 4;
+    const max = p.target == null;
+    // A maxed pet's kill can drop crystals: they show for 3 s when their
+    // colour is this monster's family.
+    const fam = String(t.family || "").toLowerCase();
+    const c = max && p.crystal;
+    const cfam = c && CRYSTAL_FAMILY[c.colour];
+    const drop = !!c && c.ago < 3 && cfam === fam;
+    const held = max && !up && !drop && Date.now() - petShownAt < PET_HOLD;
+    if (max && !up && !drop && !held) return null;
+    if (!held) petShownAt = Date.now();
+    const plus = p.gain_ago != null && p.gain_ago < 3;
+    const left = max ? 0 : Math.max(0, p.target - p.count);
+    const crystals = c && cfam === fam ? ` · ${c.total} ${cfam[0].toUpperCase() + cfam.slice(1)} ${c.total === 1 ? "crystal" : "crystals"} since the meter started` : "";
+    const tip = `Pet Insight · ${p.name}${p.level ? ` · Lv ${p.level}` : " (not unlocked yet)"} · ${max ? "max level" : `${left} more ${left === 1 ? "kill" : "kills"} to ${p.level ? `Lv ${p.level + 1}` : "unlock it"}`}${crystals}. Counts from your last login, plus kills since.`;
+    // The +1 (+2 for kills close together), or a crystal +n on a maxed pet.
+    const badge = drop ? `<span class="plus">${GEM}+${c.n || 1}</span>` : plus ? `<span class="plus">+${p.gain_n || 1}</span>` : "";
+    return { p, up, max, drop, held, plus, tip, badge, rgb: PET_RGB[fam] || "183,156,255" };
+  }
+  function renderPet(t) {
+    const v = petView(t), bar = $("petbar");
+    if (!v) { setProp(bar, "hidden", true); return; }
+    const p = v.p, max = v.max;
+    const cnt = max ? `<b>MAX</b>` : `<b>${p.count}</b>/${p.target}`;
+    const html = `${max ? PAW : ORB}<span class="pn">${D.esc(p.name)}</span><span class="lvp">${p.level ? `Lv ${p.level}` : "New"}</span><span class="pbar"><i class="${v.plus ? "gain" : ""}" style="width:${max ? 100 : Math.min(100, Math.round((p.count / p.target) * 100))}%"></i><span class="seg"></span></span><span class="cnt">${cnt}</span><span class="slot${max ? " cry" : ""}">${v.badge}</span>`;
+    bar.style.setProperty("--pet", v.rgb);
+    bar.classList.toggle("up", v.up);
+    bar.classList.toggle("maxed", v.held);
+    bar.classList.toggle("drop", v.drop && !v.up);
+    setProp(bar, "title", v.tip);
+    setProp(bar, "hidden", false);
+    setHTML(bar, html);
+  }
+  // Solo: the pet as a glowing chip in the boss line (the first strip's
+  // style: paw, level diamonds, count); the +1 sits on its corner.
+  function soloPet(t) {
+    const v = petView(t);
+    if (!v) return "";
+    const p = v.p;
+    const pips = `<span class="pips">${[1, 2, 3].map((i) => `<i class="${i <= p.level ? "on" : ""}"></i>`).join("")}</span>`;
+    const num = v.max ? `<span class="mx">MAX</span>` : `<span class="c">${p.count}<small>/${p.target}</small></span>`;
+    return `<span class="so-pet${v.up ? " up" : v.drop ? " drop" : v.held ? " maxed" : ""}" style="--pet:${v.rgb}" title="${D.esc(v.tip)}">${v.max ? PAW : ORB}<span class="lv">${pips}${p.level ? `Lv ${p.level}` : "New"}</span>${num}${v.badge}</span>`;
   }
   // Handled on press, on the container: the target bar redraws 4x a second,
   // which used to swallow clicks on these buttons.
@@ -1048,6 +1166,7 @@ Your damage: ${D.fmt(me ? me.dmg : 0)}, ${D.pct(share, 1)} of ${t.name}'s ${D.fm
   function renderPvp(f) {
     const p = f.pvp, e = p.foe || {}, en = p.enemies || [];
     if (editing) return;
+    setProp($("petbar"), "hidden", true); // no pet strip on a PvP card
     if (!ui.show_target) setProp($("target"), "hidden", true);
     else {
       setProp($("target"), "hidden", false);
@@ -1219,7 +1338,7 @@ Your damage: ${D.fmt(me ? me.dmg : 0)}, ${D.pct(share, 1)} of ${t.name}'s ${D.fm
       const sub = wr && wr.pos != null
         ? worldBoss(t, true).slice(3) + ` · <span class="so-wbr" title="${D.esc(`Among the ${wr.of} players the meter saw hit ${t.name}`)}">🏆 <b>#${wr.pos}</b> of ${wr.of} · <span class="top">top ${wbTop(wr)}%</span></span>`
         : (t.max_hp ? `${D.fmt(dead ? 0 : hpNow != null ? hpNow : t.max_hp)} / ${D.fmt(t.max_hp)}` : t.rank ? D.esc(t.rank) : "") + worldBoss(t);
-      hd = `<div class="so-hd" data-drag>${rankIcon(t)}<div class="so-bn" data-drag><b>${D.esc(t.name)}</b><span>${sub}</span></div><div class="so-rt">${enr}<span class="so-clock">${clock(secs)}</span>${pc}</div></div>`
+      hd = `<div class="so-hd" data-drag>${rankIcon(t)}<div class="so-bn" data-drag><b>${D.esc(t.name)}</b><span>${sub}</span></div><div class="so-rt">${soloPet(t)}${enr}<span class="so-clock">${clock(secs)}</span>${pc}</div></div>`
         + (pctv != null ? `<div class="so-hp"><i style="width:${(pctv * 100).toFixed(1)}%"></i></div>` : "");
     } else {
       // No target: the meter's own card, built like the boss card so nothing jumps when a fight starts.
