@@ -517,7 +517,7 @@ fn cmd_decode(pkts: &[Packet], a: &Args) -> Result<(), String> {
     }
     let mut kills_seen = (0u64, 0usize);
     let strip = a.get("strip").is_some();
-    let (mut strip_at, mut strip_last, mut strip_gains) = (0.0f64, String::new(), std::collections::HashMap::<u32, f64>::new());
+    let (mut strip_at, mut strip_last, mut strip_gains, mut strip_crystal) = (0.0f64, String::new(), std::collections::HashMap::<u32, f64>::new(), 0.0f64);
     let mut kills_resyncs = 0u64;
     let mut card_log: BTreeMap<u64, (Option<u64>, u32, f64, f64)> = BTreeMap::new();
     for (i, pk) in pkts.iter().enumerate() {
@@ -586,6 +586,11 @@ fn cmd_decode(pkts: &[Packet], a: &Args) -> Result<(), String> {
                     println!("t={:.1} +1 pet {id} ({name}) run {} -> {}/{:?}", pet.gain_at - pkts[0].ts, pet.gain_run, pet.count, meter_core::engine::pet_target(pet.level));
                     strip_gains.insert(*id, pet.gain_at);
                 }
+            }
+            let (cat, colour, n) = p.engine.crystal_last;
+            if cat > 0.0 && cat != strip_crystal {
+                strip_crystal = cat;
+                println!("t={:.1} crystal colour {colour} run {n}", cat - pkts[0].ts);
             }
             if pk.ts - strip_at >= 0.25 {
                 strip_at = pk.ts;

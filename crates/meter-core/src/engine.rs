@@ -615,6 +615,10 @@ pub fn crystal_family(colour: u8) -> Option<&'static str> {
 /// Kills a pet needs for its next level: unlock at 5, then 25 and 75
 /// (game's Pets window and the wiki); None once it's max. The game levels
 /// the pet up by itself when the kills reach it.
+/// How long after a kill its crystal can still come: the game sends it when
+/// the loot is picked up (by hand up to ~4 s, test3-062-002).
+const CRYSTAL_WINDOW: f64 = 5.0;
+
 pub fn pet_target(level: u32) -> Option<u32> {
     [5, 25, 75].get(level as usize).copied()
 }
@@ -773,7 +777,7 @@ pub struct Engine {
     pub crystals: HashMap<u8, u32>,
     /// The last drop: game time, colour, and the crystals of that colour
     /// dropped within 3 s of each other up to it (the strip's +1, +2).
-    crystal_last: (f64, u8, u32),
+    pub crystal_last: (f64, u8, u32),
     /// Monsters that died in your fight in the last few seconds (game
     /// time, name, family): one of them earned the next +1 or crystal.
     recent_kills: VecDeque<(f64, String, Option<String>)>,
@@ -782,6 +786,14 @@ pub struct Engine {
     /// Family of each monster you killed, for a pet strip that isn't the
     /// card monster's own.
     kill_family: HashMap<String, String>,
+    /// Crystals so far that could only be this monster's (two = maxed).
+    maxed_votes: HashMap<String, u32>,
+    /// Kill times (of recent_kills) already counted for a crystal: one kill,
+    /// one vote, even when a pickup sends two crystals.
+    crystal_kills: Vec<f64>,
+    /// A linked pet whose +1 pointed at another monster once: moved there
+    /// only if the next +1 points there too.
+    relink: HashMap<u32, String>,
     /// Monsters whose pet is maxed, learned from the crystals their kills
     /// drop: a pet maxed before the meter saw it never gets a +1, so it has
     /// no link (the drop carries no pet id either).
@@ -914,6 +926,9 @@ impl Engine {
             recent_kills: VecDeque::new(),
             pet_cands: HashMap::new(),
             kill_family: HashMap::new(),
+            maxed_votes: HashMap::new(),
+            crystal_kills: Vec::new(),
+            relink: HashMap::new(),
             pets_maxed: HashSet::new(),
             party: Default::default(),
             player_alias: HashMap::new(),
@@ -2636,14 +2651,17 @@ impl Engine {
     /// only taken when the unlinked kills of the last 3 s are all the same
     /// monster (a pack of mixed monsters dying at once stays unnamed).
     fn link_pet(&mut self, ts: f64, pet: u32) {
-        while self.recent_kills.front().map_or(false, |(t, ..)| ts - t > 3.0) {
+        // Kills stay 5 s for crystals (picked up by hand they come late);
+        // a +1 looks at the last 3 s.
+        while self.recent_kills.front().map_or(false, |(t, ..)| ts - t > CRYSTAL_WINDOW) {
             self.recent_kills.pop_front();
         }
-        if let Some(i) = self.recent_kills.iter().position(|(_, n, _)| self.pet_links.get(n) == Some(&pet)) {
+        if let Some(i) = self.recent_kills.iter().position(|(t, n, _)| ts - t <= 3.0 && self.pet_links.get(n) == Some(&pet)) {
             self.recent_kills.remove(i);
+            self.relink.remove(&pet);
             return;
         }
-        let here: HashSet<String> = self.recent_kills.iter().map(|(_, n, _)| n).filter(|n| !self.pet_links.contains_key(*n)).cloned().collect();
+        let here: HashSet<String> = self.recent_kills.iter().filter(|(t, ..)| ts - t <= 3.0).map(|(_, n, _)| n).filter(|n| !self.pet_links.contains_key(*n)).cloned().collect();
         if here.is_empty() {
             self.pet_notes.push(format!("pet +1 for pet {pet}: no unlinked kill in 3 s"));
             return;
@@ -2665,6 +2683,17 @@ impl Engine {
             return;
         }
         let name = cands.into_iter().next().unwrap_or_default();
+        // A linked pet moves to another monster only on two +1s in a row:
+        // a +1 sent late lands next to someone else's kill (Consumed Klaw's,
+        // 3.5 s after it, by a Poison Blood Spider in test4-062-001).
+        if let Some(old) = self.pet_links.iter().find(|(_, p)| **p == pet).map(|(n, _)| n.clone()) {
+            if self.relink.get(&pet) != Some(&name) {
+                self.pet_notes.push(format!("pet +1 for pet {pet}: {name} died, but the pet is {old}'s; waiting for a second"));
+                self.relink.insert(pet, name);
+                return;
+            }
+        }
+        self.relink.remove(&pet);
         self.set_pet_link(name, pet);
     }
 
@@ -2679,7 +2708,9 @@ impl Engine {
             }
             // A pet has one monster: a new name for it replaces the old link.
             self.pet_links.retain(|_, p| *p != pet);
+            // A +1 means its pet is still levelling, whatever crystals said.
             self.pets_maxed.remove(&name);
+            self.maxed_votes.remove(&name);
             self.pet_links.insert(name.clone(), pet);
             self.pets_dirty = true;
             self.pet_cands.remove(&pet);
@@ -2693,15 +2724,30 @@ impl Engine {
     }
 
     /// A crystal just dropped: only a maxed pet's monster drops them, in its
-    /// family's colour. Your kills of that family in the last 1.5 s that no
-    /// levelling pet owns are the candidates; when they're all the same
-    /// monster, its pet is maxed (petfarm-test6-001: Cursed Poison Blood).
+    /// family's colour. The game sends it when the loot is picked up: at once
+    /// with the auto-loot pet ticket, 1-4 s later by hand (test3-062-002), so
+    /// your kills of that family in the last 5 s that no levelling pet owns
+    /// are the candidates. That window often holds a levelling monster of
+    /// the same family whose pet isn't linked yet (a Water Mist Spirit just
+    /// after a maxed Gravi), so a monster counts as maxed only after two
+    /// crystals that could only be its own, from two kills (one pickup can
+    /// send two crystals: Sensitive Crasaur in test4-062-001).
     fn learn_maxed(&mut self, ts: f64, colour: u8) {
         let Some(fam) = crystal_family(colour) else { return };
+        self.crystal_kills.retain(|t| ts - t <= CRYSTAL_WINDOW);
         let levelling = |n: &String| self.pet_links.get(n).and_then(|id| self.pets.get(id)).map_or(false, |p| pet_target(p.level).is_some());
-        let mut names = self.recent_kills.iter().filter(|(t, n, f)| ts - t <= 1.5 && f.as_deref().map_or(false, |f| f.eq_ignore_ascii_case(fam)) && !levelling(n)).map(|(_, n, _)| n);
-        let Some(first) = names.next().cloned() else { return };
-        if names.all(|n| *n == first) && !self.pet_links.contains_key(&first) && self.pets_maxed.insert(first) {
+        let mut kills = self.recent_kills.iter().filter(|(t, n, f)| ts - t <= CRYSTAL_WINDOW && !self.crystal_kills.contains(t) && f.as_deref().map_or(false, |f| f.eq_ignore_ascii_case(fam)) && !levelling(n));
+        let Some((kill_at, first, _)) = kills.next().cloned() else { return };
+        if !kills.all(|(_, n, _)| *n == first) || self.pet_links.contains_key(&first) || self.pets_maxed.contains(&first) {
+            return;
+        }
+        self.crystal_kills.push(kill_at);
+        let votes = self.maxed_votes.entry(first.clone()).or_insert(0);
+        *votes += 1;
+        if *votes >= 2 {
+            self.maxed_votes.remove(&first);
+            self.pet_notes.push(format!("pet maxed: {first} (two crystals of its own)"));
+            self.pets_maxed.insert(first);
             self.pets_dirty = true;
         }
     }
@@ -3913,6 +3959,39 @@ mod tests {
     }
 
     #[test]
+    fn a_late_plus_one_does_not_move_a_linked_pet() {
+        let names = Names::from_json(r#"{"npcs": {"2000118": "Consumed Klaw", "2000119": "Poison Blood Spider"}}"#).unwrap();
+        let mut e = Engine::new(EngineConfig::default(), names);
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        let kill = |e: &mut Engine, ts: f64, id: u64, npc: u32| {
+            e.handle(&GameEvent::Actor { id, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(npc), owner: None, max_hp: Some(1000) });
+            e.handle(&dmg(ts, 1, id, 18000000, 1000, 0));
+            e.handle(&GameEvent::Death { ts: ts + 0.1, target: id, killer: Some(1) });
+        };
+        let gain = |e: &mut Engine, ts: f64, pet: u32| e.handle(&GameEvent::Pet { ts, pet, level: None, count: None, gain: Some(1), up: false });
+        kill(&mut e, 1.0, 50, 2000118);
+        gain(&mut e, 1.5, 1029);
+        assert_eq!(e.pet_links.get("Consumed Klaw"), Some(&1029));
+        // Klaw's +1 comes 3.5 s late, next to a Spider kill: stays Klaw's.
+        kill(&mut e, 10.0, 51, 2000118);
+        kill(&mut e, 12.5, 52, 2000119);
+        gain(&mut e, 13.6, 1029);
+        assert_eq!(e.pet_links.get("Consumed Klaw"), Some(&1029));
+        assert_eq!(e.pet_links.get("Poison Blood Spider"), None);
+        // A Klaw +1 in between clears the doubt; two Spider +1s in a row
+        // move it (the first link was wrong).
+        kill(&mut e, 20.0, 53, 2000118);
+        gain(&mut e, 20.5, 1029);
+        kill(&mut e, 30.0, 54, 2000119);
+        gain(&mut e, 30.5, 1029);
+        assert_eq!(e.pet_links.get("Consumed Klaw"), Some(&1029));
+        kill(&mut e, 40.0, 55, 2000119);
+        gain(&mut e, 40.5, 1029);
+        assert_eq!(e.pet_links.get("Poison Blood Spider"), Some(&1029));
+        assert_eq!(e.pet_links.get("Consumed Klaw"), None);
+    }
+
+    #[test]
     fn crystal_drops_name_maxed_pets() {
         let names = Names::from_json(r#"{"npcs": {"2000117": "Cursed Poison Blood", "2000118": "Slink", "2000119": "Rafflesia"},
             "families": {"2000117": "Varian", "2000118": "Fera", "2000119": "Natura"}}"#).unwrap();
@@ -3923,20 +4002,24 @@ mod tests {
             e.handle(&dmg(ts, 1, id, 18000000, 1000, 0));
             e.handle(&GameEvent::Death { ts: ts + 0.1, target: id, killer: Some(1) });
         };
-        // A Varian crystal (4) right after a Cursed Poison Blood kill: maxed
-        // (petfarm-test6-001, a pet maxed before the meter saw it).
+        // A Varian crystal (4) after a Cursed Poison Blood kill, twice: maxed
+        // (petfarm-test6-001, a pet maxed before the meter saw it). The
+        // second one picked up by hand, 3 s late (test3-062-002).
         kill(&mut e, 1.0, 50, 2000117);
         e.handle(&GameEvent::PetCrystal { ts: 1.5, colour: 4, amount: 1 });
+        assert!(e.pets_maxed.is_empty(), "one crystal isn't enough");
+        kill(&mut e, 5.0, 49, 2000117);
+        e.handle(&GameEvent::PetCrystal { ts: 8.1, colour: 4, amount: 1 });
         assert!(e.pets_maxed.contains("Cursed Poison Blood"));
         let p = e.pet_json("Cursed Poison Blood");
         assert_eq!((p.f64_or("level", 0.0), p.get("target").cloned()), (3.0, Some(Value::Null)), "{}", p.to_string());
         assert_eq!(p.get("crystal").map(|c| c.f64_or("colour", 0.0)), Some(4.0));
         // The colour must match the kill's family: a Varian crystal after a
-        // Fera kill teaches nothing; a crystal 2 s late neither.
+        // Fera kill teaches nothing; one more than 5 s late neither.
         kill(&mut e, 10.0, 51, 2000118);
         e.handle(&GameEvent::PetCrystal { ts: 10.5, colour: 4, amount: 1 });
         kill(&mut e, 20.0, 52, 2000119);
-        e.handle(&GameEvent::PetCrystal { ts: 22.5, colour: 3, amount: 1 });
+        e.handle(&GameEvent::PetCrystal { ts: 25.5, colour: 3, amount: 1 });
         assert_eq!(e.pets_maxed.len(), 1, "{:?}", e.pets_maxed);
         // Two different Natura monsters dying together: can't tell which.
         e.handle(&GameEvent::Actor { id: 60, name: Some("Soft Breeze Spirit".into()), class: None, kind: ActorKind::Npc, npc_id: Some(2000119), owner: None, max_hp: Some(1000) });
@@ -3945,6 +4028,23 @@ mod tests {
         e.handle(&GameEvent::Death { ts: 30.1, target: 60, killer: Some(1) });
         e.handle(&GameEvent::PetCrystal { ts: 30.5, colour: 3, amount: 1 });
         assert_eq!(e.pets_maxed.len(), 1, "{:?}", e.pets_maxed);
+        // The Water Mist case: a levelling Natura monster dies a second
+        // after the maxed one, the crystal comes 2 s later: both are in the
+        // window, so neither is blamed.
+        kill(&mut e, 40.0, 54, 2000119);
+        e.handle(&dmg(41.0, 1, 60, 18000000, 1000, 0));
+        e.handle(&GameEvent::Death { ts: 41.1, target: 60, killer: Some(1) });
+        e.handle(&GameEvent::PetCrystal { ts: 42.1, colour: 3, amount: 1 });
+        assert!(!e.pets_maxed.contains("Soft Breeze Spirit"), "{:?}", e.pets_maxed);
+        // One pickup sending two crystals is still one kill (Sensitive
+        // Crasaur, test4-062-001): not maxed until a second kill.
+        kill(&mut e, 60.0, 55, 2000118);
+        e.handle(&GameEvent::PetCrystal { ts: 60.5, colour: 1, amount: 1 });
+        e.handle(&GameEvent::PetCrystal { ts: 60.5, colour: 1, amount: 1 });
+        assert!(!e.pets_maxed.contains("Slink"), "one kill, two crystals");
+        kill(&mut e, 64.0, 56, 2000118);
+        e.handle(&GameEvent::PetCrystal { ts: 64.5, colour: 1, amount: 1 });
+        assert!(e.pets_maxed.contains("Slink"));
         assert_eq!(crystal_family(6), None);
     }
 
