@@ -1276,7 +1276,7 @@ fn emit(e: &Emit, header: &Scope, scope: &Scope, ts: f64, out: &mut Vec<GameEven
             },
             // A key count left out is 0: the last key used sends no number.
             "keys" => match num("cur").unwrap_or(0) {
-                cur if cur < 10_000 => GameEvent::Keys { cur, which: num("which").unwrap_or(1) as u8 },
+                cur if cur < 10_000 => GameEvent::Keys { cur, bonus: num("bonus").unwrap_or(0).min(9_999), which: num("which").unwrap_or(1) as u8 },
                 _ => continue,
             },
             // The game leaves a counter value out when it is 0 (the flags only
@@ -1492,7 +1492,7 @@ mod odyle_tests {
         let ody: Vec<_> = out.iter().filter_map(|e| match e { GameEvent::Odyle { cur, bonus } => Some((*cur, *bonus)), _ => None }).collect();
         // The second update sends no bonus: the game leaves zeros out.
         assert_eq!(ody, vec![(Some(160), Some(40)), (Some(160), Some(0))]);
-        assert!(out.iter().any(|e| matches!(e, GameEvent::Keys { cur: 21, which: 1 })), "{out:?}");
+        assert!(out.iter().any(|e| matches!(e, GameEvent::Keys { cur: 21, which: 1, .. })), "{out:?}");
     }
 
     /// The Ore Insectoid Egg spawns as a=28, b=0 with only the hatchling's
@@ -1526,7 +1526,7 @@ mod odyle_tests {
         let bytes: Vec<u8> = hex.split_whitespace().map(|h| u8::from_str_radix(h, 16).unwrap()).collect();
         let mut out = Vec::new();
         d.push(flow, true, &bytes, false, 1.0, &mut out);
-        let keys: Vec<_> = out.iter().filter_map(|e| match e { GameEvent::Keys { cur, which } => Some((*cur, *which)), _ => None }).collect();
+        let keys: Vec<_> = out.iter().filter_map(|e| match e { GameEvent::Keys { cur, which, .. } => Some((*cur, *which)), _ => None }).collect();
         assert_eq!(keys, vec![(1, 8), (0, 8)]);
     }
 
@@ -1588,7 +1588,7 @@ mod odyle_tests {
         let bytes: Vec<u8> = "0d 0c 61 00 00 01 00 00 00 03".split_whitespace().map(|h| u8::from_str_radix(h, 16).unwrap()).collect();
         let mut out = Vec::new();
         d.push(flow, true, &bytes, false, 1.0, &mut out);
-        assert!(out.iter().any(|e| matches!(e, GameEvent::Keys { cur: 0, which: 1 })), "{out:?}");
+        assert!(out.iter().any(|e| matches!(e, GameEvent::Keys { cur: 0, which: 1, .. })), "{out:?}");
     }
 
     #[test]
@@ -1604,7 +1604,25 @@ mod odyle_tests {
         d.push(flow, true, &bytes, false, 1.0, &mut out);
         let ody: Vec<_> = out.iter().filter_map(|e| match e { GameEvent::Odyle { cur, bonus } => Some((*cur, *bonus)), _ => None }).collect();
         assert_eq!(ody, vec![(Some(175), Some(40))], "{out:?}");
-        assert!(out.iter().any(|e| matches!(e, GameEvent::Keys { cur: 21, which: 1 })), "{out:?}");
+        assert!(out.iter().any(|e| matches!(e, GameEvent::Keys { cur: 21, which: 1, .. })), "{out:?}");
+    }
+
+    /// Shugo keys claimed above the 21 limit come as flag 8, the game's
+    /// "0 (+2)": in an update (real frame, shugoextrakey-060-001 t=275.5)
+    /// and in the login list (its first entry at t=42.8 of that recording).
+    #[test]
+    fn shugo_key_bonus() {
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
+        let mut d = Decoder::new(Arc::new(Definitions::from_json(&src).unwrap()), None);
+        let flow = FlowKey { src: Endpoint { ip: Ipv4Addr::new(9, 9, 9, 9), port: 13328 }, dst: Endpoint { ip: Ipv4Addr::new(10, 0, 0, 2), port: 5000 } };
+        let body = "0b 61 49 08 01 00 00 00 02 01 03 00 00 00 8a 96 98 00 00 8b 96 98 00 00 8c 96 98 00 0c 01 87 93 03 af 01 28 04 02 87 93 03 05 04 03 87 93 03 08";
+        let mut bytes: Vec<u8> = body.split_whitespace().map(|h| u8::from_str_radix(h, 16).unwrap()).collect();
+        bytes.insert(0, (bytes.len() + 1 + 3) as u8);
+        bytes.extend("0e 0c 61 00 08 01 00 00 00 03 03 0f 0c 61 00 0c 01 00 00 00 07 01 03".split_whitespace().map(|h| u8::from_str_radix(h, 16).unwrap()));
+        let mut out = Vec::new();
+        d.push(flow, true, &bytes, false, 1.0, &mut out);
+        let keys: Vec<_> = out.iter().filter_map(|e| match e { GameEvent::Keys { cur, bonus, which: 1 } => Some((*cur, *bonus)), _ => None }).collect();
+        assert_eq!(keys, vec![(0, 2), (0, 3), (7, 1)], "{out:?}");
     }
 }
 

@@ -114,8 +114,9 @@ pub enum GameEvent {
     /// Your Odyle: base amount and the extra (+N) shown in brackets.
     Odyle { cur: Option<u64>, bonus: Option<u64> },
     /// Event keys you hold: `which` is the game's counter kind (1 = Shugo
-    /// Festival Reward Keys, 8 = Dimensional Invasion keys).
-    Keys { cur: u64, which: u8 },
+    /// Festival Reward Keys, 8 = Dimensional Invasion keys). `bonus` is the
+    /// Shugo keys claimed above the daily limit, the game's "(+N)".
+    Keys { cur: u64, bonus: u64, which: u8 },
     /// Names of your group (party) members, you included, and each member's
     /// class number from the same list (follows the class, see Names::party_codes).
     Party { names: Vec<String>, codes: Vec<Option<u32>> },

@@ -611,8 +611,9 @@ impl Core {
                 self.settings.last_odyle = e.self_odyle;
                 self.settings_dirty = true;
             }
-            if e.self_keys.is_some() && e.self_keys != self.settings.last_keys {
+            if e.self_keys.is_some() && (e.self_keys, e.self_keys_bonus) != (self.settings.last_keys, self.settings.last_keys_bonus) {
                 self.settings.last_keys = e.self_keys;
+                self.settings.last_keys_bonus = e.self_keys_bonus;
                 self.settings_dirty = true;
             }
             if e.self_dim_keys.is_some() && e.self_dim_keys != self.settings.last_dim_keys {
@@ -1643,10 +1644,12 @@ impl Core {
             .set("keys", {
                 let e = &self.pipeline.engine;
                 let (shugo, dim) = (e.self_keys.or(self.settings.last_keys), e.self_dim_keys.or(self.settings.last_dim_keys));
+                let bonus = if e.self_keys.is_some() { e.self_keys_bonus } else { self.settings.last_keys_bonus };
                 if shugo.is_none() && dim.is_none() {
                     Value::Null
                 } else {
-                    Obj::new().set("shugo_festival", shugo).set("dimensional_invasion", dim).build()
+                    // Shugo keys claimed above the limit, shown as "(+N)".
+                    Obj::new().set("shugo_festival", shugo).set("dimensional_invasion", dim).set("bonus", Obj::new().set("shugo_festival", bonus.filter(|b| *b > 0)).build()).build()
                 }
             })
             .set(

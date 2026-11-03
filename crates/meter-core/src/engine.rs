@@ -748,8 +748,9 @@ pub struct Engine {
     pub self_server: Option<u32>,
     /// Your Odyle (base, bonus); only sent by the game when it changes.
     pub self_odyle: Option<(u64, u64)>,
-    /// Shugo Festival Reward Keys held.
+    /// Shugo Festival Reward Keys held, and the claimed ones above the limit.
     pub self_keys: Option<u64>,
+    pub self_keys_bonus: Option<u64>,
     /// Dimensional Invasion keys held.
     pub self_dim_keys: Option<u64>,
     /// Pet Insight by the game's pet id, from the login list plus the kills
@@ -895,6 +896,7 @@ impl Engine {
             self_server: None,
             self_odyle: None,
             self_keys: None,
+            self_keys_bonus: None,
             self_dim_keys: None,
             pets: HashMap::new(),
             pets_listed: false,
@@ -1698,8 +1700,11 @@ impl Engine {
                     self.self_server = Some(*server);
                 }
             }
-            GameEvent::Keys { cur, which: 8 } => self.self_dim_keys = Some(*cur),
-            GameEvent::Keys { cur, .. } => self.self_keys = Some(*cur),
+            GameEvent::Keys { cur, which: 8, .. } => self.self_dim_keys = Some(*cur),
+            GameEvent::Keys { cur, bonus, .. } => {
+                self.self_keys = Some(*cur);
+                self.self_keys_bonus = Some(*bonus);
+            }
             GameEvent::PetsReset => {
                 if self.pets_listed && !self.pets.is_empty() {
                     self.pets_before_list = Some(self.pets.clone());

@@ -205,19 +205,23 @@
      "emit": [
        {"event": "odyle", "when": "kind==1&&t0==135&&t1==147&&t2==3", "cur": "cur", "bonus": "bonus"},
        // No flag 4 = 0 keys left (the game leaves zeros out, as for Odyle).
-       {"event": "keys", "when": "kind==1&&t0==0&&t1==0&&t2==0", "cur": "cur", "which": "1"},
+       // Flag 8 = keys claimed above the 21 limit, the game's "0 (+3)"
+       // (shugoextrakey-060-001 t=275.5: "08 01 00 00 00 02" = 0 (+2)).
+       {"event": "keys", "when": "kind==1&&t0==0&&t1==0&&t2==0", "cur": "cur", "bonus": "bonus", "which": "1"},
        // kind 8 = Dimensional Invasion keys (1 -> 0 as the last one was used,
        // petfarm-test1-060-002 t=171).
        {"event": "keys", "when": "kind==8&&t0==0&&t1==0&&t2==0", "cur": "cur", "which": "8"}
      ]},
     // Full counter list sent at login: a count, then entries of flags,
-    // kind, 3-byte tag, values. The first entry is the Shugo key count;
+    // kind, 3-byte tag, values. The first entry is the Shugo key count
+    // (flag 8: the claimed keys above the limit, as in 0x610c);
     // then jump to the Dimensional Invasion keys (kind 8, tag 00 00 00:
     // "04 08 00 00 00 01" = 1 key, report 1793586112), then to the Odyle
     // entry (kind 1, tag 87 93 03).
     {"opcode": "0x610b", "name": "S_COUNTER_LIST", "dir": "server",
      "fields": ["n:u8", "kf:u8", "kk:u8", "k0:u8", "k1:u8", "k2:u8",
                 {"name": "keys", "type": "varint", "if": "kf&4"},
+                {"name": "kbonus", "type": "varint", "if": "kf&8"},
                 {"name": "dat", "type": "seek", "pattern": "08 00 00 00", "back": 1, "optional": true},
                 {"name": "df", "type": "u8", "if": "dat"}, {"name": "dk", "type": "u8", "if": "dat"}, {"name": "dtag", "type": "skip", "len": 3, "if": "dat"},
                 {"name": "dkeys", "type": "varint", "if": "df&4"},
@@ -226,7 +230,7 @@
                 {"name": "cur", "type": "varint", "if": "flags&4"},
                 {"name": "bonus", "type": "varint", "if": "flags&8"}],
      "emit": [
-       {"event": "keys", "when": "kk==1&&k0==0&&k1==0&&k2==0", "cur": "keys", "which": "1"},
+       {"event": "keys", "when": "kk==1&&k0==0&&k1==0&&k2==0", "cur": "keys", "bonus": "kbonus", "which": "1"},
        {"event": "keys", "when": "dat&&dk==8", "cur": "dkeys", "which": "8"},
        {"event": "odyle", "when": "kind==1&&t0==135&&t1==147&&t2==3", "cur": "cur", "bonus": "bonus"},
        // Sent on login: everything around you is being introduced.

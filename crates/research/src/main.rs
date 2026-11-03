@@ -626,7 +626,10 @@ fn cmd_decode(pkts: &[Packet], a: &Args) -> Result<(), String> {
     println!("{} packets, {} game packets, {} frames, {} resyncs, {} events, {} fights\n", p.packets, p.game_packets, p.decoder.frames_total, p.decoder.resyncs(), p.engine.events_seen, fights.len());
     println!("you: {} (id {:?})\n", p.engine.self_name.as_deref().unwrap_or("unknown"), p.engine.self_id);
     if let Some(k) = p.engine.self_keys {
-        println!("Shugo keys: {k}\n");
+        match p.engine.self_keys_bonus.filter(|b| *b > 0) {
+            Some(b) => println!("Shugo keys: {k} (+{b})\n"),
+            None => println!("Shugo keys: {k}\n"),
+        }
     }
     if let Some(k) = p.engine.self_dim_keys {
         println!("Dimensional keys: {k}\n");

@@ -33,6 +33,7 @@
   .alert .keys .val { display: inline-flex; align-items: center; gap: 8px; color: #fff; font-weight: 700; font-size: 14.5px; }
   .alert .keys .val.none { color: #c9cad0; }
   .alert .keys svg { width: 18px; height: 18px; }
+  .alert .kb { color: #4fb8e8; }
   /* Time left: kept clear of the rounded corners, which cut its ends off. */
   .alert .life { position: absolute; left: 14px; right: 14px; bottom: 3px; height: 2px; border-radius: 2px; overflow: hidden; background: rgba(255,255,255,0.06); }
   .alert .life i { display: block; height: 100%; width: 100%; background: var(--k); opacity: .6; transform-origin: left; animation: drain linear forwards; }
@@ -106,10 +107,13 @@
           // Events entered with keys show how many you hold.
           const keyed = KEYED.has(al.id);
           const n = a.keys && a.keys[al.id];
-          const keys = keyed ? `<div class="keys"><span class="lbl">Keys held</span><span class="val${n == null ? " none" : ""}">${KEY_SVG}${n == null ? "(Log in once with the meter on)" : Number(n).toLocaleString()}</span></div>` : "";
+          // Keys claimed above the limit, in brackets like the game: "0 (+2)".
+          const plus = a.keys && a.keys.bonus && a.keys.bonus[al.id];
+          const kv = n == null ? "" : `<span>${Number(n).toLocaleString()}${plus ? ` <span class="kb">(+${Number(plus).toLocaleString()})</span>` : ""}</span>`;
+          const keys = keyed ? `<div class="keys"><span class="lbl">Keys held</span><span class="val${n == null ? " none" : ""}">${KEY_SVG}${n == null ? "(Log in once with the meter on)" : kv}</span></div>` : "";
           const grip = '<span class="grip">✥ Drag to move</span>';
           el.innerHTML = compact
-            ? `<div class="top"><span class="ic">${D.eventIcon(al.id, al.emoji, 22)}</span><span class="t">${D.esc(al.title)}${keyed && n != null ? `<span class="kc">🔑 ${Number(n).toLocaleString()}</span>` : ""}</span><span class="tag">${D.esc(tag)}</span></div><span class="life"><i style="animation-duration:${secs}s"></i></span>${grip}`
+            ? `<div class="top"><span class="ic">${D.eventIcon(al.id, al.emoji, 22)}</span><span class="t">${D.esc(al.title)}${keyed && n != null ? `<span class="kc">🔑 ${kv}</span>` : ""}</span><span class="tag">${D.esc(tag)}</span></div><span class="life"><i style="animation-duration:${secs}s"></i></span>${grip}`
             : `<div class="top"><span class="ic">${D.eventIcon(al.id, al.emoji, 44)}</span><span class="t">${D.esc(al.title)}</span><span class="tag">${D.esc(tag)}</span><span class="b">${D.esc(al.body)}</span></div>${keys}<span class="life"><i style="animation-duration:${secs}s"></i></span>${grip}`;
           if (a.anchor === "top") box.prepend(el); else box.appendChild(el);
           while (box.children.length > 3) (a.anchor === "top" ? box.lastElementChild : box.firstElementChild).remove();
