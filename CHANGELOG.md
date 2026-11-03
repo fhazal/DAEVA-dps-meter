@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.1 (2026-11-03)
+
+- **Claimed Shugo keys:** keys you claim on top of the key limit now show in the Shugo Festival alert as "0 (+2)", the same way the game shows them. Before, the alert only showed the base count, so claimed keys were missing.
+
 ## 0.6.0 (2026-11-03)
 
 - **Pet progress under the NPC card:** while you fight, a strip shows the pet the monster counts towards: its level, kills so far (13/25) and a +1 on each kill, in the colour of its Insight crystal. It lights up when the game levels the pet up ("Lv 2 reached"), and hides once a pet is maxed. Counts come from your last login, so start the meter before you log in the first time. The family icons on the card are new, in the same colours.

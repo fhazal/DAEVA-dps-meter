@@ -44,7 +44,7 @@ function meter(layout, width) {
 function alert() {
   const starts = Math.floor(now / 300) * 300 + 300;
   const al = { key: "shugo", id: "shugo_festival", title: "Shugo Festival", body: "Starts in 5 min", emoji: "🎪", kind: "soon", starts, raised: now };
-  const a = { enabled: true, movable: false, anchor: "top", banner_secs: 600, size: "normal", keys: { shugo_festival: 21 }, recent: [al] };
+  const a = { enabled: true, movable: false, anchor: "top", banner_secs: 600, size: "normal", keys: { shugo_festival: 21, bonus: { shugo_festival: 3 } }, recent: [al] };
   return withMock("toast.html", `if(cmd==="get_alerts")return ${J(a)};`);
 }
 
