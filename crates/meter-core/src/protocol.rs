@@ -1495,10 +1495,10 @@ mod odyle_tests {
         assert!(out.iter().any(|e| matches!(e, GameEvent::Keys { cur: 21, which: 1, .. })), "{out:?}");
     }
 
-    /// The Ore Insectoid Egg spawns as a=28, b=0 with only the hatchling's
-    /// id (2400456): named, no template (report 1793397926, t=14.55).
+    /// A monster hatched from an egg spawns as a=28, b=0 with only its own
+    /// id: here the Giant Ore Insectoid, 2400456 (report 1793397926, t=14.55).
     #[test]
-    fn ore_insectoid_egg_gets_its_name() {
+    fn hatched_monster_gets_its_id() {
         let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../definitions/aion2.json")).unwrap();
         let mut d = Decoder::new(Arc::new(Definitions::from_json(&src).unwrap()), None);
         let flow = FlowKey { src: Endpoint { ip: Ipv4Addr::new(9, 9, 9, 9), port: 13328 }, dst: Endpoint { ip: Ipv4Addr::new(10, 0, 0, 2), port: 5000 } };
@@ -1510,7 +1510,7 @@ mod odyle_tests {
         let mut out = Vec::new();
         d.push(flow, true, &bytes, false, 1.0, &mut out);
         let egg: Vec<_> = out.iter().filter_map(|e| match e { GameEvent::Actor { name, kind, npc_id, .. } => Some((name.clone(), *kind, *npc_id)), _ => None }).collect();
-        assert_eq!(egg, vec![(Some("Ore Insectoid Egg".to_string()), ActorKind::Npc, None)], "{out:?}");
+        assert_eq!(egg, vec![(None, ActorKind::Npc, Some(2400456))], "{out:?}");
     }
 
     /// Dimensional Invasion keys: counter kind 8 (Shugo is kind 1). One

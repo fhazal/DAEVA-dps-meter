@@ -149,11 +149,12 @@
        {"event": "actor", "when": "b==0&&a!=31&&npc0>2000000&&npc0<3000000&&m0", "id": "id", "kind": "'summon'", "npc_id": "npc0", "name": "oname"},
        {"event": "actor", "when": "b==0&&a!=31&&npc0>2000000&&npc0<3000000&&m0==0&&owner95>0", "id": "id", "kind": "'summon'", "npc_id": "npc0", "owner": "owner95"},
        {"event": "actor", "when": "b==0&&a==31&&npc0>2000000&&npc0<3000000&&owner31>0", "id": "id", "kind": "'summon'", "npc_id": "npc0", "owner": "owner31"},
-       // a==28 with no owner: an Ore Insectoid Egg in the open world. The only
-       // id it carries (2400456) is the Giant Ore Insectoid that hatches from
-       // it, so it gets the name and no template (user reports 1793397570,
-       // 1793397926: it showed as "Unknown monster").
-       {"event": "actor", "when": "b==0&&a==28&&npc0==2400456&&m0==0&&m95==0", "id": "id", "kind": "'npc'", "name": "'Ore Insectoid Egg'"},
+       // a==28 with no owner and an open-world monster id (24xxxxx): a
+       // monster hatched from an egg, e.g. the Giant Ore Insectoid (2400456)
+       // or the Contaminated Swarm (2400085). Short spawn, no HP; named from
+       // its id (user reports 1793397926, 1793677556: "Unknown monster").
+       // Ground effects and traps (a==28, 292xxxx) stay unnamed objects.
+       {"event": "actor", "when": "b==0&&a==28&&npc0>2399999&&npc0<2500000&&m0==0&&m95==0", "id": "id", "kind": "'npc'", "npc_id": "npc0"},
        // Max HP only where the layout is verified. The spawn's own "hp" field
        // is not current HP (e.g. 196 of 270000), so a new monster starts full;
        // 0x8d00 updates take over from the first hit.
