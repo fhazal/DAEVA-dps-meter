@@ -777,6 +777,11 @@ pub struct Engine {
     /// Monsters that died in your fight in the last few seconds (game
     /// time, name, family): one of them earned the next +1 or crystal.
     recent_kills: VecDeque<(f64, String, Option<String>)>,
+    /// Pets whose +1s came after mixed packs: the monsters it can still be.
+    pet_cands: HashMap<u32, HashSet<String>>,
+    /// Family of each monster you killed, for a pet strip that isn't the
+    /// card monster's own.
+    kill_family: HashMap<String, String>,
     /// Monsters whose pet is maxed, learned from the crystals their kills
     /// drop: a pet maxed before the meter saw it never gets a +1, so it has
     /// no link (the drop carries no pet id either).
@@ -907,6 +912,8 @@ impl Engine {
             crystals: HashMap::new(),
             crystal_last: (0.0, 0, 0),
             recent_kills: VecDeque::new(),
+            pet_cands: HashMap::new(),
+            kill_family: HashMap::new(),
             pets_maxed: HashSet::new(),
             party: Default::default(),
             player_alias: HashMap::new(),
@@ -1389,6 +1396,9 @@ impl Engine {
                         let name = self.fname(f, *target);
                         if name != "Unknown monster" {
                             let family = self.actors.get(target).and_then(|a| a.npc_id).and_then(|n| self.names.npc_ref(n, &name)).and_then(|n| self.names.families.get(&n).cloned());
+                            if let Some(f) = &family {
+                                self.kill_family.insert(name.clone(), f.clone());
+                            }
                             self.recent_kills.push_back((*ts, name, family));
                             if self.recent_kills.len() > 32 {
                                 self.recent_kills.pop_front();
@@ -2633,18 +2643,53 @@ impl Engine {
             self.recent_kills.remove(i);
             return;
         }
-        let free: Vec<usize> = (0..self.recent_kills.len()).filter(|&i| !self.pet_links.contains_key(&self.recent_kills[i].1)).collect();
-        let Some(&first) = free.first() else { return };
-        let name = self.recent_kills[first].1.clone();
-        if free.iter().any(|&i| self.recent_kills[i].1 != name) {
+        let here: HashSet<String> = self.recent_kills.iter().map(|(_, n, _)| n).filter(|n| !self.pet_links.contains_key(*n)).cloned().collect();
+        if here.is_empty() {
+            self.pet_notes.push(format!("pet +1 for pet {pet}: no unlinked kill in 3 s"));
             return;
         }
-        self.recent_kills.remove(first);
-        // A pet has one monster: a new name for it replaces the old link.
-        self.pet_links.retain(|_, p| *p != pet);
-        self.pets_maxed.remove(&name);
-        self.pet_links.insert(name, pet);
-        self.pets_dirty = true;
+        // Mixed packs: each +1 leaves a few candidates; the pet's monster is
+        // the one in all of them ({Spider, Slink} then {Slink, Mole} = Slink;
+        // test8-petfarm-001 had two such +1s before a clean one). A set that
+        // shares nothing with the last one starts over (a kill that wasn't
+        // yours, or an old guess).
+        let cands = match self.pet_cands.remove(&pet) {
+            Some(old) if old.iter().any(|n| here.contains(n)) => old.intersection(&here).cloned().collect::<HashSet<_>>(),
+            _ => here,
+        };
+        if cands.len() > 1 {
+            let mut seen: Vec<&str> = cands.iter().map(String::as_str).collect();
+            seen.sort();
+            self.pet_notes.push(format!("pet +1 for pet {pet}: mixed kills, not linked yet ({})", seen.join(", ")));
+            self.pet_cands.insert(pet, cands);
+            return;
+        }
+        let name = cands.into_iter().next().unwrap_or_default();
+        self.set_pet_link(name, pet);
+    }
+
+    /// Links a monster to its pet, and crosses it off every other pet's
+    /// candidates, which may name those in turn.
+    fn set_pet_link(&mut self, name: String, pet: u32) {
+        let mut todo = vec![(name, pet)];
+        while let Some((name, pet)) = todo.pop() {
+            self.pet_notes.push(format!("pet link: {name} = pet {pet}"));
+            if let Some(i) = self.recent_kills.iter().position(|(_, n, _)| *n == name) {
+                self.recent_kills.remove(i);
+            }
+            // A pet has one monster: a new name for it replaces the old link.
+            self.pet_links.retain(|_, p| *p != pet);
+            self.pets_maxed.remove(&name);
+            self.pet_links.insert(name.clone(), pet);
+            self.pets_dirty = true;
+            self.pet_cands.remove(&pet);
+            for (other, c) in self.pet_cands.iter_mut() {
+                if c.remove(&name) && c.len() == 1 {
+                    todo.push((c.iter().next().cloned().unwrap_or_default(), *other));
+                }
+            }
+            self.pet_cands.retain(|_, c| c.len() > 1);
+        }
     }
 
     /// A crystal just dropped: only a maxed pet's monster drops them, in its
@@ -2690,6 +2735,41 @@ impl Engine {
             None if self.pets_maxed.contains(name) => (0, &maxed),
             None => return Value::Null,
         };
+        self.pet_obj(id, name, p).build()
+    }
+
+    /// The card's strip: the card monster's pet, unless another pet got a +1
+    /// in the last 4 s (farming several pets at once, the card often sits on
+    /// a monster whose pet isn't known, and the strip stayed empty). That
+    /// pet carries its own family; name and family null = not matched to a
+    /// monster yet (the UI says "Pet Insight").
+    /// The card's own levelling pet always wins (test2-062: the strip kept
+    /// the last +1's pet for 4 s after the card moved to another pet's
+    /// monster, and read as a delay). The other pet shows only while its +1
+    /// does (3 s).
+    pub fn card_pet_json(&self, name: &str) -> Value {
+        let mine = self.pet_json(name);
+        let levelling = mine.get("target").map_or(false, |t| *t != Value::Null);
+        if levelling {
+            return mine;
+        }
+        // A crystal drop on the card's maxed pet and another pet's +1 close
+        // together: the newer one (the strip flipped twice within a second).
+        let dropped = mine.get("crystal").and_then(|c| c.get("ago")).and_then(|a| a.as_f64()).filter(|a| *a < 3.0);
+        let own = self.pet_links.get(name).copied();
+        let latest = self.pets.iter().filter(|(_, p)| p.gain_at > 0.0 && self.last_ts - p.gain_at < 3.0).max_by(|a, b| a.1.gain_at.total_cmp(&b.1.gain_at));
+        match latest {
+            Some((_, p)) if dropped.map_or(false, |a| a <= self.last_ts - p.gain_at) => mine,
+            Some((id, p)) if Some(*id) != own => {
+                let mon = self.pet_links.iter().find(|(_, v)| *v == id).map(|(n, _)| n.clone());
+                let family = mon.as_ref().and_then(|n| self.kill_family.get(n).cloned());
+                self.pet_obj(*id, "", p).set("name", mon).set("family", family).build()
+            }
+            _ => mine,
+        }
+    }
+
+    fn pet_obj(&self, id: u32, name: &str, p: &Pet) -> Obj {
         Obj::new()
             .set("id", id)
             .set("name", name)
@@ -2700,7 +2780,6 @@ impl Engine {
             .set("gain_n", p.gain_run)
             .set("up_ago", if p.up_at > 0.0 { Some((self.last_ts - p.up_at).max(0.0)) } else { None })
             .set("crystal", self.crystal_json(p))
-            .build()
     }
 
     /// The last crystal drop, for a maxed pet's strip (+1 in the crystal's
@@ -3271,7 +3350,7 @@ impl Engine {
             // Rank, family and portrait, borrowed by name for unlisted variants.
             let info = npc_id.and_then(|n| self.names.npc_ref(n, &name));
             let enrage = npc_id.and_then(|n| self.names.enrage_for(n, &name));
-            let pet = self.pet_json(&name);
+            let pet = self.card_pet_json(&name);
             Obj::new()
                 .set("id", t)
                 .set("counted", counted)
@@ -3704,9 +3783,56 @@ mod tests {
     /// Pet +1s name the pet after the kill just before (petfarm-059-001:
     /// Kerubian = 1170, 13/25 at login). Counts only once a login list is
     /// known; a mixed pack dying at once names nothing.
+    /// Farming several pets: the card sits on a monster with no known pet,
+    /// the strip shows whichever pet just got +1 (its own family, or none
+    /// while it isn't matched yet) and goes back after 4 s.
+    #[test]
+    fn card_strip_follows_the_pet_that_just_got_a_kill() {
+        let names = Names::from_json(r#"{"npcs": {"2000117": "Kerubian", "2000118": "Slink", "2000119": "Spider"}, "families": {"2000118": "Fera"}}"#).unwrap();
+        let mut e = Engine::new(EngineConfig::default(), names);
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&GameEvent::PetsReset);
+        for (pet, level, count) in [(1170, 1, 13), (1171, 1, 4), (1172, 2, 30)] {
+            e.handle(&GameEvent::Pet { ts: 0.5, pet, level: Some(level), count: Some(count), gain: None, up: false });
+        }
+        let kill = |e: &mut Engine, ts: f64, id: u64, npc: u32| {
+            e.handle(&GameEvent::Actor { id, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(npc), owner: None, max_hp: Some(1000) });
+            e.handle(&dmg(ts, 1, id, 18000000, 1000, 0));
+            e.handle(&GameEvent::Death { ts: ts + 0.1, target: id, killer: Some(1) });
+        };
+        let gain = |e: &mut Engine, ts: f64, pet: u32| e.handle(&GameEvent::Pet { ts, pet, level: None, count: None, gain: Some(1), up: false });
+        kill(&mut e, 1.0, 50, 2000118);
+        gain(&mut e, 1.3, 1171);
+        assert_eq!(e.pet_links.get("Slink"), Some(&1171));
+        // The card is on a Spider (no pet known): Slink's strip, Fera.
+        let p = e.card_pet_json("Spider");
+        assert_eq!((p.f64_or("id", 0.0), p.get("name").and_then(|n| n.as_str()), p.get("family").and_then(|n| n.as_str())), (1171.0, Some("Slink"), Some("Fera")), "{}", p.to_string());
+        assert_eq!(p.f64_or("count", 0.0), 5.0);
+        // The card moves to a Kerubian, whose pet is levelling: its own
+        // strip at once, not Slink's for a few more seconds.
+        e.pet_links.insert("Kerubian".into(), 1170);
+        let p = e.card_pet_json("Kerubian");
+        assert_eq!(p.f64_or("id", 0.0), 1170.0, "{}", p.to_string());
+        e.pet_links.remove("Kerubian");
+        // A +1 for a pet no monster is matched to yet: no name, no family.
+        kill(&mut e, 2.0, 51, 2000117);
+        kill(&mut e, 2.0, 52, 2000119);
+        gain(&mut e, 2.4, 1172);
+        let p = e.card_pet_json("Spider");
+        assert_eq!(p.f64_or("id", 0.0), 1172.0, "{}", p.to_string());
+        assert!(p.get("name").map_or(false, |n| *n == Value::Null) && p.get("family").map_or(false, |n| *n == Value::Null), "{}", p.to_string());
+        // Once its +1 is gone (3 s): back to the card's own pet (none here).
+        e.handle(&dmg(7.0, 1, 53, 18000000, 10, 0));
+        assert_eq!(e.card_pet_json("Spider"), Value::Null);
+        // The card's own pet stays when it's the one that got the kill.
+        kill(&mut e, 8.0, 54, 2000118);
+        gain(&mut e, 8.3, 1171);
+        assert_eq!(e.card_pet_json("Slink").get("family"), None, "own pet: the card's family");
+    }
+
     #[test]
     fn pet_kills_name_and_count_pets() {
-        let names = Names::from_json(r#"{"npcs": {"2000117": "Kerubian", "2000118": "Slink", "2000119": "Kerubiel"}}"#).unwrap();
+        let names = Names::from_json(r#"{"npcs": {"2000117": "Kerubian", "2000118": "Slink", "2000119": "Kerubiel", "2000120": "Mole"}}"#).unwrap();
         let mut e = Engine::new(EngineConfig::default(), names);
         e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
         let kill = |e: &mut Engine, ts: f64, id: u64, npc: u32| {
@@ -3738,6 +3864,24 @@ mod tests {
         kill(&mut e, 20.0, 53, 2000119);
         gain(&mut e, 20.5, 1171);
         assert_eq!(e.pet_links.len(), 1, "{:?}", e.pet_links);
+        // Next pack: Slink and Mole, the same pet gets +1. Slink was in both
+        // sets, so it's Slink's pet; Kerubiel's +1 for another pet then has
+        // only Kerubiel left from its own mixed pack.
+        kill(&mut e, 25.0, 54, 2000118);
+        kill(&mut e, 25.0, 55, 2000120);
+        kill(&mut e, 25.0, 56, 2000119);
+        gain(&mut e, 25.5, 1172);
+        assert_eq!(e.pet_links.get("Slink"), None, "{:?}", e.pet_links);
+        kill(&mut e, 29.0, 57, 2000118);
+        kill(&mut e, 29.0, 58, 2000120);
+        gain(&mut e, 29.5, 1171);
+        assert_eq!(e.pet_links.get("Slink"), Some(&1171), "{:?}", e.pet_links);
+        // 1172 had {Mole, Kerubiel} left once Slink went: still two.
+        assert_eq!(e.pet_links.len(), 2, "{:?}", e.pet_links);
+        kill(&mut e, 31.0, 59, 2000120);
+        gain(&mut e, 31.3, 1173);
+        assert_eq!(e.pet_links.get("Mole"), Some(&1173));
+        assert_eq!(e.pet_links.get("Kerubiel"), Some(&1172), "crossed off: {:?}", e.pet_links);
         // The 25th kill: the game levels it up by itself, kills start at 0.
         for i in 0..11 {
             kill(&mut e, 30.0 + i as f64 * 5.0, 60 + i, 2000117);

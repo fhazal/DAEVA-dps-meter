@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.2 (unreleased)
+
+- **Hatched monsters named:** monsters that hatch from eggs, like the Contaminated Swarm and the Giant Ore Insectoid, now show their names instead of "Unknown monster". 0.6.0 had wrongly called the Giant Ore Insectoid "Ore Insectoid Egg".
+- **Pet strip when farming several pets:** when a pet gets a +1, its strip now shows for a few seconds in its own colour, even while the card is on a monster without a levelling pet. Before, the strip stayed empty whenever the card's monster had no known pet. A pet the meter hasn't matched to a monster yet shows as "Pet Insight" with its level and kills.
+- **Pets learned in mixed packs:** when different monsters die together, the meter now works out which monster belongs to which pet over the next few kills, instead of waiting for a kill of one monster on its own.
+- **Calmer party queue bar:** when strangers keep joining and getting kicked from a filling room, the bar above the card no longer jumps between 4/5 and 5/5 every second. A new member shows once they've stayed a few seconds; people leaving still show at once.
+
 ## 0.6.1 (2026-11-03)
 
 - **Claimed Shugo keys:** keys you claim on top of the key limit now show in the Shugo Festival alert as "0 (+2)", the same way the game shows them. Before, the alert only showed the base count, so claimed keys were missing.

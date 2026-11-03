@@ -603,6 +603,7 @@
     setHTML($("title"), appName(s));
     const solo = ui.layout === "solo";
     document.body.classList.toggle("lay-solo", solo);
+    trackJoins(snap.party);
     const qb = !solo && snap.party && snap.party.queue_bar ? queueBar(snap.party) : "";
     setProp($("qbar"), "hidden", !qb);
     if (qb) setHTML($("qbar"), qb);
@@ -935,8 +936,10 @@ Your damage: ${D.fmt(me ? me.dmg : 0)}, ${D.pct(share, 1)} of ${t.name}'s ${D.fm
     const up = p.up_ago != null && p.up_ago < 4;
     const max = p.target == null;
     // A maxed pet's kill can drop crystals: they show for 3 s when their
-    // colour is this monster's family.
-    const fam = String(t.family || "").toLowerCase();
+    // colour is this monster's family. Another pet that just got +1 brings
+    // its own family (null = not matched to a monster yet: default purple).
+    const fam = String(("family" in p ? p.family : t.family) || "").toLowerCase();
+    const pname = p.name || "Pet Insight";
     const c = max && p.crystal;
     const cfam = c && CRYSTAL_FAMILY[c.colour];
     const drop = !!c && c.ago < 3 && cfam === fam;
@@ -946,17 +949,17 @@ Your damage: ${D.fmt(me ? me.dmg : 0)}, ${D.pct(share, 1)} of ${t.name}'s ${D.fm
     const plus = p.gain_ago != null && p.gain_ago < 3;
     const left = max ? 0 : Math.max(0, p.target - p.count);
     const crystals = c && cfam === fam ? ` · ${c.total} ${cfam[0].toUpperCase() + cfam.slice(1)} ${c.total === 1 ? "crystal" : "crystals"} since the meter started` : "";
-    const tip = `Pet Insight · ${p.name}${p.level ? ` · Lv ${p.level}` : " (not unlocked yet)"} · ${max ? "max level" : `${left} more ${left === 1 ? "kill" : "kills"} to ${p.level ? `Lv ${p.level + 1}` : "unlock it"}`}${crystals}. Counts from your last login, plus kills since.`;
+    const tip = `Pet Insight · ${p.name || "monster not matched yet"}${p.level ? ` · Lv ${p.level}` : " (not unlocked yet)"} · ${max ? "max level" : `${left} more ${left === 1 ? "kill" : "kills"} to ${p.level ? `Lv ${p.level + 1}` : "unlock it"}`}${crystals}. Counts from your last login, plus kills since.`;
     // The +1 (+2 for kills close together), or a crystal +n on a maxed pet.
     const badge = drop ? `<span class="plus">${GEM}+${c.n || 1}</span>` : plus ? `<span class="plus">+${p.gain_n || 1}</span>` : "";
-    return { p, up, max, drop, held, plus, tip, badge, rgb: PET_RGB[fam] || "183,156,255" };
+    return { p, pname, up, max, drop, held, plus, tip, badge, rgb: PET_RGB[fam] || "183,156,255" };
   }
   function renderPet(t) {
     const v = petView(t), bar = $("petbar");
     if (!v) { setProp(bar, "hidden", true); return; }
     const p = v.p, max = v.max;
     const cnt = max ? `<b>MAX</b>` : `<b>${p.count}</b>/${p.target}`;
-    const html = `${max ? PAW : ORB}<span class="pn">${D.esc(p.name)}</span><span class="lvp">${p.level ? `Lv ${p.level}` : "New"}</span><span class="pbar"><i class="${v.plus ? "gain" : ""}" style="width:${max ? 100 : Math.min(100, Math.round((p.count / p.target) * 100))}%"></i><span class="seg"></span></span><span class="cnt">${cnt}</span><span class="slot${max ? " cry" : ""}">${v.badge}</span>`;
+    const html = `${max ? PAW : ORB}<span class="pn">${D.esc(v.pname)}</span><span class="lvp">${p.level ? `Lv ${p.level}` : "New"}</span><span class="pbar"><i class="${v.plus ? "gain" : ""}" style="width:${max ? 100 : Math.min(100, Math.round((p.count / p.target) * 100))}%"></i><span class="seg"></span></span><span class="cnt">${cnt}</span><span class="slot${max ? " cry" : ""}">${v.badge}</span>`;
     bar.style.setProperty("--pet", v.rgb);
     bar.classList.toggle("up", v.up);
     bar.classList.toggle("maxed", v.held);
@@ -1233,10 +1236,25 @@ Your damage: ${D.fmt(me ? me.dmg : 0)}, ${D.pct(share, 1)} of ${t.name}'s ${D.fm
   // Party icon (Lucide "users"), light blue like the update icon; the 👥 emoji drew purple.
   const PARTY_IC = '<svg class="pty-ic" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>';
 
+  // Strangers often join a filling room and get kicked a second later, so the
+  // bar jumped 4/5 <-> 5/5 every second: a new member shows in the bar once
+  // they've stayed 5 s (3 s still left 41 changes in 7 min of
+  // dunegon-test7-001, 5 s 22). Leavers go at once; whoever was there when
+  // you joined (or the meter started) shows straight away.
+  const JOIN_SETTLE_MS = 5000;
+  const joinSeen = new Map();
+  function trackJoins(p) {
+    const ms = (p && p.members) || [], now = Date.now(), seed = !joinSeen.size;
+    const names = new Set(ms.map((m) => m.name));
+    for (const n of [...joinSeen.keys()]) if (!names.has(n)) joinSeen.delete(n);
+    for (const m of ms) if (!joinSeen.has(m.name)) joinSeen.set(m.name, seed ? 0 : now);
+  }
+  const settled = (ms) => ms.filter((m) => m.is_self || Date.now() - (joinSeen.get(m.name) || 0) >= JOIN_SETTLE_MS);
+
   // Queueing for a dungeon while you fight: room, size, a dot per member
   // (green = Ready, or you) and how many clicked Ready.
   function queueBar(p) {
-    const ms = p.members || [];
+    const ms = settled(p.members || []);
     // A party out in the world: a dot per member, green = fighting with you.
     if (p.open) {
       const here = new Set(((lastFight && lastFight.players) || []).map((x) => x.name));

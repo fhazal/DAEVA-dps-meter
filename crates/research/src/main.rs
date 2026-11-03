@@ -516,6 +516,8 @@ fn cmd_decode(pkts: &[Packet], a: &Args) -> Result<(), String> {
         p.tap = Some(Vec::new());
     }
     let mut kills_seen = (0u64, 0usize);
+    let strip = a.get("strip").is_some();
+    let (mut strip_at, mut strip_last, mut strip_gains) = (0.0f64, String::new(), std::collections::HashMap::<u32, f64>::new());
     let mut kills_resyncs = 0u64;
     let mut card_log: BTreeMap<u64, (Option<u64>, u32, f64, f64)> = BTreeMap::new();
     for (i, pk) in pkts.iter().enumerate() {
@@ -573,6 +575,32 @@ fn cmd_decode(pkts: &[Packet], a: &Args) -> Result<(), String> {
                     println!("t={:.1} kill {} npc={npc:?} {fam}", ts - pkts[0].ts, p.engine.fname(f, *t));
                 }
                 kills_seen.1 = f.deaths.len();
+            }
+        }
+        // --strip 1: what the card and pet strip show (every 0.25 s, like the
+        // overlay's poll), and each pet +1 as it arrives.
+        if strip {
+            for (id, pet) in &p.engine.pets {
+                if pet.gain_at > 0.0 && strip_gains.get(id) != Some(&pet.gain_at) {
+                    let name = p.engine.pet_links.iter().find(|(_, v)| *v == id).map_or("?".to_string(), |(n, _)| n.clone());
+                    println!("t={:.1} +1 pet {id} ({name}) run {} -> {}/{:?}", pet.gain_at - pkts[0].ts, pet.gain_run, pet.count, meter_core::engine::pet_target(pet.level));
+                    strip_gains.insert(*id, pet.gain_at);
+                }
+            }
+            if pk.ts - strip_at >= 0.25 {
+                strip_at = pk.ts;
+                let shown = p.engine.current.as_ref().filter(|f| !f.finished).map(|f| {
+                    let t = p.engine.fight_table(f, None);
+                    let tg = t.get("target");
+                    let card = tg.and_then(|x| x.get("name")).and_then(|n| n.as_str()).unwrap_or("-").to_string();
+                    let pet = tg.and_then(|x| x.get("pet")).filter(|v| **v != meter_core::json::Value::Null);
+                    let ps = pet.map_or("none".to_string(), |v| format!("{} {}{}", v.get("name").and_then(|n| n.as_str()).unwrap_or("Pet Insight"), v.f64_or("count", 0.0), if v.f64_or("gain_ago", 9.0) < 3.0 { format!(" +{}", v.f64_or("gain_n", 0.0)) } else { String::new() }));
+                    format!("card {card} | strip {ps}")
+                }).unwrap_or_else(|| "no fight".into());
+                if shown != strip_last {
+                    println!("t={:.1} {shown}", pk.ts - pkts[0].ts);
+                    strip_last = shown;
+                }
             }
         }
         for id in &watch {
