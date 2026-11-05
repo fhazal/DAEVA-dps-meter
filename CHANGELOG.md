@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.3 (2026-11-05)
+
+- **Farming while waiting in a dungeon room:** a quick hit on a Heroic monster no longer cuts the whole farming fight down to those few seconds. The fight keeps all its time and damage, like when you farm on your own.
+- **HP check on small bosses:** Shining Mau Totem no longer shows more than 100% of its HP counted. The meter now gets its full health right and leaves out the extra damage of the killing blow.
+- **Mau Totem phase:** the waves you kill before the Totem now count in its fight. The whole phase is one fight with everyone's damage, not just the last second or two on the Totem.
+- **HP check after a wipe:** a boss you kill after a wipe now shows the HP check for the winning try only, instead of adding both tries together (it could show 191%).
+
 ## 0.6.2 (2026-11-04)
 
 - **Hatched monsters named:** monsters that hatch from eggs, like the Contaminated Swarm and the Giant Ore Insectoid, now show their names instead of "Unknown monster". 0.6.0 had wrongly called the Giant Ore Insectoid "Ore Insectoid Egg".
