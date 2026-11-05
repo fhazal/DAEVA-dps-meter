@@ -512,7 +512,9 @@ fn cmd_decode(pkts: &[Packet], a: &Args) -> Result<(), String> {
     // check skill names against the caster (spirit skills, 2026-11-03).
     let casters: Vec<u32> = a.get("casters").map(|w| w.split(',').filter_map(|x| x.trim().parse().ok()).collect()).unwrap_or_default();
     let mut caster_log: BTreeMap<(u32, Option<u32>), u32> = BTreeMap::new();
-    if !casters.is_empty() {
+    // --hits ID,ID: every hit on and health update of these actors.
+    let hits: Vec<u64> = a.get("hits").map(|w| w.split(',').filter_map(|x| x.trim().parse().ok()).collect()).unwrap_or_default();
+    if !casters.is_empty() || !hits.is_empty() {
         p.tap = Some(Vec::new());
     }
     let mut kills_seen = (0u64, 0usize);
@@ -532,6 +534,15 @@ fn cmd_decode(pkts: &[Packet], a: &Args) -> Result<(), String> {
         fights.extend(p.push_frame(pk.linktype, &pk.data, pk.ts));
         if let Some(t) = p.tap.as_mut() {
             for ev in t.drain(..) {
+                match &ev {
+                    meter_core::events::GameEvent::Damage { src, tgt, skill, amount, flags, .. } if hits.contains(tgt) => {
+                        println!("t={:.2} hit {tgt} by {src} skill {skill} amount {amount} flags {flags:#x}", pk.ts - pkts[0].ts);
+                    }
+                    meter_core::events::GameEvent::Hp { id, hp, max_hp, .. } if hits.contains(id) => {
+                        println!("t={:.2} hp {id} = {hp} max {max_hp:?}", pk.ts - pkts[0].ts);
+                    }
+                    _ => {}
+                }
                 if let meter_core::events::GameEvent::Damage { src, skill, .. } = ev {
                     if casters.contains(&skill) {
                         *caster_log.entry((skill, p.engine.actors.get(&src).and_then(|x| x.npc_id))).or_default() += 1;

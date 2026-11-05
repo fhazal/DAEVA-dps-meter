@@ -497,6 +497,13 @@ pub struct ActorInfo {
     /// Its first real health reading (0x8d00), to tell whether the meter
     /// watched it from (nearly) full health.
     pub first_hp: Option<u64>,
+    /// When it died: its health just before, and the damage seen between
+    /// that reading and death. The killing blow often hits for more than
+    /// was left (overkill); the HP check leaves that part out.
+    pub last_gap: Option<(u64, u64)>,
+    /// `taken` when it last came back to full health (a wipe): the HP check
+    /// counts only the damage since, the try that killed it.
+    pub taken_reset: u64,
     /// `taken` at the last health update, and how much health each stretch
     /// of seen hits removed per point of damage (see `hp_scale`).
     pub taken_at_hp: u64,
@@ -550,6 +557,9 @@ pub struct Fight {
     pub twatch: HashMap<u64, bool>,
     /// Frozen health-per-damage factor per target (see `hp_scale`).
     pub tscale: HashMap<u64, f64>,
+    /// Frozen health-before-death and damage after it per target (see
+    /// `ActorInfo::last_gap`), to leave overkill out of the HP check.
+    pub tgap: HashMap<u64, (u64, u64)>,
     /// When you or your party last used a skill on each target
     /// (damage-over-time ticks left out), to tell when you've moved on from
     /// a boss.
@@ -981,6 +991,8 @@ impl Engine {
             taken: 0,
             taken_base: 0,
             first_hp: None,
+            last_gap: None,
+            taken_reset: 0,
             taken_at_hp: 0,
             hp_ratios: Vec::new(),
             race: None,
@@ -1324,7 +1336,7 @@ impl Engine {
                 // your own keeps the trash before it; the boss clock leaves
                 // that out.
                 let crowd = |f: &Fight| {
-                    f.stats.keys().filter(|id| Some(**id) != f.self_id && self.actors.get(id).map_or(false, |a| a.kind == ActorKind::Player && a.name.as_ref().map_or(true, |n| !self.party.contains(n)))).count() >= 3
+                    f.stats.keys().filter(|id| Some(**id) != f.self_id && self.actors.get(id).map_or(true, |a| a.kind != ActorKind::Npc && a.name.as_ref().map_or(true, |n| !self.party.contains(n)))).count() >= 3
                 };
                 let boss_arrives = !dungeon_party
                     && fl & flags::DOT == 0
@@ -1439,13 +1451,17 @@ impl Engine {
                     let real = self.is_real_boss(*target);
                     let elite = self.is_boss_actor(*target) && !real;
                     let others = self.current.as_ref().map_or(false, |f| {
-                        f.stats.keys().any(|id| Some(*id) != f.self_id && self.actors.get(id).map_or(false, |a| a.kind == ActorKind::Player && a.name.as_ref().map_or(true, |n| !self.party.contains(n))))
+                        f.stats.keys().any(|id| Some(*id) != f.self_id && self.actors.get(id).map_or(true, |a| a.kind != ActorKind::Npc && a.name.as_ref().map_or(true, |n| !self.party.contains(n))))
                     });
                     if let Some(f) = self.current.as_mut() {
                         f.boss_killed = true;
                         f.end = f.end.max(*ts);
                     }
-                    if real || (!elite && !others) {
+                    // A phase boss's waves aren't fights of their own: the
+                    // next wave or the boss comes a few seconds after the
+                    // last mob dies (Mau Totem, test.3 2026-11-05: two waves
+                    // and the Totem were three fights).
+                    if real || (!elite && !others && !self.phase_boss_up()) {
                         self.pending_end = Some(*ts + self.cfg.death_grace);
                     }
                 }
@@ -1640,10 +1656,19 @@ impl Engine {
                             a.hp_ratios.push((old - *hp) as f32 / seen as f32);
                         }
                     }
+                    a.last_gap = match a.hp {
+                        Some(old) if *hp == 0 && old > 0 => Some((old, a.taken.saturating_sub(a.taken_at_hp))),
+                        _ if *hp > 0 => None,
+                        _ => a.last_gap,
+                    };
                     a.taken_at_hp = a.taken;
                 }
                 let old_hp = a.hp;
-                if a.hp.map_or(true, |old| *hp > old) {
+                // Only a rise over an earlier reading resets the base: the
+                // first reading comes after the opening hits, and those count
+                // towards the maximum estimate below (Shining Mau Totem,
+                // 2026-11-05: the first 31k hit was left out of its max).
+                if a.hp.map_or(false, |old| *hp > old) {
                     // Healed or reset (training dummies refill at 1 HP).
                     a.taken_base = a.taken;
                 }
@@ -1684,6 +1709,11 @@ impl Engine {
                 // try is over; the next pull is a new fight. (Heals are smaller.)
                 let max = self.actors.get(id).and_then(|a| a.max_hp).unwrap_or(0) as f64;
                 let reset = max > 0.0 && old_hp.map_or(false, |o| o as f64 <= 0.90 * max) && *hp as f64 >= 0.97 * max;
+                if reset {
+                    if let Some(a) = self.actors.get_mut(id) {
+                        a.taken_reset = a.taken;
+                    }
+                }
                 // Also the fight's main target when it's a real boss: a dungeon
                 // variant with no rank of its own (Transcendent Bakarma 2300471)
                 // isn't a card boss, and its wipes went unseen.
@@ -2143,7 +2173,7 @@ impl Engine {
                 tsec: Default::default(),
                 tinfo: Default::default(),
                 twatch: Default::default(),
-                tscale: Default::default(),
+                tscale: Default::default(), tgap: Default::default(),
                 own_last: Default::default(),
                 grouped: false,
                 group: Default::default(),
@@ -2205,6 +2235,8 @@ impl Engine {
                 let on_boss = f.grouped || self.card_boss(f).map_or(false, |b| f.focus == Some(b)) || f.main_target().map_or(false, |t| f.focus == Some(t) && self.is_real_boss(t));
                 let limit = if on_boss && self.boss_alive(f) {
                     self.cfg.boss_idle_timeout
+                } else if !f.targets.is_empty() && self.phase_boss_up() {
+                    self.cfg.idle_timeout.max(PHASE_GAP)
                 } else if f.targets.is_empty() && !f.pvp.is_empty() {
                     // PvP only: players break off and come back.
                     self.cfg.idle_timeout.max(PVP_IDLE)
@@ -2421,9 +2453,12 @@ impl Engine {
         // All damage the meter saw on it, including hits from before you
         // joined in (which don't count towards anyone's DPS here), so the
         // check measures what was captured, not who was counted.
-        let seen = a.map(|a| a.taken).unwrap_or(0).max(*f.targets.get(&t).unwrap_or(&0));
+        // After a wipe only the damage since it came back to full counts
+        // (Nuakum, 2026-11-05: the kill after a wipe showed 191%).
+        let seen = a.map(|a| a.taken - a.taken_reset).unwrap_or(0).max(*f.targets.get(&t).unwrap_or(&0));
         let scale = self.hp_scale_of(f, t);
-        (dead && max_hp > 0).then(|| seen as f64 * scale / max_hp as f64)
+        let over = a.and_then(|a| a.last_gap).or_else(|| f.tgap.get(&t).copied()).map_or(0.0, |(left, gap)| (gap as f64 * scale - left as f64).max(0.0));
+        (dead && max_hp > 0).then(|| (seen as f64 * scale - over).max(0.0) / max_hp as f64)
     }
 
     /// The health a monster loses per point of damage shown, when that is
@@ -2553,6 +2588,16 @@ impl Engine {
         is_boss && !f.boss_killed && a.hp != Some(0)
     }
 
+    fn is_phase_boss(&self, f: &Fight, id: u64) -> bool {
+        self.actors.get(&id).and_then(|a| a.npc_id).or(f.tinfo.get(&id).and_then(|x| x.2)).map_or(false, |n| PHASE_BOSSES.contains(&n))
+    }
+
+    /// A phase boss is up in this zone and not dead yet: its waves are
+    /// coming, so a pause between them doesn't end the fight.
+    fn phase_boss_up(&self) -> bool {
+        self.actors.iter().any(|(id, a)| a.npc_id.map_or(false, |n| PHASE_BOSSES.contains(&n)) && a.hp != Some(0) && !self.dead_at.contains_key(id))
+    }
+
     /// Ends the current fight and clears the screen (the ↺ button and the
     /// "reset" hotkey); the fight is still returned for history.
     pub fn clear(&mut self) -> Option<Fight> {
@@ -2591,6 +2636,9 @@ impl Engine {
                     f.twatch.insert(*t, w);
                 }
                 f.tscale.insert(*t, Self::hp_scale(a));
+                if let Some(g) = a.last_gap {
+                    f.tgap.insert(*t, g);
+                }
             }
         }
         // remove pure "taken" entries with no activity to keep history tidy
@@ -3243,11 +3291,23 @@ impl Engine {
         // so the party can't tell an event from a dungeon).
         let boss = if self.cfg.dps_clock == DpsClock::Boss && target.is_none() { self.boss_target(f) } else { None };
         let boss = boss.filter(|b| self.fight_real_boss(f, *b));
+        // A phase boss: its waves are its fight, so the whole fight is the
+        // clock (the Totem itself dies in 1-2 s; the boss clock kept only
+        // that and dropped the waves, 2026-11-05).
+        let boss = boss.filter(|b| !self.is_phase_boss(f, *b));
+        // A party fight keeps the boss clock even when adds took most of the
+        // damage, but only when someone of your party did damage too: waiting
+        // in a dungeon room while you farm outside on your own is a solo
+        // fight (FIRETEMPLE-062, 2026-11-05: one hit on a Heroic in 93 s of
+        // farming cut the table to those 3 s).
+        let party_hit = f.grouped && f.stats.iter().any(|(id, st)| {
+            Some(*id) != f.self_id && st.dmg > 0 && self.actors.get(id).map_or(true, |a| a.kind != ActorKind::Npc && a.name.as_ref().map_or(true, |n| f.group.contains(n) || self.in_group(*id)))
+        });
         let boss = boss.filter(|b| {
             let pull = f.tspan.get(b).map_or(f.start, |s| s.0);
             let others: u64 = f.targets.iter().filter(|(t, _)| *t != b && f.tspan.get(t).map_or(false, |s| s.1 >= pull)).map(|(_, d)| *d).sum();
             let on_boss = f.targets.get(b).copied().unwrap_or(0);
-            f.grouped || others as f64 <= (on_boss + others) as f64 * 0.25
+            party_hit || others as f64 <= (on_boss + others) as f64 * 0.25
         });
         let window = boss.and_then(|b| f.tspan.get(&b).copied());
         // Seconds of the fight timeline inside the boss fight, minus phases of
@@ -3745,6 +3805,13 @@ pub const OUTSIDE_CROWD: usize = 3;
 /// Share of a world boss's health the meter must have seen before it ranks
 /// you among everyone on it (Tetrata 90-98%, Kaira 1.4%, Grandios 18%).
 pub const WB_RANK_SEEN: f64 = 0.8;
+/// Phase bosses: you start the phase, kill the waves it sends, and only then
+/// can the boss be hit. The waves are part of its fight. Shining Mau Totem
+/// (2300907): activate it, kill the Mau Totem Shamans and Duduka adds, then
+/// the Totem (user, 2026-11-05).
+pub const PHASE_BOSSES: [u32; 1] = [2300907];
+/// Pause between waves of a phase boss that still keeps one fight.
+pub const PHASE_GAP: f64 = 30.0;
 
 /// For each second from `i` to `j` of the fight: false inside a stretch of
 /// [`BOSS_PAUSE_SECS`] or more with no damage on the boss.
@@ -4111,6 +4178,40 @@ mod tests {
         assert_eq!(run(0), (1500.0, 0.0, 0.0, false, 0.0), "a boss you fight alone keeps its adds");
     }
 
+    /// FIRETEMPLE-062 (2026-11-05): waiting in a dungeon room while farming
+    /// outside alone, one hit on a Heroic cut the 93 s fight to 3 s. Only a
+    /// party that fights along keeps the boss clock over the adds.
+    #[test]
+    fn room_wait_farming_keeps_the_whole_fight() {
+        let run = |partner_hits: bool| {
+            let m = |n: &str| crate::events::PartyMember { name: n.into(), ..Default::default() };
+            let mut e = Engine::new(EngineConfig::default(), Names::from_json(r#"{"bosses": ["777"]}"#).unwrap());
+            e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+            e.see_time(0.0);
+            e.handle(&GameEvent::PartyInfo { title: Some("DPS".into()), leader: None, members: vec![m("Me"), m("A")] });
+            e.handle(&GameEvent::Party { names: vec!["Me".into(), "A".into()], codes: vec![None, None] });
+            e.handle(&GameEvent::Actor { id: 2, name: Some("A".into()), class: None, kind: ActorKind::Player, npc_id: None, owner: None, max_hp: None });
+            e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(10_000_000) });
+            e.handle(&GameEvent::Actor { id: 60, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(888), owner: None, max_hp: Some(100_000_000) });
+            for s in 0..60 {
+                let ts = s as f64;
+                e.handle(&dmg(ts, 1, 60, 18000000, 10_000, 0));
+                if s == 30 || s == 32 {
+                    e.handle(&dmg(ts + 0.5, 1, 50, 18000000, 5_000, 0));
+                }
+                if partner_hits && s >= 30 && s <= 32 {
+                    e.handle(&dmg(ts + 0.5, 2, 50, 18000000, 50_000, 0));
+                }
+            }
+            let f = e.current.as_ref().unwrap();
+            assert!(f.grouped, "a room party counts as grouped");
+            let t = e.fight_table(f, None);
+            t.get("players").unwrap().as_arr().unwrap().iter().find(|r| r.str_or("name", "") == "Me").map_or(0.0, |r| r.f64_or("dmg", 0.0))
+        };
+        assert_eq!(run(false), 610_000.0, "alone in the room's wait: the whole fight");
+        assert!(run(true) < 100_000.0, "the party on the boss: boss window only");
+    }
+
     #[test]
     fn world_boss_rank_after_the_kill() {
         // Boss of 10000 HP; you 2500, P3 (Force) 1000, five strangers.
@@ -4206,6 +4307,82 @@ mod tests {
         // HP check: 2000 of 2000 counted on the dead boss.
         let tg = b.get("target").unwrap();
         assert_eq!(tg.f64_or("counted", 0.0), 1.0, "{}", b.to_string());
+    }
+
+    /// Shining Mau Totem, 2026-11-05: activate it, kill its waves, then the
+    /// Totem. A 10 s pause before the Totem split the waves off, and the boss
+    /// clock kept only the Totem's 1 s. Now one fight, whole-fight clock.
+    #[test]
+    fn phase_boss_waves_and_kill_are_one_fight() {
+        let names = Names::from_json(r#"{"bosses": ["2300907"]}"#).unwrap();
+        let mut e = Engine::new(EngineConfig::default(), names);
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(2300907), owner: None, max_hp: None });
+        e.handle(&GameEvent::Actor { id: 60, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(5), owner: None, max_hp: Some(1000) });
+        for s in 0..10 {
+            e.handle(&dmg(s as f64, 1, 60, 18000000, 100, 0)); // the wave
+        }
+        // The wave's last mob dies: no 3 s end, the Totem comes next.
+        e.handle(&GameEvent::Hp { ts: 9.0, id: 60, hp: 0, max_hp: None });
+        e.handle(&GameEvent::Death { ts: 9.0, target: 60, killer: Some(1) });
+        assert!(e.tick(13.0).is_none(), "a wave mob's death ended the fight");
+        // 12 s until the Totem can be hit: longer than the usual 8 s idle.
+        assert!(e.tick(21.0).is_none(), "the pause before the Totem ended the fight");
+        e.handle(&dmg(21.0, 1, 50, 18000000, 3000, 0));
+        e.handle(&GameEvent::Hp { ts: 21.0, id: 50, hp: 0, max_hp: None });
+        e.handle(&GameEvent::Death { ts: 21.0, target: 50, killer: Some(1) });
+        let f = e.current.clone().unwrap();
+        let t = e.fight_table(&f, None);
+        assert_eq!(t.str_or("clock", ""), "fight");
+        assert_eq!(t.f64_or("total", 0.0), 4000.0);
+        // Away from the Totem, the usual idle ends a fight.
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&dmg(0.0, 1, 60, 18000000, 100, 0));
+        assert!(e.tick(10.0).is_some());
+    }
+
+    /// Nuakum, 2026-11-05: a wipe at 8% left, then the kill. The HP check
+    /// added both tries' damage and read 191%.
+    #[test]
+    fn hp_check_after_a_wipe_counts_only_the_kill() {
+        let names = Names::from_json(r#"{"bosses": ["777"]}"#).unwrap();
+        let mut e = Engine::new(EngineConfig::default(), names);
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: Some(2000) });
+        e.handle(&dmg(1.0, 1, 50, 18000000, 1800, 0));
+        e.handle(&GameEvent::Hp { ts: 1.0, id: 50, hp: 200, max_hp: None });
+        e.handle(&GameEvent::Hp { ts: 5.0, id: 50, hp: 2000, max_hp: None }); // wipe
+        e.handle(&dmg(10.0, 1, 50, 18000000, 2000, 0));
+        e.handle(&GameEvent::Hp { ts: 10.0, id: 50, hp: 0, max_hp: None });
+        e.handle(&GameEvent::Death { ts: 10.0, target: 50, killer: Some(1) });
+        let f = e.current.clone().unwrap();
+        assert_eq!(e.hp_counted(&f, 50), Some(1.0));
+    }
+
+    /// Shining Mau Totem, 2026-11-05: spawns without a max HP, the first
+    /// health reading comes after the opening hit, and the killing blow hits
+    /// for more than was left. Its HP check read 107-119%.
+    #[test]
+    fn hp_check_counts_the_opening_hit_and_leaves_out_overkill() {
+        let names = Names::from_json(r#"{"bosses": ["777"]}"#).unwrap();
+        let mut e = Engine::new(EngineConfig::default(), names);
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(777), owner: None, max_hp: None });
+        e.handle(&dmg(1.0, 1, 50, 18000000, 300, 0));
+        e.handle(&GameEvent::Hp { ts: 1.0, id: 50, hp: 2700, max_hp: None });
+        e.handle(&dmg(2.0, 1, 50, 18000000, 2000, 0));
+        e.handle(&GameEvent::Hp { ts: 2.0, id: 50, hp: 700, max_hp: None });
+        e.handle(&dmg(3.0, 1, 50, 18000000, 1500, 0)); // 800 overkill
+        e.handle(&GameEvent::Hp { ts: 3.0, id: 50, hp: 0, max_hp: None });
+        e.handle(&GameEvent::Death { ts: 3.0, target: 50, killer: Some(1) });
+        assert_eq!(e.actors[&50].max_hp, Some(3000));
+        let f = e.current.clone().unwrap();
+        assert_eq!(e.hp_counted(&f, 50), Some(1.0));
+        // Frozen with the fight: same answer once the monster is gone.
+        let done = e.finish().unwrap();
+        e.actors.remove(&50);
+        assert_eq!(e.hp_counted(&done, 50), Some(1.0));
     }
 
     /// Shugo, 2026-10-28: the boss clock followed an Elite (a Thieves Cannon)
@@ -4933,7 +5110,7 @@ mod naming_tests {
         assert!(n.skill_named(17010230 | DOT_KEY));
         assert_eq!(n.skill(17020000), "Skill 17020000");
         let mut e = Engine::new(EngineConfig::default(), n);
-        let mut f = Fight { id: 1, start: 0.0, end: 1.0, started_unix: 0.0, stats: Default::default(), targets: Default::default(), deaths: vec![], loot: vec![], zone: None, boss_killed: false, finished: true, self_id: None, names: Default::default(), allies: Default::default(), focus: None, tspan: Default::default(), tsec: Default::default(), tinfo: Default::default(), twatch: Default::default(), tscale: Default::default(), own_last: Default::default(), grouped: false, group: Default::default(), pvp: Default::default(), pvp_me: Default::default(), races: Default::default() };
+        let mut f = Fight { id: 1, start: 0.0, end: 1.0, started_unix: 0.0, stats: Default::default(), targets: Default::default(), deaths: vec![], loot: vec![], zone: None, boss_killed: false, finished: true, self_id: None, names: Default::default(), allies: Default::default(), focus: None, tspan: Default::default(), tsec: Default::default(), tinfo: Default::default(), twatch: Default::default(), tscale: Default::default(), tgap: Default::default(), own_last: Default::default(), grouped: false, group: Default::default(), pvp: Default::default(), pvp_me: Default::default(), races: Default::default() };
         f.names.insert(9, ("NPC 2400002".into(), None));
         e.history.push_back(f);
         e.rename_npc(2400002, "Black Claw Manduri Fighter");
