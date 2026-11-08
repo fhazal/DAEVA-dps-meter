@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.4 (2026-11-08)
+
+- **Mau Totem phase, party damage:** everyone's damage on the waves now counts, including mobs you never hit yourself. Before, a party member fighting their own mobs could show a small part of what they really did.
+- **Bosses out of range:** if you run out of range of a boss and your party moves on to the next one, each boss now gets its own fight. Before, the first boss's damage went missing inside the next fight.
+- **Summons and deaths:** a summon ending no longer counts as you dying.
+- **Same player listed twice:** a player who died and came back no longer gets a second row in some fights.
+- **"Unknown monster" row:** a stray hit from something the game never names no longer adds a row to your damage list.
+- **Pets from the other faction's world:** a pet whose monster has a twin on the other side (Faded Stone Spirit and Hill Stone Spirit, for example) now shows its strip on both. Before, farming in a rift could show nothing.
+- **Maxed pets learned from crystals:** a pet that reaches max while you farm now shows as maxed from the crystals its monster drops.
+
 ## 0.6.3 (2026-11-05)
 
 - **Farming while waiting in a dungeon room:** a quick hit on a Heroic monster no longer cuts the whole farming fight down to those few seconds. The fight keeps all its time and damage, like when you farm on your own.
