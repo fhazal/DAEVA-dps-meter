@@ -477,11 +477,16 @@ fn cmd_near(pairs: &[FlowPair], a: &Args) -> Result<(), String> {
 
 fn cmd_decode(pkts: &[Packet], a: &Args) -> Result<(), String> {
     let defs = load_defs(a)?;
-    let names = match a.get("names") {
-        Some(p) => Names::from_json(&std::fs::read_to_string(p).map_err(|e| e.to_string())?)?,
-        None => Names::default(),
-    };
-    let mut names = names;
+    // The A2Tools names next to the definitions, as the meter loads them, so a
+    // replay names what the meter names. --names goes on top.
+    let mut names = Names::default();
+    let a2tools = std::path::Path::new(a.get("defs").unwrap_or_default()).with_file_name("a2tools").join("names.json");
+    if a2tools.exists() {
+        names.merge(Names::from_json(&std::fs::read_to_string(&a2tools).map_err(|e| e.to_string())?).map_err(|e| format!("{}: {e}", a2tools.display()))?);
+    }
+    if let Some(p) = a.get("names") {
+        names.merge(Names::from_json(&std::fs::read_to_string(p).map_err(|e| e.to_string())?)?);
+    }
     // --gg: aion2.gg's boss-fights.json (enrage times), as the meter loads it.
     if let Some(p) = a.get("gg") {
         names.merge(Names::from_aion2gg(&std::fs::read_to_string(p).map_err(|e| e.to_string())?)?);
@@ -490,6 +495,27 @@ fn cmd_decode(pkts: &[Packet], a: &Args) -> Result<(), String> {
     p.strict = !p.server_ports.is_empty();
     if let Some(id) = a.get("self").and_then(json::parse_number_str) {
         p.engine.restore_self(id as u64, a.get("self-name").map(String::from));
+    }
+    // --pets pets.json: start with a player's saved pet list and links, as
+    // the meter does after a restart.
+    if let Some(path) = a.get("pets") {
+        let doc = json::parse(&std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?).map_err(|e| e.to_string())?;
+        let e = &mut p.engine;
+        if let Some(o) = doc.get("pets").and_then(|v| v.as_obj()) {
+            for (k, v) in o {
+                let lc = v.as_arr().map(|a| (a.first().and_then(|x| x.as_u64()), a.get(1).and_then(|x| x.as_u64())));
+                if let (Ok(id), Some((Some(level), Some(count)))) = (k.parse::<u32>(), lc) {
+                    e.pets.insert(id, meter_core::engine::Pet { level: level as u32, count: count as u32, ..Default::default() });
+                }
+            }
+            e.pets_listed = true;
+        }
+        if let Some(o) = doc.get("links").and_then(|v| v.as_obj()) {
+            e.pet_links.extend(o.iter().filter_map(|(k, v)| Some((k.clone(), v.as_u64()? as u32))));
+        }
+        if let Some(arr) = doc.get("maxed").and_then(|v| v.as_arr()) {
+            e.pets_maxed.extend(arr.iter().filter_map(|v| v.as_str().map(String::from)));
+        }
     }
     let mut fights = Vec::new();
     // --swap-at N: replace the decoder after N packets (what a live

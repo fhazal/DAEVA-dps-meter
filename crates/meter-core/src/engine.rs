@@ -587,7 +587,8 @@ impl Fight {
         (self.end - self.start).max(1.0)
     }
     pub fn main_target(&self) -> Option<u64> {
-        self.targets.iter().max_by_key(|(_, d)| **d).map(|(id, _)| *id)
+        // A tie goes to the lowest id, not the map's random order.
+        self.targets.iter().max_by_key(|(id, d)| (**d, std::cmp::Reverse(**id))).map(|(id, _)| *id)
     }
     pub fn total(&self) -> u64 {
         self.stats.values().map(|s| s.dmg).sum()
@@ -775,7 +776,12 @@ pub struct Engine {
     pub pets_listed: bool,
     /// Monster name -> pet id, learned when a pet +1 follows your kill
     /// (the packets only carry the pet id).
+    /// One pet can have several monsters of the same family: each faction's
+    /// world has its own (Faded Stone Spirit and, in the Elyos world, Hill
+    /// Stone Spirit both feed pet 1069).
     pub pet_links: HashMap<String, u32>,
+    /// The pet's monster you last earned a +1 on, for its name in the strip.
+    pet_last_name: HashMap<u32, String>,
     /// Pets or links changed since the app last saved them.
     pub pets_dirty: bool,
     /// What the meter had counted before the last login list replaced it,
@@ -928,6 +934,7 @@ impl Engine {
             pets: HashMap::new(),
             pets_listed: false,
             pet_links: HashMap::new(),
+            pet_last_name: HashMap::new(),
             pets_dirty: false,
             pets_before_list: None,
             pet_notes: Vec::new(),
@@ -1069,17 +1076,29 @@ impl Engine {
             // party member's spirits then made the meter think you were them
             // (report 1793382557, meter started in a room).
             (Some((n, _)), None) if self.self_name.as_deref() == Some(n.as_str()) => self.self_id,
-            (Some((n, _)), None) => self.actors.values().find(|a| a.kind == ActorKind::Player && a.name.as_deref() == Some(n.as_str())).map(|a| a.id),
+            (Some((n, _)), None) => self.player_named(n),
             _ => None,
         }
+    }
+
+    /// The player with this name. Coming back after a death gives a second id:
+    /// take the one holding the row, never the map's random order (a stray
+    /// second row for MWM in some runs of report-1792544798).
+    fn player_named(&self, name: &str) -> Option<u64> {
+        let has_row = |id: u64| self.current.as_ref().map_or(false, |f| f.stats.contains_key(&id));
+        self.actors
+            .values()
+            .filter(|a| a.kind == ActorKind::Player && a.name.as_deref() == Some(name))
+            .min_by_key(|a| (self.player_alias.contains_key(&a.id), !has_row(a.id), a.id))
+            .map(|a| a.id)
     }
 
     fn owner_by_name(&self, name: &str) -> Option<u64> {
         if self.self_name.as_deref() == Some(name) {
             return self.self_id;
         }
-        match self.actors.values().find(|a| a.kind == ActorKind::Player && a.name.as_deref() == Some(name)) {
-            Some(a) => Some(a.id),
+        match self.player_named(name) {
+            Some(id) => Some(id),
             // The game never announces you to yourself, so a named object
             // whose owner isn't visible is yours only while your own name
             // is still unknown. Once it is known, an unmatched name belongs
@@ -1274,7 +1293,10 @@ impl Engine {
                                 Some(n) => self.party.contains(n),
                                 None => Self::is_class_player(a) && self.actor_class(attacker).map_or(false, |c| self.party_has_unmatched(&c)),
                             })
-                            && self.is_boss_actor(*tgt);
+                            // A phase boss's wave mobs are part of its fight:
+                            // members often start on mobs you never touch
+                            // (Mau Totem, 2026-11-06: a Ranger's 759k read 113k).
+                            && (self.is_boss_actor(*tgt) || self.phase_boss_up());
                         if !mine && !shared && !ally && !party_boss {
                             return finished;
                         }
@@ -1343,7 +1365,23 @@ impl Engine {
                     && self.current.as_ref().map_or(false, |f| {
                         !f.finished && !f.targets.is_empty() && !f.targets.contains_key(tgt) && self.is_real_boss(*tgt) && !f.targets.keys().any(|t| self.is_real_boss(*t)) && (!group_hit || crowd(f))
                     });
-                if boss_arrives {
+                // In a dungeon party a boss's add phases keep its fight open,
+                // but another boss after the old one went silent is a new
+                // fight: you ran out of its range and never saw it die
+                // (Duanka, 2026-11-06: its 4.59M went into Nuakum's fight).
+                let boss_gone = dungeon_party
+                    && extends
+                    && fl & flags::DOT == 0
+                    && self.is_real_boss(*tgt)
+                    && self.current.as_ref().map_or(false, |f| {
+                        let new_name = self.fname(f, *tgt);
+                        let mut old = f.targets.keys().filter(|t| self.is_real_boss(**t)).peekable();
+                        !f.finished
+                            && !f.targets.contains_key(tgt)
+                            && old.peek().is_some()
+                            && old.all(|b| self.fname(f, *b) != new_name && f.tspan.get(b).map_or(false, |s| *ts - s.1 > BOSS_GONE))
+                    });
+                if boss_arrives || boss_gone {
                     if let Some(f) = self.finish() {
                         finished = Some(f);
                     }
@@ -1433,7 +1471,11 @@ impl Engine {
                         }
                     }
                 }
-                if let Some(f) = self.current.as_mut() {
+                // A summon carries its owner's name: its end isn't a death of
+                // that player (it read as one in the fight's list, and could
+                // count as you dying in PvP, by name).
+                let summon = self.actors.get(target).map_or(false, |a| a.kind == ActorKind::Summon);
+                if let Some(f) = self.current.as_mut().filter(|_| !summon) {
                     f.deaths.push((*ts, *target, *killer));
                     if let Some(s) = f.stats.get_mut(target) {
                         s.deaths += 1;
@@ -1480,10 +1522,14 @@ impl Engine {
                 if let (ActorKind::Player | ActorKind::Summon, Some(n)) = (kind, name) {
                     let unseen_owner = !self.actors.values().any(|a| a.kind == ActorKind::Player && a.name.as_deref() == Some(n.as_str()));
                     if (*kind == ActorKind::Player || (object && unseen_owner)) && Some(*id) != self.self_id && self.self_name.as_deref() != Some(n.as_str()) && !self.player_alias.contains_key(id) {
-                        let old = self.actors.values().find(|a| {
+                        // Several can match: the one with a row in this fight,
+                        // then the lowest id, never the map's random order (MWM,
+                        // report-1792544798: a second row in some runs only).
+                        let has_row = |a: &ActorInfo| self.current.as_ref().map_or(false, |f| f.stats.contains_key(&a.id));
+                        let old = self.actors.values().filter(|a| {
                             a.id != *id && a.kind == *kind && (!object || a.owner.is_none()) && a.name.as_deref() == Some(n.as_str()) && !self.player_alias.contains_key(&a.id) && Some(a.id) != self.self_id
                                 && match (&a.class, class) { (Some(x), Some(y)) => x == y, _ => true }
-                        }).map(|a| a.id);
+                        }).min_by_key(|a| (!has_row(a), a.id)).map(|a| a.id);
                         if let Some(old) = old {
                             self.player_alias.insert(*id, old);
                             // Hits made under the new id before its name came.
@@ -1776,7 +1822,7 @@ impl Engine {
                     // The game levels up when the kills reach the target: the
                     // meter's own count should be exactly there.
                     let had = self.pets.get(pet).cloned().unwrap_or_default();
-                    let name = self.pet_links.iter().find(|(_, p)| *p == pet).map_or_else(|| format!("pet {pet}"), |(n, _)| n.clone());
+                    let name = self.pet_name(*pet).unwrap_or_else(|| format!("pet {pet}"));
                     let of = pet_target(had.level).map_or("max".to_string(), |t| t.to_string());
                     self.pet_notes.push(format!("pet level-up: {name} Lv {} -> {}, meter counted {}/{of}", had.level, level.unwrap_or(0), had.count));
                 }
@@ -2554,7 +2600,7 @@ impl Engine {
                 let npc = self.actors.get(t).and_then(|a| a.npc_id).or(f.tinfo.get(t).and_then(|x| x.2));
                 npc.map_or(false, |n| self.fight_npc_boss(f, **t, n))
             })
-            .max_by_key(|(_, d)| **d)
+            .max_by_key(|(t, d)| (**d, std::cmp::Reverse(**t)))
             .map(|(t, _)| *t)
     }
 
@@ -2705,12 +2751,36 @@ impl Engine {
             self.recent_kills.pop_front();
         }
         if let Some(i) = self.recent_kills.iter().position(|(t, n, _)| ts - t <= 3.0 && self.pet_links.get(n) == Some(&pet)) {
-            self.recent_kills.remove(i);
+            // A +1 means it's still levelling, whatever crystals said.
+            if let Some((_, n, _)) = self.recent_kills.remove(i) {
+                if self.pets_maxed.remove(&n) {
+                    self.pets_dirty = true;
+                }
+                self.pet_last_name.insert(pet, n);
+            }
             self.relink.remove(&pet);
             return;
         }
         let here: HashSet<String> = self.recent_kills.iter().filter(|(t, ..)| ts - t <= 3.0).map(|(_, n, _)| n).filter(|n| !self.pet_links.contains_key(*n)).cloned().collect();
         if here.is_empty() {
+            // Only a monster linked to another pet died: twice in a row, that
+            // link was wrong and it moves here (r12: one late +1 had linked
+            // Young Slink to Slink's pet, and Young Slink's own +1s found
+            // nothing to link since; with twins sharing a pet, nothing else
+            // ever corrects such a link).
+            let other: HashSet<String> = self.recent_kills.iter().filter(|(t, ..)| ts - t <= 3.0).map(|(_, n, _)| n).filter(|n| self.pet_links.get(*n).map_or(false, |p| *p != pet)).cloned().collect();
+            if other.len() == 1 {
+                let name = other.into_iter().next().unwrap_or_default();
+                if self.relink.get(&pet) == Some(&name) {
+                    self.relink.remove(&pet);
+                    self.pet_notes.push(format!("pet +1 for pet {pet}: {name} again, its link moves here"));
+                    self.set_pet_link(name, pet);
+                } else {
+                    self.pet_notes.push(format!("pet +1 for pet {pet}: only {name} died, linked to another pet; waiting for a second"));
+                    self.relink.insert(pet, name);
+                }
+                return;
+            }
             self.pet_notes.push(format!("pet +1 for pet {pet}: no unlinked kill in 3 s"));
             return;
         }
@@ -2734,7 +2804,7 @@ impl Engine {
         // A linked pet moves to another monster only on two +1s in a row:
         // a +1 sent late lands next to someone else's kill (Consumed Klaw's,
         // 3.5 s after it, by a Poison Blood Spider in test4-062-001).
-        if let Some(old) = self.pet_links.iter().find(|(_, p)| **p == pet).map(|(n, _)| n.clone()) {
+        if let Some(old) = self.pet_name(pet) {
             if self.relink.get(&pet) != Some(&name) {
                 self.pet_notes.push(format!("pet +1 for pet {pet}: {name} died, but the pet is {old}'s; waiting for a second"));
                 self.relink.insert(pet, name);
@@ -2743,6 +2813,26 @@ impl Engine {
         }
         self.relink.remove(&pet);
         self.set_pet_link(name, pet);
+    }
+
+    /// The pet's monster to show: the one you last earned a +1 on, else the
+    /// first by name (never the map's random order).
+    fn pet_name(&self, pet: u32) -> Option<String> {
+        self.pet_last_name.get(&pet).filter(|n| self.pet_links.get(*n) == Some(&pet)).cloned().or_else(|| {
+            let mut v: Vec<&String> = self.pet_links.iter().filter(|(_, p)| **p == pet).map(|(n, _)| n).collect();
+            v.sort();
+            v.first().map(|n| (*n).clone())
+        })
+    }
+
+    /// A monster's family, from a kill this session or the name lists.
+    fn family_of(&self, name: &str) -> Option<String> {
+        if let Some(f) = self.kill_family.get(name) {
+            return Some(f.clone());
+        }
+        let mut ids: Vec<u32> = self.names.npcs.iter().filter(|(_, n)| n.as_str() == name).map(|(id, _)| *id).collect();
+        ids.sort();
+        ids.iter().find_map(|id| self.names.families.get(id).cloned())
     }
 
     /// Links a monster to its pet, and crosses it off every other pet's
@@ -2754,8 +2844,15 @@ impl Engine {
             if let Some(i) = self.recent_kills.iter().position(|(_, n, _)| *n == name) {
                 self.recent_kills.remove(i);
             }
-            // A pet has one monster: a new name for it replaces the old link.
-            self.pet_links.retain(|_, p| *p != pet);
+            // A monster of another family replaces the old link (that one was
+            // wrong); one of the same family joins it: the other faction's
+            // twin of the pet's monster.
+            let fam = self.family_of(&name);
+            let gone: Vec<String> = self.pet_links.iter().filter(|(n, p)| **p == pet && (fam.is_none() || self.family_of(n) != fam)).map(|(n, _)| n.clone()).collect();
+            for n in gone {
+                self.pet_links.remove(&n);
+            }
+            self.pet_last_name.insert(pet, name.clone());
             // A +1 means its pet is still levelling, whatever crystals said.
             self.pets_maxed.remove(&name);
             self.maxed_votes.remove(&name);
@@ -2786,7 +2883,12 @@ impl Engine {
         let levelling = |n: &String| self.pet_links.get(n).and_then(|id| self.pets.get(id)).map_or(false, |p| pet_target(p.level).is_some());
         let mut kills = self.recent_kills.iter().filter(|(t, n, f)| ts - t <= CRYSTAL_WINDOW && !self.crystal_kills.contains(t) && f.as_deref().map_or(false, |f| f.eq_ignore_ascii_case(fam)) && !levelling(n));
         let Some((kill_at, first, _)) = kills.next().cloned() else { return };
-        if !kills.all(|(_, n, _)| *n == first) || self.pet_links.contains_key(&first) || self.pets_maxed.contains(&first) {
+        // A linked monster whose pet the meter can't see levelling (no pet
+        // list yet) can max out too: its last +1, then its own crystals
+        // (Hill Stone Spirit, a tester's report 2026-11-08: the strip stayed
+        // empty while every kill dropped a Natura crystal).
+        let linked_maxed = |n: &String| self.pet_links.get(n).and_then(|id| self.pets.get(id)).map_or(false, |p| pet_target(p.level).is_none());
+        if !kills.all(|(_, n, _)| *n == first) || linked_maxed(&first) || self.pets_maxed.contains(&first) {
             return;
         }
         self.crystal_kills.push(kill_at);
@@ -2804,7 +2906,7 @@ impl Engine {
     /// login list corrected the meter's counts), for recordings and reports.
     pub fn take_pet_notes(&mut self) -> Vec<String> {
         if let Some(before) = self.pets_before_list.take() {
-            let name = |id: &u32| self.pet_links.iter().find(|(_, p)| *p == id).map_or_else(|| format!("pet {id}"), |(n, _)| n.clone());
+            let name = |id: &u32| self.pet_name(*id).unwrap_or_else(|| format!("pet {id}"));
             let mut fixed: Vec<String> = self
                 .pets
                 .iter()
@@ -2824,6 +2926,7 @@ impl Engine {
         let (id, p) = match self.pet_links.get(name) {
             Some(id) => match self.pets.get(id) {
                 Some(p) => (*id, p),
+                None if self.pets_maxed.contains(name) => (*id, &maxed),
                 None => return Value::Null,
             },
             None if self.pets_maxed.contains(name) => (0, &maxed),
@@ -2855,7 +2958,7 @@ impl Engine {
         match latest {
             Some((_, p)) if dropped.map_or(false, |a| a <= self.last_ts - p.gain_at) => mine,
             Some((id, p)) if Some(*id) != own => {
-                let mon = self.pet_links.iter().find(|(_, v)| *v == id).map(|(n, _)| n.clone());
+                let mon = self.pet_name(*id);
                 let family = mon.as_ref().and_then(|n| self.kill_family.get(n).cloned());
                 self.pet_obj(*id, "", p).set("name", mon).set("family", family).build()
             }
@@ -3352,10 +3455,11 @@ impl Engine {
         // and your Force (user's choice, 2026-10-27).
         let force_names: std::collections::HashSet<&str> = self.force.values().map(|m| m.name.as_str()).collect();
         let keep = |id: &u64| {
-            field_boss.is_none() || Some(*id) == f.self_id || {
-                let n = self.fname(f, *id);
-                f.group.contains(&n) || self.party.contains(&n) || force_names.contains(n.as_str())
-            }
+            // Something nameless the game never introduced isn't a player:
+            // one stray hit made a row "Unknown monster" (Kwapo, 2026-11-06).
+            // Once it gets a name or an owner it counts as usual.
+            let n = self.fname(f, *id);
+            (n != "Unknown monster" || Some(*id) == f.self_id) && (field_boss.is_none() || Some(*id) == f.self_id || f.group.contains(&n) || self.party.contains(&n) || force_names.contains(n.as_str()))
         };
         let total: u64 = f.stats.iter().filter(|(id, _)| keep(id)).map(|(_, s)| dmg_of(s)).sum();
         // Your damage on the world boss against its full health: exact, as
@@ -3812,6 +3916,9 @@ pub const WB_RANK_SEEN: f64 = 0.8;
 pub const PHASE_BOSSES: [u32; 1] = [2300907];
 /// Pause between waves of a phase boss that still keeps one fight.
 pub const PHASE_GAP: f64 = 30.0;
+/// Seconds a boss must be silent before another boss starts a new fight in a
+/// dungeon party.
+pub const BOSS_GONE: f64 = 20.0;
 
 /// For each second from `i` to `j` of the fight: false inside a stretch of
 /// [`BOSS_PAUSE_SECS`] or more with no damage on the boss.
@@ -4056,6 +4163,79 @@ mod tests {
         gain(&mut e, 40.5, 1029);
         assert_eq!(e.pet_links.get("Poison Blood Spider"), Some(&1029));
         assert_eq!(e.pet_links.get("Consumed Klaw"), None);
+    }
+
+    #[test]
+    fn the_other_factions_twin_shares_the_pet() {
+        let names = Names::from_json(r#"{"npcs": {"2000301": "Faded Stone Spirit", "2100812": "Hill Stone Spirit", "2100813": "Hill Zaif"},
+            "families": {"2000301": "Natura", "2100812": "Natura", "2100813": "Fera"}}"#).unwrap();
+        let mut e = Engine::new(EngineConfig::default(), names);
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&GameEvent::PetsReset);
+        e.handle(&GameEvent::Pet { ts: 0.5, pet: 1069, level: Some(2), count: Some(3), gain: None, up: false });
+        e.pet_links.insert("Faded Stone Spirit".into(), 1069);
+        let mut id = 50;
+        let mut kill = |e: &mut Engine, ts: f64, npc: u32| {
+            id += 1;
+            e.handle(&GameEvent::Actor { id, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(npc), owner: None, max_hp: Some(1000) });
+            e.handle(&dmg(ts, 1, id, 18000000, 1000, 0));
+            e.handle(&GameEvent::Death { ts: ts + 0.1, target: id, killer: Some(1) });
+        };
+        let gain = |e: &mut Engine, ts: f64| e.handle(&GameEvent::Pet { ts, pet: 1069, level: None, count: None, gain: Some(1), up: false });
+        // In the Elyos world (a rift): Hill Stone Spirit feeds the same pet.
+        kill(&mut e, 10.0, 2100812);
+        gain(&mut e, 10.6);
+        assert_eq!(e.pet_links.get("Hill Stone Spirit"), None, "one +1 isn't enough");
+        kill(&mut e, 20.0, 2100812);
+        gain(&mut e, 20.6);
+        assert_eq!(e.pet_links.get("Hill Stone Spirit"), Some(&1069));
+        assert_eq!(e.pet_links.get("Faded Stone Spirit"), Some(&1069), "the twin keeps its link");
+        let p = e.pet_json("Hill Stone Spirit");
+        assert_eq!((p.f64_or("level", 0.0), p.f64_or("count", 0.0)), (2.0, 5.0), "{}", p.to_string());
+        // A monster of another family taking the pet replaces both.
+        kill(&mut e, 30.0, 2100813);
+        gain(&mut e, 30.6);
+        kill(&mut e, 40.0, 2100813);
+        gain(&mut e, 40.6);
+        assert_eq!(e.pet_links.get("Hill Zaif"), Some(&1069));
+        assert_eq!(e.pet_links.get("Hill Stone Spirit"), None);
+        assert_eq!(e.pet_links.get("Faded Stone Spirit"), None);
+        // A wrong link heals: Hill Zaif alone before pet 1124's +1, twice.
+        kill(&mut e, 50.0, 2100813);
+        e.handle(&GameEvent::Pet { ts: 50.6, pet: 1124, level: None, count: None, gain: Some(1), up: false });
+        assert_eq!(e.pet_links.get("Hill Zaif"), Some(&1069), "one +1 isn't enough");
+        kill(&mut e, 60.0, 2100813);
+        e.handle(&GameEvent::Pet { ts: 60.6, pet: 1124, level: None, count: None, gain: Some(1), up: false });
+        assert_eq!(e.pet_links.get("Hill Zaif"), Some(&1124));
+    }
+
+    #[test]
+    fn a_linked_pet_with_no_list_maxes_out_from_its_own_crystals() {
+        let names = Names::from_json(r#"{"npcs": {"2100812": "Hill Stone Spirit"}, "families": {"2100812": "Natura"}}"#).unwrap();
+        let mut e = Engine::new(EngineConfig::default(), names);
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        let kill = |e: &mut Engine, ts: f64, id: u64| {
+            e.handle(&GameEvent::Actor { id, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(2100812), owner: None, max_hp: Some(1000) });
+            e.handle(&dmg(ts, 1, id, 18000000, 1000, 0));
+            e.handle(&GameEvent::Death { ts: ts + 0.1, target: id, killer: Some(1) });
+        };
+        // Its last +1 links it (the meter has no pet list: no relog).
+        kill(&mut e, 1.0, 50);
+        e.handle(&GameEvent::Pet { ts: 1.6, pet: 1069, level: None, count: None, gain: Some(1), up: false });
+        assert_eq!(e.pet_links.get("Hill Stone Spirit"), Some(&1069));
+        // Then its own Natura crystals from two kills: maxed, the strip shows.
+        kill(&mut e, 20.0, 51);
+        e.handle(&GameEvent::PetCrystal { ts: 21.0, colour: 3, amount: 1 });
+        kill(&mut e, 30.0, 52);
+        e.handle(&GameEvent::PetCrystal { ts: 31.0, colour: 3, amount: 1 });
+        assert!(e.pets_maxed.contains("Hill Stone Spirit"));
+        assert_eq!(e.pet_json("Hill Stone Spirit").f64_or("level", 0.0), 3.0);
+        // A pet the list shows levelling keeps its count: crystals near it
+        // are someone else's.
+        e.handle(&GameEvent::Pet { ts: 32.0, pet: 1069, level: Some(2), count: Some(10), gain: None, up: false });
+        kill(&mut e, 40.0, 53);
+        e.handle(&GameEvent::Pet { ts: 40.5, pet: 1069, level: None, count: None, gain: Some(1), up: false });
+        assert!(!e.pets_maxed.contains("Hill Stone Spirit"), "a +1 means it's levelling");
     }
 
     #[test]
@@ -4340,6 +4520,102 @@ mod tests {
         e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
         e.handle(&dmg(0.0, 1, 60, 18000000, 100, 0));
         assert!(e.tick(10.0).is_some());
+    }
+
+    /// Mau Totem, 2026-11-06: a Ranger's 759k on wave mobs read 113k, because
+    /// a member's hits only counted on mobs you had hit too.
+    #[test]
+    fn a_stray_hit_from_something_nameless_gets_no_row() {
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(5), owner: None, max_hp: Some(1000) });
+        e.handle(&dmg(0.0, 1, 50, 18000000, 100, 0));
+        // Its hit comes first; only then does it turn out to be a monster
+        // with no name.
+        e.handle(&dmg(1.0, 9, 50, 1606916, 40, 0));
+        e.handle(&GameEvent::Actor { id: 9, name: None, class: None, kind: ActorKind::Npc, npc_id: None, owner: None, max_hp: None });
+        let f = e.current.as_ref().unwrap();
+        assert!(f.stats.contains_key(&9), "the hit is kept in case it gets a name");
+        let t = e.fight_table(f, None);
+        let rows = t.get("players").and_then(|p| p.as_arr()).map_or(0, |a| a.len());
+        assert_eq!(rows, 1);
+        assert_eq!(t.f64_or("total", 0.0), 100.0);
+        // Later named: it counts.
+        e.handle(&GameEvent::Actor { id: 9, name: Some("Ally".into()), class: None, kind: ActorKind::Player, npc_id: None, owner: None, max_hp: None });
+        let f = e.current.as_ref().unwrap();
+        assert_eq!(e.fight_table(f, None).f64_or("total", 0.0), 140.0);
+    }
+
+    #[test]
+    fn a_tie_on_the_main_target_goes_to_the_lowest_id() {
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        for (i, id) in [70u64, 20, 90, 40].iter().enumerate() {
+            e.handle(&GameEvent::Actor { id: *id, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(5), owner: None, max_hp: Some(1000) });
+            e.handle(&dmg(i as f64, 1, *id, 18000000, 500, 0));
+        }
+        assert_eq!(e.current.as_ref().unwrap().main_target(), Some(20));
+    }
+
+    #[test]
+    fn another_boss_after_a_silent_boss_is_a_new_fight_in_a_dungeon_party() {
+        // (seconds between the bosses, fights finished by then)
+        let run = |gap: f64| {
+            let names = Names::from_json(r#"{"bosses": ["7", "8"]}"#).unwrap();
+            let mut e = Engine::new(EngineConfig::default(), names);
+            e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+            let m = |n: &str| crate::events::PartyMember { name: n.into(), status: Some(0x1c), ..Default::default() };
+            e.handle(&GameEvent::PartyInfo { title: Some("run".into()), leader: None, members: vec![m("Me"), m("Ally")] });
+            e.handle(&GameEvent::Party { names: vec!["Me".into(), "Ally".into()], codes: vec![None, None] });
+            e.handle(&GameEvent::Actor { id: 50, name: Some("Old".into()), class: None, kind: ActorKind::Npc, npc_id: Some(7), owner: None, max_hp: None });
+            e.handle(&GameEvent::Actor { id: 51, name: Some("New".into()), class: None, kind: ActorKind::Npc, npc_id: Some(8), owner: None, max_hp: None });
+            e.handle(&dmg(0.0, 1, 50, 18000000, 100, 0));
+            e.handle(&dmg(gap, 1, 51, 18000000, 100, 0));
+            let f = e.current.clone().unwrap();
+            (f.targets.contains_key(&50), f.targets.contains_key(&51))
+        };
+        assert_eq!(run(21.0), (false, true), "the old boss went silent: new fight");
+        assert_eq!(run(5.0), (true, true), "two bosses at once stay one fight");
+    }
+
+    #[test]
+    fn a_summon_ending_is_not_its_owners_death() {
+        let mut e = Engine::new(EngineConfig::default(), Names::default());
+        e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+        e.handle(&GameEvent::Actor { id: 60, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(5), owner: None, max_hp: Some(1000) });
+        e.handle(&GameEvent::Actor { id: 9, name: Some("Me".into()), class: None, kind: ActorKind::Summon, npc_id: None, owner: Some(1), max_hp: None });
+        e.handle(&dmg(0.0, 1, 60, 18000000, 100, 0));
+        e.handle(&GameEvent::Death { ts: 1.0, target: 9, killer: None });
+        assert!(e.current.as_ref().unwrap().deaths.is_empty());
+        e.handle(&GameEvent::Death { ts: 2.0, target: 1, killer: None });
+        assert_eq!(e.current.as_ref().unwrap().deaths.len(), 1, "you dying still counts");
+    }
+
+    #[test]
+    fn party_hits_on_wave_mobs_count_while_the_phase_boss_is_up() {
+        let run = |totem: bool| {
+            let names = Names::from_json(r#"{"bosses": ["2300907"]}"#).unwrap();
+            let mut e = Engine::new(EngineConfig::default(), names);
+            e.handle(&GameEvent::SelfId { id: 1, name: Some("Me".into()) });
+            let m = |n: &str| crate::events::PartyMember { name: n.into(), status: Some(0x1c), ..Default::default() };
+            e.handle(&GameEvent::PartyInfo { title: Some("run".into()), leader: None, members: vec![m("Me"), m("Ally")] });
+            e.handle(&GameEvent::Party { names: vec!["Me".into(), "Ally".into()], codes: vec![None, None] });
+            e.handle(&GameEvent::Actor { id: 2, name: Some("Ally".into()), class: None, kind: ActorKind::Player, npc_id: None, owner: None, max_hp: None });
+            e.handle(&GameEvent::Actor { id: 3, name: Some("Stranger".into()), class: None, kind: ActorKind::Player, npc_id: None, owner: None, max_hp: None });
+            if totem {
+                e.handle(&GameEvent::Actor { id: 50, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(2300907), owner: None, max_hp: None });
+            }
+            e.handle(&GameEvent::Actor { id: 60, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(5), owner: None, max_hp: Some(1000) });
+            e.handle(&GameEvent::Actor { id: 61, name: None, class: None, kind: ActorKind::Npc, npc_id: Some(5), owner: None, max_hp: Some(1000) });
+            e.handle(&dmg(0.0, 1, 60, 18000000, 100, 0)); // your mob
+            e.handle(&dmg(1.0, 2, 61, 11000000, 700, 0)); // the member's own mob
+            e.handle(&dmg(2.0, 3, 61, 11000000, 900, 0)); // never a stranger's
+            let f = e.current.clone().unwrap();
+            let got = |id: u64| f.stats.get(&id).map_or(0, |s| s.dmg);
+            (got(2), got(3))
+        };
+        assert_eq!(run(true), (700, 0));
+        assert_eq!(run(false), (0, 0), "without a phase boss, trash stays as it was");
     }
 
     /// Nuakum, 2026-11-05: a wipe at 8% left, then the kill. The HP check

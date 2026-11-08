@@ -55,7 +55,7 @@ Iterate: describe a message in `aion2.json`, re-run `frames`, compare the values
 daeva-research decode cap.pcap --defs aion2.json --names names.json --out fights.json
 ```
 
-This runs the entire meter offline and prints the same fight summaries the overlay would show.
+This runs the entire meter offline and prints the same fight summaries the overlay would show. The A2Tools names in `a2tools/names.json` next to `--defs` load automatically; `--names` goes on top of them.
 
 ## 3. Ship it
 
